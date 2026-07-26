@@ -2852,112 +2852,210 @@ body.chat-page .chat-route {
 	color: var(--text-muted);
 }
 
+.chat-page-pinned-message-overlay .chat-page-pinned-message-meta,
+.chat-page-pinned-message-overlay .connect-chat-msg-meta {
+	margin: 0 0 12px;
+	align-items: center;
+}
+
 .chat-page-pinned-message-overlay .chat-page-pinned-message-body.user-text {
-	margin: 0;
-}
-
-.chat-page-pinned-message-overlay .chat-page-pinned-message-reactions-host {
-	margin-top: 14px;
-}
-
-.chat-page-pinned-message-overlay .chat-page-pinned-message-reactions {
 	margin: 0;
 }
 
 .chat-page-pinned-message-overlay .chat-page-pinned-message-modal-footer {
 	display: flex;
-	flex-direction: column;
-	align-items: stretch;
+	flex-direction: row;
+	flex-wrap: wrap;
+	align-items: center;
 	justify-content: flex-start;
-	gap: 12px;
-	padding: 12px 16px;
+	gap: 8px;
+	margin: 0;
+	padding: 10px 14px 12px;
+	border-top: 1px solid var(--border);
+	border-radius: 0;
+	background: transparent;
+	border-left: none;
+	border-right: none;
+	border-bottom: none;
+	box-sizing: border-box;
 }
 
 .chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills {
-	min-width: 0;
-	width: 100%;
-}
-
-.chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills .connect-chat-msg-reaction-row {
-	margin: 0;
-}
-
-.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar {
 	display: flex;
 	flex-direction: row;
 	flex-wrap: wrap;
 	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
+	justify-content: flex-start;
+	gap: 4px;
+	/* Prefer one line with actions; if pills need more room, take full width and wrap actions down. */
+	flex: 1 1 auto;
+	width: max-content;
+	max-width: 100%;
+	order: 1;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills[hidden],
+.chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills:not(:has(.comment-reaction-pill)) {
+	display: none;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills .comment-meta-row,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills .comment-meta-top,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills .comment-meta-right,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills .comment-reaction-pills,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills .connect-chat-msg-reaction-row {
+	display: contents;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills .comment-reaction-pills-inner,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-pills .comment-reaction-pills-inner {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
 	width: 100%;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-reaction-pills .comment-reaction-add {
+	display: none !important;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar-left {
+	display: contents;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar {
+	display: inline-flex;
+	flex-direction: row;
+	flex-wrap: nowrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 2px;
 	min-width: 0;
+	flex: 0 0 auto;
+	order: 2;
+	margin: 0 0 0 auto;
+	padding: 0;
+	border: none;
+	border-radius: 0;
+	background: transparent !important;
+	box-shadow: none !important;
+	box-sizing: border-box;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar:has(> .chat-page-pinned-message-action-bar-left),
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar:has(.chat-page-pinned-message-reaction-pills) {
+	display: contents;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar:has(> .chat-page-pinned-message-action-bar-left) .chat-page-pinned-message-action-bar-quick,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar:has(.chat-page-pinned-message-reaction-pills) .chat-page-pinned-message-action-bar-quick {
+	order: 2;
+	margin-left: auto;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar:has(> .chat-page-pinned-message-action-bar-left) .chat-page-pinned-message-reply-btn,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar:has(.chat-page-pinned-message-reaction-pills) .connect-chat-msg-hover-reply {
+	order: 3;
 }
 
 .chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar-quick {
 	display: inline-flex;
 	flex-direction: row;
+	flex-wrap: nowrap;
 	align-items: center;
-	gap: 2px;
+	gap: 1px;
 	min-width: 0;
+	flex: 0 0 auto;
+	padding: 0;
+	margin: 0;
+	border: none;
+	border-radius: 0;
+	background: transparent !important;
+	box-shadow: none !important;
 }
 
 .chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar-actions {
 	display: inline-flex;
 	flex-direction: row;
+	flex-wrap: nowrap;
 	align-items: center;
-	gap: 6px;
-	margin-left: auto;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	background: transparent !important;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-sep {
+	display: none !important;
 }
 
 .chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-react,
 .chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-add-react,
-.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-reply {
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-reply,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar-quick .connect-chat-msg-hover-react,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar-quick .connect-chat-msg-hover-add-react {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 36px;
-	height: 36px;
+	width: 32px;
+	height: 32px;
 	margin: 0;
 	padding: 0;
 	border: none;
 	border-radius: 6px;
-	background: transparent;
+	background: transparent !important;
 	color: var(--text-muted);
 	cursor: pointer;
+	flex-shrink: 0;
+	-webkit-tap-highlight-color: transparent;
 }
 
-.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-react.is-viewer {
-	color: var(--accent);
-	background: color-mix(in srgb, var(--accent) 14%, transparent);
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-react.is-viewer,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar-quick .connect-chat-msg-hover-react.is-viewer,
+.chat-page-pinned-message-overlay .connect-chat-msg-hover-react.is-viewer,
+.chat-page-pinned-message-overlay .connect-chat-msg-hover-react.is-viewer:hover,
+.chat-page-pinned-message-overlay .connect-chat-msg-hover-react.is-viewer:active,
+.chat-page-pinned-message-overlay .connect-chat-msg-hover-react.is-viewer:focus {
+	color: var(--text-muted);
+	background: transparent !important;
+	background-color: transparent !important;
+	box-shadow: none !important;
 }
 
 .chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-react:hover,
 .chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-add-react:hover,
-.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-reply:hover {
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-reply:hover,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar-quick .connect-chat-msg-hover-react:hover,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar-quick .connect-chat-msg-hover-add-react:hover {
 	color: var(--text);
-	background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+	background: color-mix(in srgb, var(--text) 8%, transparent) !important;
 }
 
 .chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-react svg,
 .chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-add-react svg,
-.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-reply svg {
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar .connect-chat-msg-hover-reply svg,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar-quick .connect-chat-msg-hover-react svg,
+.chat-page-pinned-message-overlay .chat-page-pinned-message-action-bar-quick .connect-chat-msg-hover-add-react svg {
 	display: block;
-	width: 18px;
-	height: 18px;
+	width: 16px;
+	height: 16px;
 }
 
 .chat-page-pinned-message-overlay .chat-page-pinned-message-reply-btn {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: 8px;
-	width: auto;
-	min-height: 36px;
-	padding: 8px 12px;
-	border-radius: 6px;
-	font-size: 0.875rem;
+	width: 32px;
+	min-height: 32px;
+	padding: 0;
+	gap: 0;
+	margin-left: 0;
+	font-size: 0;
 	font-weight: 600;
-	color: var(--text);
+	color: var(--text-muted);
+	background: transparent !important;
+}
+
+.chat-page-pinned-message-overlay .chat-page-pinned-message-reply-btn span {
+	display: none;
 }
 
 .chat-page-pinned-message-overlay .chat-page-pinned-message-reply-icon {
@@ -2965,10 +3063,6 @@ body.chat-page .chat-route {
 	width: 16px;
 	height: 16px;
 	flex-shrink: 0;
-}
-
-.chat-page-pinned-message-overlay .chat-page-pinned-message-action-sep {
-	display: none;
 }
 
 .connect-chat-msg-pin-mark {

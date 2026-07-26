@@ -809,6 +809,91 @@ function initPinnedBannerPreviewFix() {
 
 initPinnedBannerPreviewFix();
 
+/**
+ * Pinned overlay: replace bare @handle author with the same meta header
+ * as in-stream messages (avatar, handle, relative time, pin mark).
+ * Bundle may still paint the old author line until it refreshes.
+ */
+function syncPinnedOverlayMessageHeader() {
+	const overlay = document.querySelector('.chat-page-pinned-message-overlay');
+	if (!(overlay instanceof HTMLElement)) return;
+	const body = overlay.querySelector('.chat-page-pinned-message-modal-body');
+	if (!(body instanceof HTMLElement)) return;
+	if (body.querySelector('.connect-chat-msg-meta')) return;
+
+	const author = body.querySelector('.chat-page-pinned-message-author');
+	const streamMeta = document.querySelector(
+		'.connect-chat-msg--channel-pinned .connect-chat-msg-meta'
+	);
+	if (!(streamMeta instanceof HTMLElement)) return;
+
+	const clone = streamMeta.cloneNode(true);
+	if (!(clone instanceof HTMLElement)) return;
+	clone.classList.add('chat-page-pinned-message-meta');
+	if (!clone.querySelector('.connect-chat-msg-pin-mark')) {
+		const mark = document.createElement('span');
+		mark.className = 'connect-chat-msg-pin-mark';
+		mark.setAttribute('aria-hidden', 'true');
+		mark.innerHTML =
+			'<svg class="connect-chat-msg-pin-mark-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"></path><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"></path></svg>';
+		clone.appendChild(mark);
+	}
+	if (author instanceof HTMLElement) {
+		author.replaceWith(clone);
+	} else {
+		body.insertBefore(clone, body.firstChild);
+	}
+}
+
+function initPinnedOverlayMessageHeaderFix() {
+	const run = () => {
+		try {
+			syncPinnedOverlayMessageHeader();
+		} catch {
+			// ignore
+		}
+	};
+	run();
+	const mo = new MutationObserver(() => {
+		window.clearTimeout(initPinnedOverlayMessageHeaderFix._t);
+		initPinnedOverlayMessageHeaderFix._t = window.setTimeout(run, 30);
+	});
+	mo.observe(document.documentElement, { childList: true, subtree: true });
+}
+
+initPinnedOverlayMessageHeaderFix();
+
+/**
+ * Reaction picker is portaled to <body> at z-index 1000 in the bundle CSS,
+ * which sits under .modal-overlay (99999). Lift it whenever it appears.
+ */
+function liftCommentReactionPicker(el) {
+	if (!(el instanceof HTMLElement) || !el.classList.contains('comment-reaction-picker')) return;
+	el.style.zIndex = '100050';
+}
+
+function initReactionPickerStackFix() {
+	for (const el of document.querySelectorAll('.comment-reaction-picker')) {
+		liftCommentReactionPicker(el);
+	}
+	const mo = new MutationObserver((records) => {
+		for (const rec of records) {
+			for (const node of rec.addedNodes) {
+				if (!(node instanceof HTMLElement)) continue;
+				liftCommentReactionPicker(node);
+				if (node.querySelectorAll) {
+					for (const el of node.querySelectorAll('.comment-reaction-picker')) {
+						liftCommentReactionPicker(el);
+					}
+				}
+			}
+		}
+	});
+	mo.observe(document.documentElement, { childList: true, subtree: true });
+}
+
+initReactionPickerStackFix();
+
 void import(`/shared/consoleGen.js${assetQuery()}`)
 	.then((mod) => {
 		mod.installConsoleGen?.();

@@ -4579,31 +4579,39 @@ export async function initChatPage(root, options = {}) {
 		</div>`;
 	}
 
-	/** Pin overlay: always show reaction row (pills and/or add) so users can react even when empty. */
-	function buildPinnedOverlayReactionHtml(m) {
+	/** Pin overlay: existing reaction pills only (no nested “add” — the action bar owns that). */
+	function buildPinnedOverlayPillsOnlyHtml(m) {
 		if (activePseudoChannelSlug || !m?.id) return '';
-		const existing = buildChatReactionMetaRowHtml(m);
-		if (existing) {
-			return existing.replace(
-				'class="comment-meta-row connect-chat-msg-reaction-row"',
-				'class="comment-meta-row connect-chat-msg-reaction-row chat-page-pinned-message-reactions"'
-			);
-		}
-		const messageId = String(m.id);
 		const reactions = m?.reactions && typeof m.reactions === 'object' ? m.reactions : {};
-		const hasUnused = REACTION_ORDER.some((key) => chatReactionGetCount(reactions[key]) === 0);
-		if (!hasUnused) return '';
-		return `<div class="comment-meta-row connect-chat-msg-reaction-row chat-page-pinned-message-reactions">
-			<div class="comment-meta-top">
-				<div class="comment-meta-right">
-					<div class="comment-reaction-pills">
-						<div class="comment-reaction-pills-inner">
-							<button type="button" class="comment-reaction-add" data-chat-message-id="${escapeHtml(messageId)}" aria-label="Add reaction" title="Add reaction"><span class="comment-reaction-icon-wrap" aria-hidden="true">${smileIcon('comment-reaction-add-icon')}</span></button>
-						</div>
-					</div>
-				</div>
-			</div>
-		</div>`;
+		const viewerReactions = Array.isArray(m?.viewer_reactions) ? m.viewer_reactions : [];
+		const messageId = String(m.id);
+		const keysWithReactions = REACTION_ORDER.filter((key) => chatReactionGetCount(reactions[key]) > 0);
+		if (keysWithReactions.length === 0) return '';
+		const reactionPills = keysWithReactions
+			.map((key) => {
+				const raw = reactions[key];
+				const count = chatReactionGetCount(raw);
+				const countLabel = count > 99 ? '99+' : String(count);
+				const hasViewer = viewerReactions.includes(key);
+				const iconFn = REACTION_ICONS[key];
+				const iconHtml = iconFn ? iconFn('comment-reaction-icon') : '';
+				const actionLabel = hasViewer ? `Remove ${key}` : `Add ${key}`;
+				let tooltipAttr = '';
+				if (typeof raw !== 'number' && Array.isArray(raw) && raw.length > 0) {
+					const last = raw[raw.length - 1];
+					const others = typeof last === 'number' ? last : 0;
+					const strings = (typeof last === 'number' ? raw.slice(0, -1) : raw).filter(
+						(s) => typeof s === 'string'
+					);
+					const tooltip = [...strings, others > 0 ? `and ${others} ${others === 1 ? 'other' : 'others'}` : '']
+						.filter(Boolean)
+						.join(', ');
+					if (tooltip) tooltipAttr = ` data-tooltip="${escapeHtml(tooltip)}"`;
+				}
+				return `<button type="button" class="comment-reaction-pill${hasViewer ? ' is-viewer' : ''}" data-emoji-key="${escapeHtml(key)}" data-chat-message-id="${escapeHtml(messageId)}" aria-label="${escapeHtml(actionLabel)}" title="${escapeHtml(actionLabel)}"${tooltipAttr}><span class="comment-reaction-icon-wrap" aria-hidden="true">${iconHtml}</span><span class="comment-reaction-count">${escapeHtml(countLabel)}</span></button>`;
+			})
+			.join('');
+		return `<div class="comment-reaction-pills chat-page-pinned-message-pills"><div class="comment-reaction-pills-inner">${reactionPills}</div></div>`;
 	}
 
 	function resolvePinnedMessageForUi() {
@@ -4855,6 +4863,72 @@ export async function initChatPage(root, options = {}) {
 		inline.className = 'connect-chat-msg-edited-inline';
 		inline.textContent = ' (edited)';
 		return inline;
+	}
+
+	/**
+	 * Shared message header: avatar + @handle · relative time (+ optional pin mark).
+	 * @param {object} m
+	 * @param {{ showPinMark?: boolean, viewerId?: number | null }} [opts]
+	 */
+	function buildConnectChatMsgMetaElement(m, opts = {}) {
+		if (!m || typeof m !== 'object') return null;
+		const viewerId =
+			opts.viewerId != null
+				? Number(opts.viewerId)
+				: Number.isFinite(Number(chatViewerId))
+					? Number(chatViewerId)
+					: null;
+		const senderId = Number(m.sender_id);
+		const isSelf = Number.isFinite(viewerId) && Number.isFinite(senderId) && senderId === viewerId;
+		const handleRaw = m.sender_user_name != null ? String(m.sender_user_name).trim() : '';
+		const handleLabel = handleRaw ? `@${handleRaw}` : isSelf ? 'You' : `User ${senderId}`;
+		const when = m.created_at ? formatRelativeTime(m.created_at) || '' : '';
+		const displayForAvatar = handleRaw || (isSelf ? 'You' : `User ${senderId}`);
+		const profileHref = buildProfilePath({
+			userName: handleRaw || undefined,
+			userId: Number.isFinite(senderId) ? senderId : undefined,
+		});
+		const senderIsFounder = m.sender_plan === 'founder';
+
+		const metaLine = document.createElement('div');
+		metaLine.className = 'connect-chat-msg-meta';
+		const avatarWrap = document.createElement('div');
+		avatarWrap.innerHTML = renderCommentAvatarHtml({
+			avatarUrl: m.sender_avatar_url || '',
+			displayName: displayForAvatar,
+			color: getAvatarColor(handleRaw || String(Number.isFinite(senderId) ? senderId : 'user')),
+			href: profileHref || undefined,
+			isFounder: senderIsFounder,
+			flairSize: 'sm',
+		});
+		while (avatarWrap.firstChild) metaLine.appendChild(avatarWrap.firstChild);
+
+		const textSpan = document.createElement('span');
+		textSpan.className = 'connect-chat-msg-meta-text';
+		const nameSpan = document.createElement('span');
+		nameSpan.className = `comment-author-name${senderIsFounder ? ' founder-name' : ''}`;
+		nameSpan.textContent = handleLabel;
+		textSpan.appendChild(nameSpan);
+		if (when) {
+			const sepSpan = document.createElement('span');
+			sepSpan.className = 'connect-chat-msg-meta-sep';
+			sepSpan.textContent = ' · ';
+			textSpan.appendChild(sepSpan);
+			const whenSpan = document.createElement('span');
+			whenSpan.className = 'connect-chat-msg-meta-when';
+			whenSpan.textContent = when;
+			textSpan.appendChild(whenSpan);
+		}
+		metaLine.appendChild(textSpan);
+
+		if (opts.showPinMark === true) {
+			const mark = document.createElement('span');
+			mark.className = 'connect-chat-msg-pin-mark';
+			mark.setAttribute('aria-hidden', 'true');
+			mark.innerHTML = pinIcon('connect-chat-msg-pin-mark-icon');
+			metaLine.appendChild(mark);
+		}
+		return metaLine;
 	}
 
 	function replaceChatMessageRowFromPayload(messageId, opts = {}) {
@@ -7197,51 +7271,8 @@ export async function initChatPage(root, options = {}) {
 			}
 		}
 		if (!isGroupContinue && !shouldRenderAsSystemEvent) {
-			const metaLine = document.createElement('div');
-			metaLine.className = 'connect-chat-msg-meta';
-			const handleRaw = m.sender_user_name != null ? String(m.sender_user_name).trim() : '';
-			const handleLabel = handleRaw
-				? `@${handleRaw}`
-				: isSelf
-					? 'You'
-					: `User ${senderId}`;
-			const when = m.created_at ? (formatRelativeTime(m.created_at) || '') : '';
-			const displayForAvatar = handleRaw || (isSelf ? 'You' : `User ${senderId}`);
-			const profileHref = buildProfilePath({
-				userName: handleRaw || undefined,
-				userId: senderId
-			});
-			const senderIsFounder = m.sender_plan === 'founder';
-			const avatarWrap = document.createElement('div');
-			avatarWrap.innerHTML = renderCommentAvatarHtml({
-				avatarUrl: m.sender_avatar_url || '',
-				displayName: displayForAvatar,
-				color: getAvatarColor(handleRaw || String(senderId)),
-				href: profileHref || undefined,
-				isFounder: senderIsFounder,
-				flairSize: 'sm'
-			});
-			while (avatarWrap.firstChild) {
-				metaLine.appendChild(avatarWrap.firstChild);
-			}
-			const textSpan = document.createElement('span');
-			textSpan.className = 'connect-chat-msg-meta-text';
-			const nameSpan = document.createElement('span');
-			nameSpan.className = `comment-author-name${senderIsFounder ? ' founder-name' : ''}`;
-			nameSpan.textContent = handleLabel;
-			textSpan.appendChild(nameSpan);
-			if (when) {
-				const sepSpan = document.createElement('span');
-				sepSpan.className = 'connect-chat-msg-meta-sep';
-				sepSpan.textContent = ' · ';
-				textSpan.appendChild(sepSpan);
-				const whenSpan = document.createElement('span');
-				whenSpan.className = 'connect-chat-msg-meta-when';
-				whenSpan.textContent = when;
-				textSpan.appendChild(whenSpan);
-			}
-			metaLine.appendChild(textSpan);
-			inner.appendChild(metaLine);
+			const metaLine = buildConnectChatMsgMetaElement(m, { viewerId });
+			if (metaLine) inner.appendChild(metaLine);
 		}
 		inner.appendChild(bubble);
 		const reactionHtml = buildChatReactionMetaRowHtml(m);
@@ -13525,14 +13556,12 @@ export async function initChatPage(root, options = {}) {
 		footer.className = 'modal-footer chat-page-pinned-message-modal-footer';
 		footer.dataset.chatPinnedOverlayFooter = '1';
 
-		const pillsHost = document.createElement('div');
-		pillsHost.className = 'chat-page-pinned-message-reaction-pills';
-		const reactionHtml = msg ? buildPinnedOverlayReactionHtml(msg) : '';
-		if (reactionHtml) {
-			pillsHost.innerHTML = reactionHtml;
-			pillsHost.hidden = false;
-		} else {
-			pillsHost.hidden = true;
+		const pillsHtml = msg ? buildPinnedOverlayPillsOnlyHtml(msg) : '';
+		if (pillsHtml) {
+			const pillsWrap = document.createElement('div');
+			pillsWrap.className = 'chat-page-pinned-message-reaction-pills';
+			pillsWrap.innerHTML = pillsHtml;
+			footer.appendChild(pillsWrap);
 		}
 
 		const bar = document.createElement('div');
@@ -13557,21 +13586,20 @@ export async function initChatPage(root, options = {}) {
 			quick.appendChild(btn);
 		}
 
-		const addBtn = document.createElement('button');
-		addBtn.type = 'button';
-		addBtn.className = 'connect-chat-msg-hover-add-react';
-		addBtn.dataset.chatMessageId = String(pinId);
-		addBtn.dataset.chatPinnedOverlayAction = '1';
-		addBtn.setAttribute('aria-label', 'Add reaction');
-		addBtn.innerHTML = `<span class="comment-reaction-icon-wrap" aria-hidden="true">${smileIcon('connect-chat-hover-add-react-icon')}</span>`;
-		quick.appendChild(addBtn);
+		const reactions = msg?.reactions && typeof msg.reactions === 'object' ? msg.reactions : {};
+		const hasUnused = REACTION_ORDER.some((key) => chatReactionGetCount(reactions[key]) === 0);
+		if (hasUnused) {
+			const addBtn = document.createElement('button');
+			addBtn.type = 'button';
+			addBtn.className = 'connect-chat-msg-hover-add-react';
+			addBtn.dataset.chatMessageId = String(pinId);
+			addBtn.dataset.chatPinnedOverlayAction = '1';
+			addBtn.setAttribute('aria-label', 'Add reaction');
+			addBtn.innerHTML = `<span class="comment-reaction-icon-wrap" aria-hidden="true">${smileIcon('connect-chat-hover-add-react-icon')}</span>`;
+			quick.appendChild(addBtn);
+		}
 
-		const sep = document.createElement('span');
-		sep.className = 'connect-chat-msg-hover-sep chat-page-pinned-message-action-sep';
-		sep.setAttribute('aria-hidden', 'true');
-
-		const actions = document.createElement('div');
-		actions.className = 'chat-page-pinned-message-action-bar-actions';
+		bar.appendChild(quick);
 
 		const canReply =
 			!activePseudoChannelSlug && (!msg || messageRowSupportsReply(msg)) && Number.isFinite(pinId) && pinId > 0;
@@ -13582,17 +13610,10 @@ export async function initChatPage(root, options = {}) {
 			replyBtn.dataset.chatPinnedOverlayAction = '1';
 			replyBtn.dataset.chatPinnedOverlayReply = '1';
 			replyBtn.setAttribute('aria-label', 'Reply to pinned message');
-			replyBtn.innerHTML = `${replyTurnIcon('chat-page-pinned-message-reply-icon')}<span>Reply</span>`;
-			actions.appendChild(replyBtn);
+			replyBtn.innerHTML = replyTurnIcon('chat-page-pinned-message-reply-icon');
+			bar.appendChild(replyBtn);
 		}
 
-		bar.appendChild(quick);
-		if (canReply) {
-			bar.appendChild(sep);
-			bar.appendChild(actions);
-		}
-
-		footer.appendChild(pillsHost);
 		footer.appendChild(bar);
 		return footer;
 	}
@@ -13749,15 +13770,14 @@ export async function initChatPage(root, options = {}) {
 		if (!msg) {
 			body.textContent = 'Loading…';
 		} else {
-			const handleRaw =
-				msg.sender_user_name != null ? String(msg.sender_user_name).trim() : '';
-			const author = document.createElement('p');
-			author.className = 'chat-page-pinned-message-author';
-			author.textContent = handleRaw ? `@${handleRaw}` : 'Message';
+			const metaLine = buildConnectChatMsgMetaElement(msg, { showPinMark: true });
+			if (metaLine) {
+				metaLine.classList.add('chat-page-pinned-message-meta');
+				body.appendChild(metaLine);
+			}
 			const content = document.createElement('div');
 			content.className = 'chat-page-pinned-message-body user-text';
 			content.innerHTML = processUserText(msg.body ?? '', { messageMarkdown: true });
-			body.appendChild(author);
 			body.appendChild(content);
 			try {
 				hydrateRichUserTextEmbeds(content);

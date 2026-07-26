@@ -5344,7 +5344,8 @@ body.view-nsfw .feed-card-image--group-carousel.nsfw::after {
 /* Reaction picker popover */
 .comment-reaction-picker {
 	position: fixed;
-	z-index: 1000;
+	/* Above .modal-overlay (99999 !important); picker is portaled to body. */
+	z-index: 100050;
 	background: var(--surface);
 	border: 1px solid var(--border);
 	border-radius: 10px;
