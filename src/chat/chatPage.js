@@ -74,8 +74,11 @@ import {
 	replyTurnIcon,
 	pencilIcon,
 	trashIcon,
-	linkIcon2
+	linkIcon2,
+	pinIcon,
+	closeIcon
 } from '/icons/svg-strings.js';
+import { MODAL_DISMISS_ICON_SVG } from '../shared/modalDismiss.js';
 import * as rosterMod from '../shared/chatSidebarRoster.js';
 import { openDmSidebarGearMenu } from '/shared/chatDmSidebarGearMenu.js';
 import { serverChannelTagFromServerName } from '../shared/serverChatTag.js';
@@ -1204,10 +1207,18 @@ export async function initChatPage(root, options = {}) {
 	let chatViewerIsAdmin = false;
 	/** Set from GET /api/chat/threads (`viewer_is_founder`) or threads cache. */
 	let chatViewerIsFounder = false;
+	/** Set from GET /api/chat/threads (`viewer_can_pin_messages`) or threads cache. */
+	let chatViewerCanPinMessages = false;
 	/** Canvas list for current channel thread (GET .../canvases). */
 	let chatCanvasesList = [];
 	/** Message id pinned for the active channel thread (from GET .../canvases). */
 	let activeThreadPinnedCanvasId = null;
+	/** Channel message pin (one per channel); separate from canvas pin. */
+	let activeThreadPinnedMessageId = null;
+	/** @type {object | null} */
+	let activeThreadPinnedMessage = null;
+	/** @type {null | (() => void)} */
+	let chatPinnedMessageOverlayCleanup = null;
 	let closeChatCanvasPanel = () => { };
 	let rebuildTopbarMenuDynamic = () => { };
 	let refreshChatCanvasesList = async () => { };
@@ -3082,7 +3093,11 @@ export async function initChatPage(root, options = {}) {
 
 		clearReplyTargetHighlight();
 
-		const src = lastChatMessagesPayload.find((x) => Number(x.id) === mid);
+		const src =
+			lastChatMessagesPayload.find((x) => Number(x.id) === mid) ||
+			(Number(activeThreadPinnedMessageId) === mid && activeThreadPinnedMessage
+				? activeThreadPinnedMessage
+				: null);
 		const authorLabel = src ? chatComposerReplyTargetAuthorLabel(mid, src) : 'User';
 
 		wrap.hidden = false;
@@ -3994,6 +4009,10 @@ export async function initChatPage(root, options = {}) {
 			vEnd: -1,
 			showAdminDelete: chatViewerIsAdmin && !activePseudoChannelSlug,
 			showHoverBar: !activePseudoChannelSlug,
+			showChannelPin:
+				chatViewerCanPinMessages &&
+				!activePseudoChannelSlug &&
+				isActiveThreadChannelMessagePinEligible(),
 		};
 		let insertAfter = null;
 		if (startIdx > 0) {
@@ -4560,6 +4579,53 @@ export async function initChatPage(root, options = {}) {
 		</div>`;
 	}
 
+	/** Pin overlay: always show reaction row (pills and/or add) so users can react even when empty. */
+	function buildPinnedOverlayReactionHtml(m) {
+		if (activePseudoChannelSlug || !m?.id) return '';
+		const existing = buildChatReactionMetaRowHtml(m);
+		if (existing) {
+			return existing.replace(
+				'class="comment-meta-row connect-chat-msg-reaction-row"',
+				'class="comment-meta-row connect-chat-msg-reaction-row chat-page-pinned-message-reactions"'
+			);
+		}
+		const messageId = String(m.id);
+		const reactions = m?.reactions && typeof m.reactions === 'object' ? m.reactions : {};
+		const hasUnused = REACTION_ORDER.some((key) => chatReactionGetCount(reactions[key]) === 0);
+		if (!hasUnused) return '';
+		return `<div class="comment-meta-row connect-chat-msg-reaction-row chat-page-pinned-message-reactions">
+			<div class="comment-meta-top">
+				<div class="comment-meta-right">
+					<div class="comment-reaction-pills">
+						<div class="comment-reaction-pills-inner">
+							<button type="button" class="comment-reaction-add" data-chat-message-id="${escapeHtml(messageId)}" aria-label="Add reaction" title="Add reaction"><span class="comment-reaction-icon-wrap" aria-hidden="true">${smileIcon('comment-reaction-add-icon')}</span></button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>`;
+	}
+
+	function resolvePinnedMessageForUi() {
+		const pinId = Number(activeThreadPinnedMessageId);
+		if (!Number.isFinite(pinId) || pinId <= 0) return null;
+		const fromList = lastChatMessagesPayload.find((x) => Number(x.id) === pinId);
+		if (fromList && typeof fromList === 'object') {
+			const base =
+				activeThreadPinnedMessage && typeof activeThreadPinnedMessage === 'object'
+					? { ...activeThreadPinnedMessage }
+					: {};
+			return { ...base, ...fromList, id: pinId };
+		}
+		return activeThreadPinnedMessage && typeof activeThreadPinnedMessage === 'object'
+			? { ...activeThreadPinnedMessage, id: pinId }
+			: null;
+	}
+
+	function syncPinnedOverlayReactionRow() {
+		refreshPinnedMessageOverlayActionBar();
+	}
+
 	const CHAT_HOVER_QUICK_REACTION_KEYS = REACTION_ORDER.slice(0, 3);
 
 	function buildChatMessageHoverBarElement(m, viewerId, rowOpts) {
@@ -4639,6 +4705,28 @@ export async function initChatPage(root, options = {}) {
 			editBtn.innerHTML = pencilIcon('connect-chat-hover-edit-icon');
 			actions.appendChild(editBtn);
 		}
+		const canPin =
+			rowOpts.showChannelPin === true &&
+			!getChatCanvasMetaFromMessage(m) &&
+			!(
+				m?.meta &&
+				typeof m.meta === 'object' &&
+				!Array.isArray(m.meta) &&
+				m.meta.system_event &&
+				typeof m.meta.system_event === 'object'
+			);
+		if (canPin) {
+			const isPinned = Number(activeThreadPinnedMessageId) === messageId;
+			const pinBtn = document.createElement('button');
+			pinBtn.type = 'button';
+			pinBtn.className = 'connect-chat-msg-hover-pin';
+			pinBtn.setAttribute('data-chat-hover-pin', '1');
+			pinBtn.dataset.chatMessageId = String(messageId);
+			pinBtn.setAttribute('aria-label', isPinned ? 'Unpin from channel' : 'Pin to channel');
+			pinBtn.innerHTML = pinIcon('connect-chat-hover-pin-icon');
+			if (isPinned) pinBtn.classList.add('is-pinned');
+			actions.appendChild(pinBtn);
+		}
 		const canDelete = isSelf || rowOpts.showAdminDelete === true;
 		if (canDelete) {
 			const delBtn = document.createElement('button');
@@ -4690,25 +4778,40 @@ export async function initChatPage(root, options = {}) {
 		const count = Math.max(0, Math.floor(data.count));
 		const added = data.added === true;
 		const mid = Number(messageId);
+
+		function applyState(m) {
+			if (!m || typeof m !== 'object') return;
+			m.reactions = m.reactions && typeof m.reactions === 'object' ? { ...m.reactions } : {};
+			m.viewer_reactions = Array.isArray(m.viewer_reactions) ? [...m.viewer_reactions] : [];
+			if (count > 0) {
+				m.reactions[emojiKey] = count;
+			} else {
+				delete m.reactions[emojiKey];
+			}
+			if (added) {
+				if (!m.viewer_reactions.includes(emojiKey)) m.viewer_reactions.push(emojiKey);
+			} else {
+				m.viewer_reactions = m.viewer_reactions.filter((k) => k !== emojiKey);
+			}
+		}
+
 		const m = lastChatMessagesPayload.find((x) => Number(x.id) === mid);
-		if (!m) {
+		if (m) {
+			applyState(m);
+			patchChatMessageReactionDom(mid, m);
+			updateChatHoverBarReactionState(mid, m);
+		} else if (Number(activeThreadPinnedMessageId) !== mid) {
 			void loadMessages();
-			return;
 		}
-		m.reactions = m.reactions && typeof m.reactions === 'object' ? { ...m.reactions } : {};
-		m.viewer_reactions = Array.isArray(m.viewer_reactions) ? [...m.viewer_reactions] : [];
-		if (count > 0) {
-			m.reactions[emojiKey] = count;
-		} else {
-			delete m.reactions[emojiKey];
+
+		if (Number(activeThreadPinnedMessageId) === mid && activeThreadPinnedMessage) {
+			applyState(activeThreadPinnedMessage);
+			if (m) {
+				activeThreadPinnedMessage.reactions = m.reactions;
+				activeThreadPinnedMessage.viewer_reactions = m.viewer_reactions;
+			}
+			refreshPinnedMessageOverlayActionBar();
 		}
-		if (added) {
-			if (!m.viewer_reactions.includes(emojiKey)) m.viewer_reactions.push(emojiKey);
-		} else {
-			m.viewer_reactions = m.viewer_reactions.filter((k) => k !== emojiKey);
-		}
-		patchChatMessageReactionDom(mid, m);
-		updateChatHoverBarReactionState(mid, m);
 	}
 
 	function patchChatMessageReactionDom(messageId, m) {
@@ -4770,6 +4873,10 @@ export async function initChatPage(root, options = {}) {
 			vEnd: -1,
 			showAdminDelete: chatViewerIsAdmin && !activePseudoChannelSlug,
 			showHoverBar: !activePseudoChannelSlug,
+			showChannelPin:
+				chatViewerCanPinMessages &&
+				!activePseudoChannelSlug &&
+				isActiveThreadChannelMessagePinEligible(),
 		};
 		const next = createChatMessageRowElement(
 			lastChatMessagesPayload[idx],
@@ -5251,6 +5358,7 @@ export async function initChatPage(root, options = {}) {
 			void hydratePrivateThreadTitlesInPlace(chatThreads);
 			chatViewerIsAdmin = cached.viewerIsAdmin === true;
 			chatViewerIsFounder = cached.viewerIsFounder === true;
+			chatViewerCanPinMessages = cached.viewerCanPinMessages === true;
 			syncChatComposerHashtagTargets();
 		}
 
@@ -5276,12 +5384,14 @@ export async function initChatPage(root, options = {}) {
 		await hydratePrivateThreadTitlesInPlace(chatThreads);
 		chatViewerIsAdmin = Boolean(result.data?.viewer_is_admin);
 		chatViewerIsFounder = Boolean(result.data?.viewer_is_founder);
+		chatViewerCanPinMessages = Boolean(result.data?.viewer_can_pin_messages);
 		syncChatComposerHashtagTargets();
 		if (chatViewerId != null && Number.isFinite(chatViewerId)) {
 			try {
 				writeCachedChatThreads?.(chatViewerId, chatThreads, {
 					viewerIsAdmin: chatViewerIsAdmin,
-					viewerIsFounder: chatViewerIsFounder
+					viewerIsFounder: chatViewerIsFounder,
+					viewerCanPinMessages: chatViewerCanPinMessages
 				});
 			} catch {
 				// ignore
@@ -7195,6 +7305,7 @@ export async function initChatPage(root, options = {}) {
 			vEnd,
 			showAdminDelete: paintOpts.showAdminDelete === true,
 			showHoverBar: paintOpts.showHoverBar === true,
+			showChannelPin: paintOpts.showChannelPin === true,
 		};
 		let ref = appendAfter;
 		for (let i = 0; i < messages.length; i++) {
@@ -7632,6 +7743,10 @@ export async function initChatPage(root, options = {}) {
 				vEnd: -1,
 				showAdminDelete: chatViewerIsAdmin && !activePseudoChannelSlug,
 				showHoverBar: !activePseudoChannelSlug,
+				showChannelPin:
+					chatViewerCanPinMessages &&
+					!activePseudoChannelSlug &&
+					isActiveThreadChannelMessagePinEligible(),
 			};
 			const insertBefore = messagesEl.querySelector('.connect-chat-msg');
 			// Capture scroll immediately before prepend — not before fetch (user may scroll while waiting).
@@ -7655,6 +7770,7 @@ export async function initChatPage(root, options = {}) {
 			syncBoundaryGroupContinueAfterPrepend(merged, filtered.length, messagesEl);
 			decorateAppendedChatRows(messagesEl, appendedRows);
 			stabilizeThreadScrollAfterPrepend(messagesEl, scrollSnap, appendedRows);
+			markInStreamPinnedMessageRows();
 
 			if (!threadMessagesHasMore) {
 				sentinel?.remove();
@@ -10806,7 +10922,7 @@ export async function initChatPage(root, options = {}) {
 
 		const viewerId = chatViewerId;
 		try {
-			await refreshChatCanvasesList();
+			await Promise.all([refreshChatCanvasesList(), refreshChannelPinnedMessage()]);
 			if (isStaleChatPane(paneEpoch)) return;
 			const page = await fetchThreadMessagesPage(threadId, { limit: THREAD_MESSAGES_PAGE_SIZE });
 			if (isStaleChatPane(paneEpoch)) return;
@@ -10865,7 +10981,12 @@ export async function initChatPage(root, options = {}) {
 				hasVisualUnreadRange,
 				showAdminDelete: chatViewerIsAdmin && !activePseudoChannelSlug,
 				showHoverBar: !activePseudoChannelSlug,
+				showChannelPin:
+					chatViewerCanPinMessages &&
+					!activePseudoChannelSlug &&
+					isActiveThreadChannelMessagePinEligible(),
 			});
+			markInStreamPinnedMessageRows();
 			hydrateRichUserTextEmbeds(messagesEl);
 			for (const bubble of messagesEl.querySelectorAll('.connect-chat-msg-bubble')) {
 				trimTrailingWhitespaceAfterChatEmbed(bubble);
@@ -10899,6 +11020,7 @@ export async function initChatPage(root, options = {}) {
 				);
 				chatCanvasesList = [];
 				activeThreadPinnedCanvasId = null;
+				clearActiveChannelPinnedMessage();
 				rebuildTopbarMenuDynamic();
 				applyComposerState();
 			}
@@ -11196,6 +11318,7 @@ export async function initChatPage(root, options = {}) {
 					void loadChallengesChannelMessages();
 				} else {
 					void syncChatMessagesFromServer();
+					void refreshChannelPinnedMessage();
 				}
 			};
 			const onRoomReconnect = () => {
@@ -11257,6 +11380,9 @@ export async function initChatPage(root, options = {}) {
 			const data = await res.json().catch(() => ({}));
 			if (!res.ok) {
 				throw new Error(data.message || data.error || 'Could not delete message');
+			}
+			if (Number(activeThreadPinnedMessageId) === mid) {
+				clearActiveChannelPinnedMessage();
 			}
 		} catch (err) {
 			console.error('[Chat page] delete message:', err);
@@ -11366,43 +11492,7 @@ export async function initChatPage(root, options = {}) {
 
 		const tagLink = e.target?.closest?.('a.mention-link[href]');
 		if (tagLink instanceof HTMLAnchorElement && tagLink.closest('.connect-chat-msg-bubble')) {
-			if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
-				return;
-			}
-			const hrefAttr = tagLink.getAttribute('href') || '';
-			if (!hrefAttr.startsWith('/')) {
-				return;
-			}
-			const pathOnly = hrefAttr.split('?')[0].split('#')[0];
-			if (shouldUseSpaPageOverlay() && parseSpaOverlayTarget(hrefAttr)) {
-				e.preventDefault();
-				e.stopPropagation();
-				closeChatInlineImageLightbox();
-				navigateToSpaPageFromSpa(hrefAttr, e);
-				return;
-			}
-			const isHashtagTagPath = /^\/t\/([^/?#]+)/i.test(pathOnly);
-			const isChatInAppRoute =
-				pathOnly.startsWith('/chat/') ||
-				pathOnly === '/feed' ||
-				pathOnly === '/explore' ||
-				pathOnly === '/creations' ||
-				pathOnly === '/challenges';
-			if (!isHashtagTagPath && !isChatInAppRoute) {
-				return;
-			}
-			e.preventDefault();
-			e.stopPropagation();
-			if (isHashtagTagPath) {
-				const m = pathOnly.match(/^\/t\/([^/?#]+)/i);
-				if (!m) return;
-				const slug = decodeURIComponent(m[1]);
-				void openChatHashtagDestination(slug);
-				return;
-			}
-			history.pushState({ prsnChat: true }, '', hrefAttr);
-			void openThreadForCurrentPath();
-			return;
+			if (handleChatMentionLinkNavigation(e, tagLink)) return;
 		}
 
 		const inHoverBar = e.target?.closest?.('.connect-chat-msg-hover-bar');
@@ -11422,6 +11512,17 @@ export async function initChatPage(root, options = {}) {
 			if (!Number.isFinite(messageId)) return;
 			closeChatMessageToolbar();
 			startChatMessageEdit(messageId);
+			return;
+		}
+
+		const hoverPin = e.target?.closest?.('[data-chat-hover-pin]');
+		if (hoverPin instanceof HTMLButtonElement) {
+			e.preventDefault();
+			e.stopPropagation();
+			const messageId = Number(hoverPin.dataset.chatMessageId);
+			if (!Number.isFinite(messageId)) return;
+			closeChatMessageToolbar();
+			void pinChannelMessageFromHover(messageId);
 			return;
 		}
 
@@ -12162,6 +12263,8 @@ export async function initChatPage(root, options = {}) {
 
 		optimisticSend = null;
 		tearDownChatCanvasUi();
+		closePinnedMessageOverlay();
+		clearActiveChannelPinnedMessage();
 		if (typeof challengesPaneTeardown === 'function') {
 			try {
 				challengesPaneTeardown();
@@ -12601,7 +12704,11 @@ export async function initChatPage(root, options = {}) {
 
 	async function openChatHashtagDestination(slug) {
 		await openHashtagDestination(slug, {
+			onBeforeChoice: () => {
+				closePinnedMessageOverlay();
+			},
 			navigate: (href) => {
+				closePinnedMessageOverlay();
 				const raw = String(href || '').trim();
 				if (!raw) return;
 				let pathOnly = raw;
@@ -12619,6 +12726,49 @@ export async function initChatPage(root, options = {}) {
 				window.location.href = raw;
 			},
 		});
+	}
+
+	/**
+	 * Hashtag / in-app mention-link click (bubbles, pin banner, pin overlay).
+	 * @param {MouseEvent} e
+	 * @param {HTMLAnchorElement} tagLink
+	 * @returns {boolean} true if handled
+	 */
+	function handleChatMentionLinkNavigation(e, tagLink) {
+		if (!(tagLink instanceof HTMLAnchorElement)) return false;
+		if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+		const hrefAttr = tagLink.getAttribute('href') || '';
+		if (!hrefAttr.startsWith('/')) return false;
+		const pathOnly = hrefAttr.split('?')[0].split('#')[0];
+		if (shouldUseSpaPageOverlay() && parseSpaOverlayTarget(hrefAttr)) {
+			e.preventDefault();
+			e.stopPropagation();
+			closeChatInlineImageLightbox();
+			closePinnedMessageOverlay();
+			navigateToSpaPageFromSpa(hrefAttr, e);
+			return true;
+		}
+		const isHashtagTagPath = /^\/t\/([^/?#]+)/i.test(pathOnly);
+		const isChatInAppRoute =
+			pathOnly.startsWith('/chat/') ||
+			pathOnly === '/feed' ||
+			pathOnly === '/explore' ||
+			pathOnly === '/creations' ||
+			pathOnly === '/challenges';
+		if (!isHashtagTagPath && !isChatInAppRoute) return false;
+		e.preventDefault();
+		e.stopPropagation();
+		if (isHashtagTagPath) {
+			const m = pathOnly.match(/^\/t\/([^/?#]+)/i);
+			if (!m) return true;
+			const slug = decodeURIComponent(m[1]);
+			void openChatHashtagDestination(slug);
+			return true;
+		}
+		closePinnedMessageOverlay();
+		history.pushState({ prsnChat: true }, '', hrefAttr);
+		void openThreadForCurrentPath();
+		return true;
 	}
 
 	const composer = root.querySelector('[data-chat-composer]');
@@ -13092,6 +13242,43 @@ export async function initChatPage(root, options = {}) {
 		});
 	}
 
+	const pinnedBannerHost =
+		mainColumn instanceof HTMLElement ? mainColumn : root;
+	pinnedBannerHost.addEventListener('click', (e) => {
+		const unpinBtn = e.target?.closest?.('[data-chat-pinned-banner-unpin]');
+		if (unpinBtn instanceof HTMLButtonElement) {
+			e.preventDefault();
+			e.stopPropagation();
+			if (!chatViewerCanPinMessages) return;
+			void setChannelPinnedMessage(null);
+			return;
+		}
+		const openEl = e.target?.closest?.('[data-chat-pinned-banner-open]');
+		if (openEl instanceof HTMLElement) {
+			const mentionLink = e.target?.closest?.('a.mention-link[href]');
+			if (mentionLink instanceof HTMLAnchorElement && openEl.contains(mentionLink)) {
+				if (handleChatMentionLinkNavigation(e, mentionLink)) return;
+			}
+			const anyLink = e.target?.closest?.('a[href]');
+			if (anyLink instanceof HTMLAnchorElement && openEl.contains(anyLink)) {
+				// External / other links: don't open the pin overlay.
+				e.stopPropagation();
+				return;
+			}
+			e.preventDefault();
+			e.stopPropagation();
+			openPinnedMessageOverlay();
+		}
+	});
+	pinnedBannerHost.addEventListener('keydown', (e) => {
+		const openEl = e.target?.closest?.('[data-chat-pinned-banner-open]');
+		if (!(openEl instanceof HTMLElement)) return;
+		if (e.key !== 'Enter' && e.key !== ' ') return;
+		if (e.target?.closest?.('a[href]')) return;
+		e.preventDefault();
+		openPinnedMessageOverlay();
+	});
+
 	if (refreshBtn instanceof HTMLButtonElement) {
 		refreshBtn.addEventListener('click', (e) => {
 			e.preventDefault();
@@ -13111,6 +13298,559 @@ export async function initChatPage(root, options = {}) {
 		const slug = String(t.channel_slug || '').toLowerCase().trim();
 		if (!slug || CHAT_CANVAS_DISALLOWED_SLUGS.has(slug)) return false;
 		return true;
+	}
+
+	function isActiveThreadChannelMessagePinEligible() {
+		if (activePseudoChannelSlug) return false;
+		const tid = activeThreadId;
+		if (tid == null || !Number.isFinite(Number(tid))) return false;
+		const t = (chatThreads || []).find((x) => Number(x.id) === Number(tid));
+		return Boolean(t && t.type === 'channel');
+	}
+
+	/**
+	 * Banner preview: first non-empty line (honors line breaks), optional Read more.
+	 * @param {unknown} body
+	 * @returns {{ line: string, showMore: boolean }}
+	 */
+	function pinnedMessagePreviewParts(body) {
+		const full = String(body || '')
+			.replace(/\r\n/g, '\n')
+			.replace(/\r/g, '\n')
+			.replace(/\u2028/g, '\n')
+			.replace(/\u2029/g, '\n');
+		const lines = full
+			.split('\n')
+			.map((l) => l.replace(/[ \t]+/g, ' ').trim())
+			.filter(Boolean);
+		if (lines.length === 0) return { line: '', showMore: false };
+		// Full first hard line — CSS wraps / ellipsizes beside “Read more”.
+		const line = lines[0];
+		const showMore = true;
+		return { line, showMore };
+	}
+
+	function clearActiveChannelPinnedMessage() {
+		activeThreadPinnedMessageId = null;
+		activeThreadPinnedMessage = null;
+		syncChannelPinnedBanner();
+	}
+
+	function syncChannelPinnedBanner() {
+		const banner = root.querySelector('[data-chat-pinned-banner]');
+		if (!(banner instanceof HTMLElement)) return;
+		const iconEl = banner.querySelector('[data-chat-pinned-banner-icon]');
+		let previewEl = banner.querySelector('[data-chat-pinned-banner-preview]');
+		let moreEl = banner.querySelector('[data-chat-pinned-banner-more]');
+		const unpinBtn = banner.querySelector('[data-chat-pinned-banner-unpin]');
+		const openEl = banner.querySelector('[data-chat-pinned-banner-open]');
+		// Ensure copy + Read more nodes exist (older cached HTML / partial paint).
+		if (openEl instanceof HTMLElement) {
+			let copyEl = openEl.querySelector('.chat-page-pinned-banner-copy');
+			if (!(copyEl instanceof HTMLElement)) {
+				copyEl = document.createElement('span');
+				copyEl.className = 'chat-page-pinned-banner-copy';
+				if (previewEl instanceof HTMLElement) {
+					previewEl.replaceWith(copyEl);
+					copyEl.appendChild(previewEl);
+				} else {
+					previewEl = document.createElement('span');
+					previewEl.className = 'chat-page-pinned-banner-preview';
+					previewEl.setAttribute('data-chat-pinned-banner-preview', '');
+					copyEl.appendChild(previewEl);
+					openEl.appendChild(copyEl);
+				}
+			}
+			if (!(previewEl instanceof HTMLElement)) {
+				previewEl = copyEl.querySelector('[data-chat-pinned-banner-preview]');
+			}
+			if (!(moreEl instanceof HTMLElement)) {
+				moreEl = document.createElement('span');
+				moreEl.className = 'chat-page-pinned-banner-more';
+				moreEl.setAttribute('data-chat-pinned-banner-more', '');
+				moreEl.textContent = 'Read more';
+				moreEl.hidden = true;
+				copyEl.appendChild(moreEl);
+			} else if (
+				previewEl instanceof HTMLElement &&
+				moreEl.parentElement === copyEl &&
+				previewEl.nextElementSibling !== moreEl
+			) {
+				copyEl.appendChild(moreEl);
+			}
+		}
+		const pinId = Number(activeThreadPinnedMessageId);
+		const show =
+			isActiveThreadChannelMessagePinEligible() && Number.isFinite(pinId) && pinId > 0;
+		if (!show) {
+			banner.hidden = true;
+			if (previewEl instanceof HTMLElement) {
+				previewEl.textContent = '';
+				previewEl.classList.remove('is-loading');
+			}
+			if (moreEl instanceof HTMLElement) moreEl.hidden = true;
+			if (unpinBtn instanceof HTMLButtonElement) unpinBtn.hidden = true;
+			return;
+		}
+		banner.hidden = false;
+		if (iconEl instanceof HTMLElement && !iconEl.querySelector('svg')) {
+			iconEl.innerHTML = pinIcon('chat-page-pinned-banner-pin-icon');
+		}
+		if (previewEl instanceof HTMLElement) {
+			if (!activeThreadPinnedMessage) {
+				previewEl.textContent = '…';
+				previewEl.classList.add('is-loading');
+				if (moreEl instanceof HTMLElement) moreEl.hidden = true;
+			} else {
+				const { line, showMore } = pinnedMessagePreviewParts(activeThreadPinnedMessage.body);
+				const safeLine = line || 'Pinned message';
+				// Linkify #hashtags (and @/$) like chat bubbles so the banner can open channel-vs-tag.
+				previewEl.innerHTML = processUserText(safeLine);
+				previewEl.classList.remove('is-loading');
+				if (moreEl instanceof HTMLElement) moreEl.hidden = !showMore;
+			}
+		}
+		if (unpinBtn instanceof HTMLButtonElement) {
+			const canUnpin = chatViewerCanPinMessages === true;
+			unpinBtn.hidden = !canUnpin;
+			if (canUnpin && !unpinBtn.querySelector('svg')) {
+				unpinBtn.innerHTML = closeIcon('chat-page-pinned-banner-unpin-icon');
+			}
+		}
+		const pinIdNum = Number(activeThreadPinnedMessageId);
+		for (const btn of root.querySelectorAll('.connect-chat-msg-hover-pin')) {
+			if (!(btn instanceof HTMLButtonElement)) continue;
+			const mid = Number(btn.dataset.chatMessageId);
+			const isPinned = Number.isFinite(pinIdNum) && pinIdNum > 0 && mid === pinIdNum;
+			btn.classList.toggle('is-pinned', isPinned);
+			btn.setAttribute('aria-label', isPinned ? 'Unpin from channel' : 'Pin to channel');
+		}
+		markInStreamPinnedMessageRows();
+	}
+
+	function markInStreamPinnedMessageRows() {
+		const messagesEl = root.querySelector('[data-chat-messages]');
+		if (!messagesEl) return;
+		const pinId = Number(activeThreadPinnedMessageId);
+		for (const row of messagesEl.querySelectorAll('.connect-chat-msg')) {
+			if (!(row instanceof HTMLElement)) continue;
+			const mid = Number(row.getAttribute('data-chat-message-id'));
+			const isPinned = Number.isFinite(pinId) && pinId > 0 && mid === pinId;
+			row.classList.toggle('connect-chat-msg--channel-pinned', isPinned);
+			let mark = row.querySelector('.connect-chat-msg-pin-mark');
+			if (isPinned) {
+				if (!(mark instanceof HTMLElement)) {
+					mark = document.createElement('span');
+					mark.className = 'connect-chat-msg-pin-mark';
+					mark.setAttribute('aria-hidden', 'true');
+					mark.innerHTML = pinIcon('connect-chat-msg-pin-mark-icon');
+					const meta = row.querySelector('.connect-chat-msg-meta');
+					if (meta instanceof HTMLElement) {
+						meta.appendChild(mark);
+					} else {
+						row.querySelector('.connect-chat-msg-inner')?.prepend(mark);
+					}
+				}
+			} else if (mark) {
+				mark.remove();
+			}
+		}
+	}
+
+	async function applyChannelPinnedMessageFromApi(pinIdRaw, messageRow, threadId) {
+		const tid = Number(threadId);
+		const pinId = pinIdRaw != null ? Number(pinIdRaw) : null;
+		if (!Number.isFinite(pinId) || pinId <= 0) {
+			if (Number(activeThreadId) === tid) clearActiveChannelPinnedMessage();
+			return;
+		}
+		let msg = messageRow && typeof messageRow === 'object' ? { ...messageRow } : null;
+		if (msg && Number.isFinite(tid) && tid > 0) {
+			try {
+				const dec = await decryptThreadMessagesForUi(tid, [msg]);
+				msg = dec[0] || msg;
+			} catch {
+				// keep encrypted body / placeholder
+			}
+		}
+		if (Number(activeThreadId) !== tid) return;
+		activeThreadPinnedMessageId = pinId;
+		activeThreadPinnedMessage = msg;
+		syncChannelPinnedBanner();
+	}
+
+	async function refreshChannelPinnedMessage() {
+		if (!isActiveThreadChannelMessagePinEligible()) {
+			clearActiveChannelPinnedMessage();
+			return;
+		}
+		const tid = Number(activeThreadId);
+		if (!Number.isFinite(tid) || tid <= 0) {
+			clearActiveChannelPinnedMessage();
+			return;
+		}
+		// Show placeholder immediately if we already know a pin id from prior paint.
+		if (Number.isFinite(Number(activeThreadPinnedMessageId)) && Number(activeThreadPinnedMessageId) > 0) {
+			syncChannelPinnedBanner();
+		}
+		try {
+			const res = await fetch(`/api/chat/threads/${tid}`, { credentials: 'include' });
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok || Number(activeThreadId) !== tid) return;
+			const pinRaw = data?.thread?.pinned_message_id ?? data?.thread?.pinnedMessageId;
+			const pinMsg = data?.thread?.pinned_message ?? data?.thread?.pinnedMessage ?? null;
+			await applyChannelPinnedMessageFromApi(pinRaw, pinMsg, tid);
+		} catch {
+			if (Number(activeThreadId) === tid) syncChannelPinnedBanner();
+		}
+	}
+
+	function closePinnedMessageOverlay() {
+		if (typeof chatPinnedMessageOverlayCleanup === 'function') {
+			try {
+				chatPinnedMessageOverlayCleanup();
+			} catch {
+				// ignore
+			}
+			chatPinnedMessageOverlayCleanup = null;
+		}
+	}
+
+	function resolvePinnedMessageForOverlay() {
+		return resolvePinnedMessageForUi();
+	}
+
+	function buildPinnedMessageOverlayFooter(msg, pinId) {
+		const footer = document.createElement('div');
+		footer.className = 'modal-footer chat-page-pinned-message-modal-footer';
+		footer.dataset.chatPinnedOverlayFooter = '1';
+
+		const pillsHost = document.createElement('div');
+		pillsHost.className = 'chat-page-pinned-message-reaction-pills';
+		const reactionHtml = msg ? buildPinnedOverlayReactionHtml(msg) : '';
+		if (reactionHtml) {
+			pillsHost.innerHTML = reactionHtml;
+			pillsHost.hidden = false;
+		} else {
+			pillsHost.hidden = true;
+		}
+
+		const bar = document.createElement('div');
+		bar.className = 'chat-page-pinned-message-action-bar';
+		bar.setAttribute('role', 'toolbar');
+		bar.setAttribute('aria-label', 'Pinned message actions');
+
+		const quick = document.createElement('div');
+		quick.className = 'chat-page-pinned-message-action-bar-quick';
+		const viewerReactions = Array.isArray(msg?.viewer_reactions) ? msg.viewer_reactions : [];
+		for (const key of CHAT_HOVER_QUICK_REACTION_KEYS) {
+			const iconFn = REACTION_ICONS[key];
+			const btn = document.createElement('button');
+			btn.type = 'button';
+			btn.className = 'connect-chat-msg-hover-react';
+			btn.dataset.emojiKey = key;
+			btn.dataset.chatMessageId = String(pinId);
+			btn.dataset.chatPinnedOverlayAction = '1';
+			btn.setAttribute('aria-label', `React with ${key}`);
+			btn.innerHTML = iconFn ? iconFn('connect-chat-msg-hover-react-icon') : '';
+			if (viewerReactions.includes(key)) btn.classList.add('is-viewer');
+			quick.appendChild(btn);
+		}
+
+		const addBtn = document.createElement('button');
+		addBtn.type = 'button';
+		addBtn.className = 'connect-chat-msg-hover-add-react';
+		addBtn.dataset.chatMessageId = String(pinId);
+		addBtn.dataset.chatPinnedOverlayAction = '1';
+		addBtn.setAttribute('aria-label', 'Add reaction');
+		addBtn.innerHTML = `<span class="comment-reaction-icon-wrap" aria-hidden="true">${smileIcon('connect-chat-hover-add-react-icon')}</span>`;
+		quick.appendChild(addBtn);
+
+		const sep = document.createElement('span');
+		sep.className = 'connect-chat-msg-hover-sep chat-page-pinned-message-action-sep';
+		sep.setAttribute('aria-hidden', 'true');
+
+		const actions = document.createElement('div');
+		actions.className = 'chat-page-pinned-message-action-bar-actions';
+
+		const canReply =
+			!activePseudoChannelSlug && (!msg || messageRowSupportsReply(msg)) && Number.isFinite(pinId) && pinId > 0;
+		if (canReply) {
+			const replyBtn = document.createElement('button');
+			replyBtn.type = 'button';
+			replyBtn.className = 'connect-chat-msg-hover-reply chat-page-pinned-message-reply-btn';
+			replyBtn.dataset.chatPinnedOverlayAction = '1';
+			replyBtn.dataset.chatPinnedOverlayReply = '1';
+			replyBtn.setAttribute('aria-label', 'Reply to pinned message');
+			replyBtn.innerHTML = `${replyTurnIcon('chat-page-pinned-message-reply-icon')}<span>Reply</span>`;
+			actions.appendChild(replyBtn);
+		}
+
+		bar.appendChild(quick);
+		if (canReply) {
+			bar.appendChild(sep);
+			bar.appendChild(actions);
+		}
+
+		footer.appendChild(pillsHost);
+		footer.appendChild(bar);
+		return footer;
+	}
+
+	function refreshPinnedMessageOverlayActionBar() {
+		const overlay = document.querySelector('.chat-page-pinned-message-overlay');
+		if (!(overlay instanceof HTMLElement)) return;
+		const existing = overlay.querySelector('[data-chat-pinned-overlay-footer]');
+		const pinId = Number(activeThreadPinnedMessageId);
+		if (!Number.isFinite(pinId) || pinId <= 0) {
+			if (existing) existing.remove();
+			return;
+		}
+		const msg = resolvePinnedMessageForOverlay();
+		const next = buildPinnedMessageOverlayFooter(msg, pinId);
+		if (existing instanceof HTMLElement) {
+			existing.replaceWith(next);
+		} else {
+			const panel = overlay.querySelector('.chat-page-chat-modal-panel');
+			if (panel instanceof HTMLElement) panel.appendChild(next);
+		}
+	}
+
+	function handlePinnedMessageOverlayActionClick(ev, overlay) {
+		if (!(overlay instanceof HTMLElement)) return false;
+
+		const replyBtn = ev.target?.closest?.('[data-chat-pinned-overlay-reply]');
+		if (replyBtn instanceof HTMLButtonElement && overlay.contains(replyBtn)) {
+			ev.preventDefault();
+			ev.stopPropagation();
+			const pinId = Number(activeThreadPinnedMessageId);
+			closePinnedMessageOverlay();
+			if (!Number.isFinite(pinId) || pinId <= 0 || activePseudoChannelSlug) return true;
+			chatComposerReferencedMessageId = pinId;
+			syncChatComposerReplyStripUi();
+			const inp = root.querySelector('[data-chat-body-input]');
+			if (inp instanceof HTMLTextAreaElement) inp.focus();
+			return true;
+		}
+
+		const hoverReact = ev.target?.closest?.('.connect-chat-msg-hover-react[data-emoji-key]');
+		if (hoverReact instanceof HTMLButtonElement && overlay.contains(hoverReact)) {
+			if (activePseudoChannelSlug) {
+				ev.preventDefault();
+				return true;
+			}
+			ev.preventDefault();
+			ev.stopPropagation();
+			const messageId = Number(hoverReact.dataset.chatMessageId);
+			const emojiKey = hoverReact.dataset.emojiKey;
+			if (!Number.isFinite(messageId) || !emojiKey) return true;
+			void toggleChatMessageReaction(messageId, emojiKey).then((res) => {
+				if (res?.ok) applyChatReactionAfterToggle(messageId, emojiKey, res.data);
+			});
+			return true;
+		}
+
+		const hoverAddReact = ev.target?.closest?.('.connect-chat-msg-hover-add-react');
+		if (hoverAddReact instanceof HTMLButtonElement && overlay.contains(hoverAddReact)) {
+			if (activePseudoChannelSlug) {
+				ev.preventDefault();
+				return true;
+			}
+			ev.preventDefault();
+			ev.stopPropagation();
+			const messageId = Number(hoverAddReact.dataset.chatMessageId);
+			if (!Number.isFinite(messageId)) return true;
+			const msg = resolvePinnedMessageForOverlay();
+			const reactions = msg?.reactions && typeof msg.reactions === 'object' ? msg.reactions : {};
+			const unusedKeys = REACTION_ORDER.filter((key) => chatReactionGetCount(reactions[key]) === 0);
+			if (unusedKeys.length === 0) return true;
+			showReactionPicker(hoverAddReact, messageId, unusedKeys, (mid, ek) => {
+				void toggleChatMessageReaction(mid, ek).then((res) => {
+					if (res?.ok) applyChatReactionAfterToggle(mid, ek, res.data);
+				});
+			});
+			return true;
+		}
+
+		const pill = ev.target?.closest?.('.comment-reaction-pill[data-emoji-key][data-chat-message-id]');
+		if (pill instanceof HTMLElement && overlay.contains(pill)) {
+			if (activePseudoChannelSlug) {
+				ev.preventDefault();
+				return true;
+			}
+			ev.preventDefault();
+			ev.stopPropagation();
+			const messageId = Number(pill.dataset.chatMessageId);
+			const emojiKey = pill.dataset.emojiKey;
+			if (!Number.isFinite(messageId) || !emojiKey) return true;
+			void toggleChatMessageReaction(messageId, emojiKey).then((res) => {
+				if (res?.ok) applyChatReactionAfterToggle(messageId, emojiKey, res.data);
+			});
+			return true;
+		}
+
+		const addPillBtn = ev.target?.closest?.('.comment-reaction-add[data-chat-message-id]');
+		if (addPillBtn instanceof HTMLElement && overlay.contains(addPillBtn)) {
+			if (activePseudoChannelSlug) {
+				ev.preventDefault();
+				return true;
+			}
+			ev.preventDefault();
+			ev.stopPropagation();
+			const messageId = Number(addPillBtn.dataset.chatMessageId);
+			if (!Number.isFinite(messageId)) return true;
+			const msg = resolvePinnedMessageForOverlay();
+			const reactions = msg?.reactions && typeof msg.reactions === 'object' ? msg.reactions : {};
+			const unusedKeys = REACTION_ORDER.filter((key) => chatReactionGetCount(reactions[key]) === 0);
+			if (unusedKeys.length === 0) return true;
+			showReactionPicker(addPillBtn, messageId, unusedKeys, (mid, ek) => {
+				void toggleChatMessageReaction(mid, ek).then((res) => {
+					if (res?.ok) applyChatReactionAfterToggle(mid, ek, res.data);
+				});
+			});
+			return true;
+		}
+
+		return false;
+	}
+
+	function openPinnedMessageOverlay() {
+		closePinnedMessageOverlay();
+		const pinId = Number(activeThreadPinnedMessageId);
+		if (!Number.isFinite(pinId) || pinId <= 0) return;
+
+		const overlay = document.createElement('div');
+		overlay.className = 'modal-overlay open chat-page-chat-modal chat-page-pinned-message-overlay';
+		overlay.setAttribute('role', 'dialog');
+		overlay.setAttribute('aria-modal', 'true');
+		overlay.setAttribute('aria-labelledby', 'chat-pinned-message-overlay-title');
+
+		const panel = document.createElement('div');
+		panel.className = 'modal modal-medium chat-page-chat-modal-panel';
+
+		const header = document.createElement('div');
+		header.className = 'modal-header';
+		const title = document.createElement('h3');
+		title.id = 'chat-pinned-message-overlay-title';
+		title.className = 'chat-page-pinned-message-overlay-title';
+		title.innerHTML = `${pinIcon('chat-page-pinned-message-overlay-pin-icon')} Pinned message`;
+		const closeBtn = document.createElement('button');
+		closeBtn.type = 'button';
+		closeBtn.className = 'modal-dismiss chat-page-chat-modal-close';
+		closeBtn.setAttribute('aria-label', 'Close');
+		closeBtn.innerHTML = MODAL_DISMISS_ICON_SVG;
+		header.appendChild(title);
+		header.appendChild(closeBtn);
+
+		const body = document.createElement('div');
+		body.className = 'modal-body chat-page-pinned-message-modal-body';
+
+		const msg = resolvePinnedMessageForOverlay();
+		if (!msg) {
+			body.textContent = 'Loading…';
+		} else {
+			const handleRaw =
+				msg.sender_user_name != null ? String(msg.sender_user_name).trim() : '';
+			const author = document.createElement('p');
+			author.className = 'chat-page-pinned-message-author';
+			author.textContent = handleRaw ? `@${handleRaw}` : 'Message';
+			const content = document.createElement('div');
+			content.className = 'chat-page-pinned-message-body user-text';
+			content.innerHTML = processUserText(msg.body ?? '', { messageMarkdown: true });
+			body.appendChild(author);
+			body.appendChild(content);
+			try {
+				hydrateRichUserTextEmbeds(content);
+			} catch {
+				// ignore
+			}
+		}
+
+		panel.appendChild(header);
+		panel.appendChild(body);
+		if (!activePseudoChannelSlug && Number.isFinite(pinId) && pinId > 0) {
+			panel.appendChild(buildPinnedMessageOverlayFooter(msg, pinId));
+		}
+
+		overlay.appendChild(panel);
+		document.body.appendChild(overlay);
+		document.body.classList.add('modal-open');
+		document.documentElement.classList.add('modal-open');
+
+		const onKey = (ev) => {
+			if (ev.key === 'Escape') {
+				ev.preventDefault();
+				closeReactionPicker();
+				closePinnedMessageOverlay();
+			}
+		};
+		const onClose = () => {
+			closeReactionPicker();
+			closePinnedMessageOverlay();
+		};
+		closeBtn.addEventListener('click', onClose);
+		overlay.addEventListener('click', (ev) => {
+			if (ev.target === overlay) {
+				onClose();
+				return;
+			}
+			if (handlePinnedMessageOverlayActionClick(ev, overlay)) return;
+			const mentionLink = ev.target?.closest?.('a.mention-link[href]');
+			if (mentionLink instanceof HTMLAnchorElement && overlay.contains(mentionLink)) {
+				if (handleChatMentionLinkNavigation(ev, mentionLink)) return;
+			}
+		});
+		document.addEventListener('keydown', onKey);
+		chatPinnedMessageOverlayCleanup = () => {
+			document.removeEventListener('keydown', onKey);
+			closeReactionPicker();
+			document.body.classList.remove('modal-open');
+			document.documentElement.classList.remove('modal-open');
+			overlay.remove();
+		};
+	}
+
+	async function setChannelPinnedMessage(messageIdOrNull) {
+		const tid = Number(activeThreadId);
+		if (!Number.isFinite(tid) || tid <= 0 || !chatViewerCanPinMessages) return false;
+		const clear = messageIdOrNull == null;
+		const mid = clear ? null : Number(messageIdOrNull);
+		if (!clear && (!Number.isFinite(mid) || mid <= 0)) return false;
+		try {
+			const res = await fetch(`/api/chat/threads/${tid}/pinned-message`, {
+				method: 'POST',
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+				body: JSON.stringify({ message_id: clear ? null : mid })
+			});
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				window.alert(data.message || data.error || 'Could not update pin');
+				return false;
+			}
+			const pinRaw = data?.pinned_message_id ?? data?.pinnedMessageId;
+			const pinMsg = data?.pinned_message ?? data?.pinnedMessage ?? null;
+			await applyChannelPinnedMessageFromApi(pinRaw, pinMsg, tid);
+			return true;
+		} catch (err) {
+			window.alert(err?.message || 'Could not update pin');
+			return false;
+		}
+	}
+
+	async function pinChannelMessageFromHover(messageId) {
+		const mid = Number(messageId);
+		if (!Number.isFinite(mid) || mid <= 0) return;
+		const cur = Number(activeThreadPinnedMessageId);
+		if (Number.isFinite(cur) && cur > 0 && cur !== mid) {
+			const ok = window.confirm('Replace the current pinned message with this one?');
+			if (!ok) return;
+		}
+		if (Number.isFinite(cur) && cur === mid) {
+			await setChannelPinnedMessage(null);
+			return;
+		}
+		await setChannelPinnedMessage(mid);
 	}
 
 	function canOpenPrivateChannelMembersModal() {

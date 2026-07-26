@@ -799,6 +799,22 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 		}
 	}
 
+	/** Channel message pin allowlist (in addition to admins). */
+	const CHANNEL_MESSAGE_PIN_ALLOWLIST_USERNAMES = new Set(["oceanman"]);
+
+	async function viewerCanPinChannelMessages(userId) {
+		if (await viewerIsAdminRole(userId)) return true;
+		try {
+			if (typeof queries?.selectUserProfileByUserId?.get !== "function") return false;
+			const profile = await queries.selectUserProfileByUserId.get(userId);
+			const un =
+				typeof profile?.user_name === "string" ? profile.user_name.trim().toLowerCase() : "";
+			return un.length > 0 && CHANNEL_MESSAGE_PIN_ALLOWLIST_USERNAMES.has(un);
+		} catch {
+			return false;
+		}
+	}
+
 	function isCanvasMessageRow(msg) {
 		const meta = msg?.meta;
 		if (!meta || typeof meta !== "object" || Array.isArray(meta)) return false;
@@ -841,6 +857,42 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			prev.canvas = prevCanvas;
 		}
 		return prev;
+	}
+
+	/** Channel message pin (one per channel): `prsn_chat_threads.meta.channel_pin.message_id`. */
+	function getChannelPinnedMessageIdFromThreadRow(threadRow) {
+		if (!threadRow || typeof threadRow !== "object") return null;
+		const m = threadRow.meta;
+		if (!m || typeof m !== "object" || Array.isArray(m)) return null;
+		const pin = m.channel_pin;
+		if (!pin || typeof pin !== "object" || Array.isArray(pin)) return null;
+		const id = pin.message_id ?? pin.messageId;
+		const n = id != null ? Number(id) : null;
+		return Number.isFinite(n) && n > 0 ? n : null;
+	}
+
+	function buildThreadMetaWithChannelPin(prevMeta, pinnedMessageIdOrNull, pinnedByUserId) {
+		const prev =
+			prevMeta && typeof prevMeta === "object" && !Array.isArray(prevMeta) ? { ...prevMeta } : {};
+		if (pinnedMessageIdOrNull == null) {
+			delete prev.channel_pin;
+			return prev;
+		}
+		const pin = {
+			message_id: pinnedMessageIdOrNull,
+			pinned_at: new Date().toISOString()
+		};
+		const by = pinnedByUserId != null ? Number(pinnedByUserId) : null;
+		if (Number.isFinite(by) && by > 0) pin.pinned_by = by;
+		prev.channel_pin = pin;
+		return prev;
+	}
+
+	function isSystemEventMessageRow(msg) {
+		const meta = msg?.meta;
+		if (!meta || typeof meta !== "object" || Array.isArray(meta)) return false;
+		const ev = meta.system_event;
+		return Boolean(ev && typeof ev === "object" && !Array.isArray(ev));
 	}
 
 	// GET /api/chat/unread-summary — total unread messages across threads (for nav badge)
@@ -1024,6 +1076,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 
 			let viewerIsAdmin = false;
 			let viewerIsFounder = false;
+			let viewerCanPinMessages = false;
 			try {
 				if (typeof queries?.selectUserById?.get === "function") {
 					const u = await queries.selectUserById.get(userId);
@@ -1031,15 +1084,18 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 					const plan = u?.meta && typeof u.meta === "object" ? u.meta.plan : null;
 					viewerIsFounder = plan === "founder";
 				}
+				viewerCanPinMessages = await viewerCanPinChannelMessages(userId);
 			} catch {
 				viewerIsAdmin = false;
 				viewerIsFounder = false;
+				viewerCanPinMessages = false;
 			}
 
 			return res.status(200).json({
 				viewer_id: userId,
 				viewer_is_admin: viewerIsAdmin,
 				viewer_is_founder: viewerIsFounder,
+				viewer_can_pin_messages: viewerCanPinMessages,
 				threads
 			});
 		} catch (err) {
@@ -1731,6 +1787,35 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			out.last_read_message_id = Number.isFinite(lr) && lr > 0 ? lr : null;
 			const pcm = getPinnedCanvasMessageIdFromThreadRow(thread);
 			out.pinned_canvas_message_id = pcm;
+			const channelPinId = getChannelPinnedMessageIdFromThreadRow(thread);
+			out.pinned_message_id = channelPinId;
+			out.pinned_message = null;
+			if (channelPinId != null) {
+				const { data: pinMsg, error: pinMsgErr } = await sb
+					.from("prsn_chat_messages")
+					.select("id, thread_id, sender_id, body, reactions, meta, created_at")
+					.eq("id", channelPinId)
+					.eq("thread_id", threadId)
+					.maybeSingle();
+				if (pinMsgErr) throw pinMsgErr;
+				if (pinMsg) {
+					const enriched = await enrichChatMessagesWithSenderProfiles(sb, [pinMsg]);
+					out.pinned_message = enrichChatReactionsFromMessageColumn(
+						[enriched[0] || pinMsg],
+						userId
+					)[0];
+				} else {
+					// Stale pin (message gone) — clear meta so banner does not stick.
+					const nextMeta = buildThreadMetaWithChannelPin(thread.meta, null);
+					const { error: clearErr } = await sb
+						.from("prsn_chat_threads")
+						.update({ meta: nextMeta })
+						.eq("id", threadId);
+					if (clearErr) throw clearErr;
+					out.pinned_message_id = null;
+					out.pinned_message = null;
+				}
+			}
 			if (thread.type === "channel") {
 				const slug = thread.channel_slug ? String(thread.channel_slug) : "";
 				if (visibility === PRIVATE_CHANNEL_VISIBILITY) {
@@ -2694,6 +2779,92 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 		}
 	});
 
+	// POST /api/chat/threads/:threadId/pinned-message  { message_id } | { message_id: null }
+	// Channel only; one pin per channel; oceanman + admins
+	router.post("/api/chat/threads/:threadId/pinned-message", async (req, res) => {
+		const userId = requireUser(req, res);
+		if (userId == null) return;
+		const sb = getSb(res);
+		if (!sb) return;
+
+		const threadId = Number(req.params.threadId);
+		if (!Number.isFinite(threadId) || threadId <= 0) {
+			return res.status(400).json({ error: "Bad request", message: "Invalid thread id" });
+		}
+
+		const rawMid = req.body?.message_id ?? req.body?.messageId;
+		const clearPin = rawMid == null || rawMid === "" || rawMid === false;
+		const messageId = clearPin ? null : Number(rawMid);
+
+		try {
+			if (!(await isMember(sb, threadId, userId))) {
+				return res.status(403).json({ error: "Forbidden", message: "Not a member of this thread" });
+			}
+			if (!(await viewerCanPinChannelMessages(userId))) {
+				return res.status(403).json({
+					error: "Forbidden",
+					message: "You cannot pin messages in this channel"
+				});
+			}
+
+			const { data: thread, error: thErr } = await sb
+				.from("prsn_chat_threads")
+				.select("type, meta")
+				.eq("id", threadId)
+				.maybeSingle();
+			if (thErr) throw thErr;
+			if (!thread || thread.type !== "channel") {
+				return res.status(400).json({ error: "Bad request", message: "Message pin is only for channels" });
+			}
+
+			if (clearPin || !Number.isFinite(messageId) || messageId <= 0) {
+				const cur = getChannelPinnedMessageIdFromThreadRow(thread);
+				if (cur == null || !Number.isFinite(cur) || cur <= 0) {
+					return res.status(200).json({ ok: true, pinned_message_id: null, pinned_message: null });
+				}
+				const nextMeta = buildThreadMetaWithChannelPin(thread.meta, null);
+				const { error: upErr } = await sb
+					.from("prsn_chat_threads")
+					.update({ meta: nextMeta })
+					.eq("id", threadId);
+				if (upErr) throw upErr;
+				void broadcastRoomDirty(threadId, 0);
+				return res.status(200).json({ ok: true, pinned_message_id: null, pinned_message: null });
+			}
+
+			const { data: msg, error: msgErr } = await sb
+				.from("prsn_chat_messages")
+				.select("id, thread_id, sender_id, body, reactions, meta, created_at")
+				.eq("id", messageId)
+				.maybeSingle();
+			if (msgErr) throw msgErr;
+			if (!msg) {
+				return res.status(404).json({ error: "Not found", message: "Message not found" });
+			}
+			if (Number(msg.thread_id) !== threadId) {
+				return res.status(400).json({ error: "Bad request", message: "Message is not in this thread" });
+			}
+			if (isSystemEventMessageRow(msg)) {
+				return res.status(400).json({ error: "Bad request", message: "System messages cannot be pinned" });
+			}
+
+			const nextMeta = buildThreadMetaWithChannelPin(thread.meta, messageId, userId);
+			const { error: upErr } = await sb.from("prsn_chat_threads").update({ meta: nextMeta }).eq("id", threadId);
+			if (upErr) throw upErr;
+			void broadcastRoomDirty(threadId, messageId);
+
+			const enriched = await enrichChatMessagesWithSenderProfiles(sb, [msg]);
+			const pinned_message = enrichChatReactionsFromMessageColumn(
+				[enriched[0] || msg],
+				userId
+			)[0];
+			return res.status(200).json({ ok: true, pinned_message_id: messageId, pinned_message });
+		} catch (err) {
+			console.error("[POST .../pinned-message]", err);
+			return res.status(500).json({ error: "Server error", message: err?.message || "Failed" });
+		}
+	});
+
 	// POST /api/chat/threads/:threadId/canvases — founder plan only; real hashtag channel threads only
 	router.post("/api/chat/threads/:threadId/canvases", async (req, res) => {
 		const userId = requireUser(req, res);
@@ -3086,6 +3257,24 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			if (delErr) throw delErr;
 
 			await deleteChatMiscGenericFilesForMessage(storage, bodyForAssets, senderIdForAssets);
+
+			const { data: threadForPin, error: threadPinErr } = await sb
+				.from("prsn_chat_threads")
+				.select("type, meta")
+				.eq("id", threadId)
+				.maybeSingle();
+			if (threadPinErr) throw threadPinErr;
+			if (threadForPin?.type === "channel") {
+				const pinnedId = getChannelPinnedMessageIdFromThreadRow(threadForPin);
+				if (pinnedId != null && pinnedId === messageId) {
+					const nextMeta = buildThreadMetaWithChannelPin(threadForPin.meta, null);
+					const { error: clearPinErr } = await sb
+						.from("prsn_chat_threads")
+						.update({ meta: nextMeta })
+						.eq("id", threadId);
+					if (clearPinErr) throw clearPinErr;
+				}
+			}
 
 			void broadcastRoomDirty(threadId, messageId);
 			const mem = await sb

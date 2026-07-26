@@ -710,6 +710,105 @@ function initOverlayIframeBlankFlashGuard() {
 
 initOverlayIframeBlankFlashGuard();
 
+/**
+ * Pin banner: force first-line snippet + visible “Read more”.
+ * Hotfix CSS already lays out copy as a column; this covers cases where the
+ * preview was painted with wrapped full text or “Read more” stayed [hidden].
+ */
+function plainTextHonoringBreaksFromHtml(root) {
+	if (!(root instanceof HTMLElement)) return '';
+	const clone = root.cloneNode(true);
+	for (const br of clone.querySelectorAll('br')) {
+		br.replaceWith('\n');
+	}
+	for (const block of clone.querySelectorAll('p, li, div, h1, h2, h3, h4, h5, h6')) {
+		if (block.nextSibling) block.append('\n');
+	}
+	return String(clone.textContent || '')
+		.replace(/\r\n/g, '\n')
+		.replace(/\r/g, '\n')
+		.replace(/\u2028/g, '\n')
+		.replace(/\u2029/g, '\n');
+}
+
+function firstPinnedBannerLine(body) {
+	const lines = String(body || '')
+		.split('\n')
+		.map((l) => l.replace(/[ \t]+/g, ' ').trim())
+		.filter(Boolean);
+	if (lines.length === 0) return '';
+	// Full first hard line — CSS wraps / clamps beside “Read more”.
+	return lines[0];
+}
+
+function syncPinnedBannerPreviewFromDom() {
+	const banner = document.querySelector('[data-chat-pinned-banner]');
+	if (!(banner instanceof HTMLElement) || banner.hasAttribute('hidden')) return;
+	const previewEl = banner.querySelector('[data-chat-pinned-banner-preview]');
+	let moreEl = banner.querySelector('[data-chat-pinned-banner-more]');
+	const copyEl = banner.querySelector('.chat-page-pinned-banner-copy');
+	if (!(previewEl instanceof HTMLElement)) return;
+	if (previewEl.classList.contains('is-loading')) return;
+
+	const pinnedBody =
+		document.querySelector('.connect-chat-msg--channel-pinned .connect-chat-msg-bubble') || null;
+	const source = pinnedBody instanceof HTMLElement ? plainTextHonoringBreaksFromHtml(pinnedBody) : '';
+	const wantLine = firstPinnedBannerLine(source);
+	const current = String(previewEl.textContent || '').replace(/\s+/g, ' ').trim();
+	const want = wantLine.replace(/\s+/g, ' ').trim();
+
+	// If the in-stream pinned bubble has a shorter first line than what’s painted, trim.
+	if (want && current && current !== want && current.startsWith(want.slice(0, Math.min(24, want.length)))) {
+		previewEl.textContent = wantLine;
+	} else if (want && !current) {
+		previewEl.textContent = wantLine;
+	}
+
+	if (!(moreEl instanceof HTMLElement) && copyEl instanceof HTMLElement) {
+		moreEl = document.createElement('span');
+		moreEl.className = 'chat-page-pinned-banner-more';
+		moreEl.setAttribute('data-chat-pinned-banner-more', '');
+		moreEl.textContent = 'Read more';
+		copyEl.appendChild(moreEl);
+	} else if (
+		moreEl instanceof HTMLElement &&
+		copyEl instanceof HTMLElement &&
+		previewEl instanceof HTMLElement &&
+		moreEl.parentElement === copyEl &&
+		previewEl.nextElementSibling !== moreEl
+	) {
+		copyEl.appendChild(moreEl);
+	}
+	if (moreEl instanceof HTMLElement && current) {
+		moreEl.hidden = false;
+		moreEl.removeAttribute('hidden');
+		if (!String(moreEl.textContent || '').trim()) moreEl.textContent = 'Read more';
+	}
+}
+
+function initPinnedBannerPreviewFix() {
+	const run = () => {
+		try {
+			syncPinnedBannerPreviewFromDom();
+		} catch {
+			// ignore
+		}
+	};
+	run();
+	const observer = new MutationObserver(() => {
+		window.clearTimeout(initPinnedBannerPreviewFix._t);
+		initPinnedBannerPreviewFix._t = window.setTimeout(run, 50);
+	});
+	observer.observe(document.documentElement, {
+		childList: true,
+		subtree: true,
+		attributes: true,
+		attributeFilter: ['hidden', 'class'],
+	});
+}
+
+initPinnedBannerPreviewFix();
+
 void import(`/shared/consoleGen.js${assetQuery()}`)
 	.then((mod) => {
 		mod.installConsoleGen?.();

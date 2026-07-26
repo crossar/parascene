@@ -9,7 +9,7 @@ export const CHAT_THREADS_CACHE_KEY = 'prsn-chat-threads-v1';
 export const CHAT_THREADS_STALE_MS = 60 * 1000;
 
 /**
- * @returns {{ viewerId: number, threads: unknown[], cachedAt: number, viewerIsAdmin?: boolean, viewerIsFounder?: boolean } | null}
+ * @returns {{ viewerId: number, threads: unknown[], cachedAt: number, viewerIsAdmin?: boolean, viewerIsFounder?: boolean, viewerCanPinMessages?: boolean } | null}
  */
 export function readCachedChatThreads() {
 	if (typeof localStorage === 'undefined') return null;
@@ -23,7 +23,15 @@ export function readCachedChatThreads() {
 		if (viewerId == null || !Number.isFinite(viewerId)) return null;
 		const viewerIsAdmin = o.viewerIsAdmin === true;
 		const viewerIsFounder = o.viewerIsFounder === true;
-		return { viewerId, threads: o.threads, cachedAt: o.cachedAt, viewerIsAdmin, viewerIsFounder };
+		const viewerCanPinMessages = o.viewerCanPinMessages === true;
+		return {
+			viewerId,
+			threads: o.threads,
+			cachedAt: o.cachedAt,
+			viewerIsAdmin,
+			viewerIsFounder,
+			viewerCanPinMessages
+		};
 	} catch {
 		return null;
 	}
@@ -32,7 +40,7 @@ export function readCachedChatThreads() {
 /**
  * @param {number} viewerId
  * @param {unknown[]} threads
- * @param {{ viewerIsAdmin?: boolean, viewerIsFounder?: boolean }} [meta]
+ * @param {{ viewerIsAdmin?: boolean, viewerIsFounder?: boolean, viewerCanPinMessages?: boolean }} [meta]
  */
 export function writeCachedChatThreads(viewerId, threads, meta = {}) {
 	if (typeof localStorage === 'undefined') return;
@@ -47,6 +55,9 @@ export function writeCachedChatThreads(viewerId, threads, meta = {}) {
 		}
 		if (meta.viewerIsFounder === true) {
 			payload.viewerIsFounder = true;
+		}
+		if (meta.viewerCanPinMessages === true) {
+			payload.viewerCanPinMessages = true;
 		}
 		localStorage.setItem(CHAT_THREADS_CACHE_KEY, JSON.stringify(payload));
 	} catch {

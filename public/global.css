@@ -45,10 +45,12 @@
 	/* Reusable hue tokens (not tied to component/state names) */
 	--color-green: #16a34a;
 	--color-amber: #d97706;
+	--color-purple: #7c3aed;
 	--color-green-fg: color-mix(in srgb, var(--color-green) 80%, var(--text));
 	--color-green-bg-subtle: color-mix(in srgb, var(--color-green) 16%, var(--surface));
 	--color-amber-fg: color-mix(in srgb, var(--color-amber) 84%, var(--text));
 	--color-amber-bg-subtle: color-mix(in srgb, var(--color-amber) 18%, var(--surface));
+	--color-purple-fg: color-mix(in srgb, var(--color-purple) 88%, var(--text));
 }
 
 /* Original dark theme (commented out)
@@ -106,10 +108,12 @@
 		/* Reusable hue tokens (dark mode) */
 		--color-green: #22c55e;
 		--color-amber: #f59e0b;
+		--color-purple: #a78bfa;
 		--color-green-fg: color-mix(in srgb, var(--color-green) 74%, white);
 		--color-green-bg-subtle: color-mix(in srgb, var(--color-green) 28%, var(--surface));
 		--color-amber-fg: color-mix(in srgb, var(--color-amber) 78%, white);
 		--color-amber-bg-subtle: color-mix(in srgb, var(--color-amber) 30%, var(--surface));
+		--color-purple-fg: color-mix(in srgb, var(--color-purple) 82%, white);
 	}
 }
 
@@ -7867,9 +7871,22 @@ header.chat-page-topbar::after {
 		z-index: 2;
 	}
 
+	body.chat-page .chat-page-thread-body > .chat-page-pinned-banner:not([hidden]) {
+		position: absolute;
+		top: var(--chat-chrome-header-height, 48px);
+		left: 0;
+		right: 0;
+		width: 100%;
+		z-index: 1;
+	}
+
 	body.chat-page .chat-page-thread-body > .chat-page-messages {
 		position: relative;
 		z-index: 0;
+	}
+
+	body.chat-page .chat-page-thread-body:has(> .chat-page-pinned-banner:not([hidden])) > .chat-page-messages {
+		padding-top: calc(var(--chat-chrome-header-height, 48px) + var(--chat-pinned-banner-height, 40px) + 12px);
 	}
 }
 
@@ -11807,6 +11824,7 @@ body.blog-edit-page .blog-edit-route {
 .chat-page-messages .connect-chat-msg-hover-edit,
 .chat-page-messages .connect-chat-msg-hover-copy,
 .chat-page-messages .connect-chat-msg-hover-delete,
+.chat-page-messages .connect-chat-msg-hover-pin,
 .chat-page-messages .connect-chat-msg-hover-reply {
 	display: inline-flex;
 	align-items: center;
@@ -11829,6 +11847,7 @@ body.blog-edit-page .blog-edit-route {
 .chat-page-messages .connect-chat-msg-hover-edit:hover,
 .chat-page-messages .connect-chat-msg-hover-copy:hover,
 .chat-page-messages .connect-chat-msg-hover-delete:hover,
+.chat-page-messages .connect-chat-msg-hover-pin:hover,
 .chat-page-messages .connect-chat-msg-hover-reply:hover {
 	color: var(--text);
 	background: color-mix(in srgb, var(--text) 8%, transparent);
@@ -11844,6 +11863,7 @@ body.blog-edit-page .blog-edit-route {
 .chat-page-messages .connect-chat-msg-hover-edit:focus-visible,
 .chat-page-messages .connect-chat-msg-hover-copy:focus-visible,
 .chat-page-messages .connect-chat-msg-hover-delete:focus-visible,
+.chat-page-messages .connect-chat-msg-hover-pin:focus-visible,
 .chat-page-messages .connect-chat-msg-hover-reply:focus-visible {
 	outline: 2px solid var(--focus);
 	outline-offset: 1px;
@@ -11859,6 +11879,7 @@ body.blog-edit-page .blog-edit-route {
 .chat-page-messages .connect-chat-hover-edit-icon,
 .chat-page-messages .connect-chat-hover-copy-icon,
 .chat-page-messages .connect-chat-hover-delete-icon,
+.chat-page-messages .connect-chat-hover-pin-icon,
 .chat-page-messages .connect-chat-hover-reply-icon {
 	display: block;
 	width: 18px;
