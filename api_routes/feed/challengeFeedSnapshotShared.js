@@ -10,7 +10,8 @@ import {
 	mergeFullChallengeConfigForChallenge,
 	pickChallengeConfigTimestamp,
 	pickChallengeHeroImageUrl,
-	sanitizeChallengeHeroImageUrl
+	sanitizeChallengeHeroImageUrl,
+	isChallengeListedForUpcoming
 } from '../../src/chat/challenges/challengeAdmin.js';
 import { summarizeLatestChallengeConfigs } from '../../src/chat/challenges/model/organizerSummaries.js';
 import { CHALLENGE_SCORE_REACTION_KEYS } from '../../src/chat/challenges/constants.js';
@@ -220,7 +221,8 @@ function mergedChallengePayload(configEntries, challengeId) {
 }
 
 /**
- * Feed focus: upcoming pre_submit first, else active participant challenge, else latest edit.
+ * Feed focus: listed upcoming (pre_submit) first, else active participant challenge,
+ * else latest non-draft public challenge. Unlisted drafts never become feed focus.
  *
  * @param {{ msg: object, payload: object }[]} configEntries
  * @param {number} nowMs
@@ -234,9 +236,10 @@ export function pickFeedFocusChallengeSummary(configEntries, nowMs) {
 		};
 	});
 
-	const upcoming = summaries.filter(
-		(row) => deriveChallengePhase(row.effectivePayload, nowMs) === 'pre_submit'
-	);
+	const upcoming = summaries.filter((row) => {
+		const phase = deriveChallengePhase(row.effectivePayload, nowMs);
+		return phase === 'pre_submit' && isChallengeListedForUpcoming(row.effectivePayload);
+	});
 	if (upcoming.length) {
 		upcoming.sort((a, b) => {
 			const aStart = parseChallengeStartMs(a.effectivePayload);
@@ -265,7 +268,13 @@ export function pickFeedFocusChallengeSummary(configEntries, nowMs) {
 		};
 	}
 
-	return summaries.sort((a, b) => b.sortKey - a.sortKey)[0] || null;
+	const publicFallback = summaries.filter((row) => {
+		const phase = deriveChallengePhase(row.effectivePayload, nowMs);
+		if (phase === 'deleted' || phase === 'purged') return false;
+		if (phase === 'pre_submit') return isChallengeListedForUpcoming(row.effectivePayload);
+		return true;
+	});
+	return publicFallback.sort((a, b) => b.sortKey - a.sortKey)[0] || null;
 }
 
 /**
@@ -304,6 +313,7 @@ export function pickChallengeFeedPreviousSummary(configEntries, nowMs, focusChal
 
 /**
  * Pick the next upcoming challenge for feed "Next" (sync; testable).
+ * Only listed (public) pre_submit challenges — drafts stay Organize-only.
  *
  * @param {{ msg: object, payload: object }[]} configEntries
  * @param {number} nowMs
@@ -323,7 +333,7 @@ export function pickChallengeFeedNextSummary(configEntries, nowMs, currentChalle
 			const cid = String(row?.challenge_id || '').trim();
 			if (!cid || cid === excludeId) return false;
 			const phase = deriveChallengePhase(row.effectivePayload, nowMs);
-			return phase === 'pre_submit';
+			return phase === 'pre_submit' && isChallengeListedForUpcoming(row.effectivePayload);
 		})
 		.sort((a, b) => {
 			const aStart = parseChallengeStartMs(a.effectivePayload);

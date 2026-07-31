@@ -1,4 +1,9 @@
 /**
+ * Always an organizer; never required in editable lists.
+ */
+export const IMPLIED_CHALLENGE_ORGANIZER = 'oceanman';
+
+/**
  * @param {unknown} raw
  */
 export function normalizeChallengeOrganizerUserNames(raw) {
@@ -10,6 +15,50 @@ export function normalizeChallengeOrganizerUserNames(raw) {
 		if (!u || seen.has(u)) continue;
 		seen.add(u);
 		out.push(u);
+	}
+	return out;
+}
+
+/**
+ * Drop the implied organizer so forms don't show / re-save them.
+ * @param {unknown} raw
+ */
+export function organizersWithoutImplied(raw) {
+	const implied = IMPLIED_CHALLENGE_ORGANIZER.toLowerCase();
+	return normalizeChallengeOrganizerUserNames(raw).filter((u) => u !== implied);
+}
+
+/**
+ * Ensure oceanman is present.
+ * @param {unknown} raw
+ */
+export function withImpliedChallengeOrganizer(raw) {
+	return normalizeChallengeOrganizerUserNames([IMPLIED_CHALLENGE_ORGANIZER, ...(Array.isArray(raw) ? raw : [])]);
+}
+
+/**
+ * Per-track editable lists (oceanman excluded). Falls back to legacy flat list.
+ * @param {object | null | undefined} globalPayload
+ * @returns {{ monthly: string[], weekly: string[], suno: string[] }}
+ */
+export function resolveOrganizersByTrackFromGlobalPayload(globalPayload) {
+	const payload = globalPayload && typeof globalPayload === 'object' ? globalPayload : {};
+	const legacy = organizersWithoutImplied(payload.organizer_user_names);
+	const byTrack =
+		payload.organizers_by_track && typeof payload.organizers_by_track === 'object'
+			? payload.organizers_by_track
+			: null;
+	/** @type {('monthly'|'weekly'|'suno')[]} */
+	const tracks = ['monthly', 'weekly', 'suno'];
+	/** @type {{ monthly: string[], weekly: string[], suno: string[] }} */
+	const out = { monthly: [], weekly: [], suno: [] };
+	for (const t of tracks) {
+		const raw = byTrack
+			? Array.isArray(byTrack[t])
+				? byTrack[t]
+				: []
+			: legacy;
+		out[t] = organizersWithoutImplied(raw);
 	}
 	return out;
 }
@@ -51,14 +100,18 @@ export function pickLatestChallengesGlobalConfig(messagesAsc) {
 }
 
 /**
+ * Union of all track organizers + implied oceanman (page access allowlist).
  * @param {object[]} messagesAsc chronological thread messages
  */
 export function resolveChallengeOrganizerAllowlistFromMessages(messagesAsc) {
 	const globalCfg = pickLatestChallengesGlobalConfig(messagesAsc);
-	if (globalCfg) {
-		return normalizeChallengeOrganizerUserNames(globalCfg.payload?.organizer_user_names);
-	}
-	return [];
+	if (!globalCfg) return withImpliedChallengeOrganizer([]);
+	const byTrack = resolveOrganizersByTrackFromGlobalPayload(globalCfg.payload);
+	return withImpliedChallengeOrganizer([
+		...byTrack.monthly,
+		...byTrack.weekly,
+		...byTrack.suno
+	]);
 }
 
 /**
@@ -68,10 +121,85 @@ export function resolveChallengeOrganizerAllowlistFromMessages(messagesAsc) {
 export function isChallengeChannelAdmin(viewerUserName, organizerUserNames) {
 	const u = typeof viewerUserName === 'string' ? viewerUserName.trim().toLowerCase() : '';
 	if (!u) return false;
-	const names = Array.isArray(organizerUserNames)
-		? normalizeChallengeOrganizerUserNames(organizerUserNames)
-		: [];
+	const names = withImpliedChallengeOrganizer(
+		Array.isArray(organizerUserNames) ? organizerUserNames : []
+	);
 	return new Set(names).has(u);
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {'monthly'|'weekly'|'suno'}
+ */
+function normalizeOrganizerTrackKey(raw) {
+	const s = String(raw || '')
+		.trim()
+		.toLowerCase();
+	if (s === 'weekly' || s === 'suno' || s === 'monthly') return s;
+	return 'monthly';
+}
+
+/**
+ * Whether the viewer may create/manage challenges of this track
+ * (oceanman implied on every track).
+ * @param {string | null | undefined} viewerUserName
+ * @param {{ monthly?: string[], weekly?: string[], suno?: string[] } | null | undefined} organizersByTrack
+ * @param {unknown} track
+ */
+export function viewerOrganizesTrack(viewerUserName, organizersByTrack, track) {
+	const u = typeof viewerUserName === 'string' ? viewerUserName.trim().toLowerCase() : '';
+	if (!u) return false;
+	const t = normalizeOrganizerTrackKey(track);
+	const by = organizersByTrack && typeof organizersByTrack === 'object' ? organizersByTrack : {};
+	const list = withImpliedChallengeOrganizer(Array.isArray(by[t]) ? by[t] : []);
+	return list.includes(u);
+}
+
+/**
+ * Tracks the viewer can set when creating or changing challenge type.
+ * @param {string | null | undefined} viewerUserName
+ * @param {{ monthly?: string[], weekly?: string[], suno?: string[] } | null | undefined} organizersByTrack
+ * @returns {('monthly'|'weekly'|'suno')[]}
+ */
+export function tracksViewerCanOrganize(viewerUserName, organizersByTrack) {
+	/** @type {('monthly'|'weekly'|'suno')[]} */
+	const tracks = ['monthly', 'weekly', 'suno'];
+	return tracks.filter((t) => viewerOrganizesTrack(viewerUserName, organizersByTrack, t));
+}
+
+/**
+ * Soft-deleted challenge (hidden from schedule; recoverable).
+ * @param {object | null | undefined} cfg
+ */
+export function isChallengeConfigSoftDeleted(cfg) {
+	if (!cfg || typeof cfg !== 'object') return false;
+	if (isChallengeConfigPurged(cfg)) return false;
+	if (cfg.deleted === true || cfg.deleted === 1) return true;
+	const v = cfg.deleted_at ?? cfg.deletedAt;
+	if (v == null) return false;
+	if (typeof v === 'string') return Boolean(v.trim());
+	return Boolean(v);
+}
+
+/**
+ * Permanently removed from organizer board (not shown in Deleted).
+ * @param {object | null | undefined} cfg
+ */
+export function isChallengeConfigPurged(cfg) {
+	if (!cfg || typeof cfg !== 'object') return false;
+	if (cfg.purged === true || cfg.purged === 1) return true;
+	const v = cfg.purged_at ?? cfg.purgedAt;
+	if (v == null) return false;
+	if (typeof v === 'string') return Boolean(v.trim());
+	return Boolean(v);
+}
+
+/**
+ * @param {string | null | undefined} viewerUserName
+ */
+export function isImpliedChallengeOrganizer(viewerUserName) {
+	const u = typeof viewerUserName === 'string' ? viewerUserName.trim().toLowerCase() : '';
+	return u === IMPLIED_CHALLENGE_ORGANIZER;
 }
 
 /**
@@ -197,6 +325,22 @@ export function pickChallengeResultsCreationUrl(cfg) {
 }
 
 /**
+ * Creation used when voting on the next challenge theme (`topic_vote_creation_url`).
+ * @param {object | null | undefined} cfg challenge_config payload
+ */
+export function pickChallengeTopicVoteCreationUrl(cfg) {
+	if (!cfg || typeof cfg !== 'object') return '';
+	const v =
+		cfg.topic_vote_creation_url ??
+		cfg.theme_vote_creation_url ??
+		cfg.topic_vote_url ??
+		cfg.next_theme_creation_url;
+	let s = typeof v === 'string' ? v.trim() : String(v ?? '').trim();
+	if (s.length > HERO_MEDIA_REF_MAX) s = s.slice(0, HERO_MEDIA_REF_MAX);
+	return s;
+}
+
+/**
  * @param {object | null | undefined} cfg challenge_config payload
  * @returns {string}
  */
@@ -215,7 +359,7 @@ export function pickChallengeResultsPublishedAt(cfg) {
  */
 export function mergeChallengeConfigFieldsForChallenge(configEntries, challengeId) {
 	const cid = String(challengeId || '').trim();
-	/** @type {{ results_creation_url?: string, results_published_at?: string }} */
+	/** @type {{ results_creation_url?: string, results_published_at?: string, topic_vote_creation_url?: string }} */
 	const out = {};
 	if (!cid) return out;
 	for (const row of configEntries || []) {
@@ -226,6 +370,8 @@ export function mergeChallengeConfigFieldsForChallenge(configEntries, challengeI
 		if (resultsUrl) out.results_creation_url = resultsUrl;
 		const publishedAt = pickChallengeResultsPublishedAt(p);
 		if (publishedAt) out.results_published_at = publishedAt;
+		const topicVote = pickChallengeTopicVoteCreationUrl(p);
+		if (topicVote) out.topic_vote_creation_url = topicVote;
 	}
 	return out;
 }
@@ -301,6 +447,48 @@ export function challengeConfigHasStructuredRewardFields(cfg) {
 		if (v != null && String(v).trim()) return true;
 	}
 	return false;
+}
+
+/**
+ * Whether a pre_submit challenge should appear on the public Challenges page.
+ * Explicit `listed: false` / null `listed_at` → draft (Organize only).
+ * Explicit `listed_at` timestamp → listed.
+ * Neither field present → legacy configs stay listed.
+ * @param {object | null | undefined} cfg
+ */
+export function isChallengeListedForUpcoming(cfg) {
+	if (!cfg || typeof cfg !== 'object') return false;
+	if (cfg.listed === false) return false;
+	if (Object.prototype.hasOwnProperty.call(cfg, 'listed_at')) {
+		const raw = cfg.listed_at;
+		if (raw == null || String(raw).trim() === '') return false;
+		return true;
+	}
+	if (cfg.listed === true) return true;
+	return true;
+}
+
+/**
+ * Mark config as unlisted draft (Organize only).
+ * @param {object} payload
+ */
+export function applyChallengeUnlisted(payload) {
+	if (!payload || typeof payload !== 'object') return payload;
+	payload.listed = false;
+	payload.listed_at = null;
+	return payload;
+}
+
+/**
+ * Mark config as listed upcoming (public Next challenge).
+ * @param {object} payload
+ * @param {string} [iso]
+ */
+export function applyChallengeListed(payload, iso) {
+	if (!payload || typeof payload !== 'object') return payload;
+	payload.listed = true;
+	payload.listed_at = iso || new Date().toISOString();
+	return payload;
 }
 
 export { REWARD_FIELD_KEYS };

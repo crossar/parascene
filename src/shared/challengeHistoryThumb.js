@@ -6,6 +6,12 @@ import {
 import { mergeFullChallengeConfigForChallenge, pickChallengeHeroImageUrl } from '../chat/challenges/challengeAdmin.js';
 import { extractChallengeEvents } from '../chat/challenges/model/extractEvents.js';
 import { fetchAllChatThreadMessages } from '../chat/challenges/model/buildChannelModel.js';
+import {
+	challengeHistoryThumbCacheKey,
+	isChallengeHistoryThumbCacheStale,
+	readChallengeHistoryThumbCache,
+	writeChallengeHistoryThumbCache
+} from './challengeHistoryThumbCache.js';
 
 /**
  * Same hero ref resolution as the Challenges pane history cards.
@@ -52,6 +58,7 @@ export function enrichChallengeHistoryThumbRefs(rootEl, configEntries) {
 }
 
 /**
+ * Prefer compact thumbnail URLs for small history / organize cards.
  * @param {object | null} data — GET /api/create/images/:id
  * @returns {string | null}
  */
@@ -64,84 +71,141 @@ function imageUrlFromCreationPayload(data) {
 	const url = typeof data.url === 'string' ? data.url.trim() : '';
 	const thumb =
 		typeof data.thumbnail_url === 'string' ? data.thumbnail_url.trim() : '';
+	// Card thumbs are ~72–160px: always prefer the thumbnail variant when present.
 	if (mediaType === 'video') {
 		return thumb || url || null;
 	}
-	return url || thumb || null;
+	return thumb || url || null;
+}
+
+/**
+ * @param {HTMLElement} wrap
+ * @param {HTMLImageElement} img
+ * @param {HTMLElement | null} fallback
+ * @param {string} src
+ * @param {{ keepOnError?: string | null }} [opts]
+ */
+function applyThumbSrc(wrap, img, fallback, src, opts) {
+	const keepOnError =
+		typeof opts?.keepOnError === 'string' && opts.keepOnError.trim()
+			? opts.keepOnError.trim()
+			: null;
+	if (fallback) fallback.hidden = true;
+	wrap.removeAttribute('data-challenge-history-thumb-pending');
+	img.hidden = false;
+	if (img.getAttribute('src') === src) {
+		if (img.complete && img.naturalWidth > 0) {
+			wrap.removeAttribute('data-challenge-history-thumb-pending');
+			img.hidden = false;
+		}
+		return;
+	}
+	img.addEventListener(
+		'error',
+		() => {
+			if (keepOnError) {
+				img.src = keepOnError;
+				img.hidden = false;
+				if (fallback) fallback.hidden = true;
+				return;
+			}
+			wrap.removeAttribute('data-challenge-history-thumb-pending');
+			img.removeAttribute('src');
+			img.hidden = true;
+			if (fallback) fallback.hidden = false;
+		},
+		{ once: true }
+	);
+	img.addEventListener(
+		'load',
+		() => {
+			if (img.naturalWidth > 0) {
+				wrap.removeAttribute('data-challenge-history-thumb-pending');
+				img.hidden = false;
+			}
+		},
+		{ once: true }
+	);
+	img.src = src;
+	if (img.complete && img.naturalWidth > 0) {
+		wrap.removeAttribute('data-challenge-history-thumb-pending');
+		img.hidden = false;
+	}
+}
+
+/**
+ * Resolve one pending thumb wrap (stale-then-refresh when a cached URL exists).
+ * @param {HTMLElement} wrap
+ */
+async function hydrateOneChallengeHistoryThumb(wrap) {
+	const raw = wrap.getAttribute('data-challenge-history-thumb-ref') || '';
+	const img = wrap.querySelector('[data-challenge-history-thumb-img]');
+	const fallbackEl = wrap.querySelector('[data-challenge-history-thumb-fallback]');
+	const fallback = fallbackEl instanceof HTMLElement ? fallbackEl : null;
+
+	const showFallback = () => {
+		wrap.removeAttribute('data-challenge-history-thumb-pending');
+		if (img instanceof HTMLImageElement) {
+			img.removeAttribute('src');
+			img.hidden = true;
+		}
+		if (fallback) fallback.hidden = false;
+	};
+
+	if (!(img instanceof HTMLImageElement)) {
+		showFallback();
+		return;
+	}
+
+	const challengeId = wrap.getAttribute('data-challenge-id') || '';
+	const cacheKey = challengeHistoryThumbCacheKey(raw, challengeId);
+	const cached = cacheKey ? readChallengeHistoryThumbCache(cacheKey) : null;
+	let paintedFromCache = false;
+	let cachedUrl = '';
+
+	if (cached?.url) {
+		cachedUrl = cached.url;
+		applyThumbSrc(wrap, img, fallback, cachedUrl);
+		paintedFromCache = true;
+		if (!isChallengeHistoryThumbCacheStale(cached.cachedAt)) {
+			return;
+		}
+	}
+
+	let src = null;
+	const challengeOpts = challengeId ? { challengeId } : null;
+	const cref = parseHeroCreationOrShareRef(raw);
+	if (cref?.kind === 'creation') {
+		const data = await fetchCreationEmbedPayload(cref.creationId, cref.shareOpts, challengeOpts);
+		src = imageUrlFromCreationPayload(data);
+	} else {
+		src = parseHeroDirectMediaUrl(raw);
+	}
+
+	if (!src) {
+		if (!paintedFromCache) showFallback();
+		return;
+	}
+
+	if (cacheKey) writeChallengeHistoryThumbCache(cacheKey, src);
+
+	if (paintedFromCache && img.getAttribute('src') === src) return;
+	applyThumbSrc(wrap, img, fallback, src, {
+		keepOnError: paintedFromCache ? cachedUrl : null
+	});
 }
 
 /**
  * Resolve challenge history card media refs inside a root element.
+ * Fetches in parallel; paints cached URLs immediately (stale-then-refresh).
  * @param {Element | null | undefined} rootEl
  */
 export async function hydrateChallengeHistoryThumbnails(rootEl) {
 	const wraps = Array.from(
 		rootEl?.querySelectorAll?.('[data-challenge-history-thumb-pending]') || []
-	);
-	for (const wrap of wraps) {
-		if (!(wrap instanceof HTMLElement)) continue;
-		const raw = wrap.getAttribute('data-challenge-history-thumb-ref') || '';
-		const img = wrap.querySelector('[data-challenge-history-thumb-img]');
-		const fallback = wrap.querySelector('[data-challenge-history-thumb-fallback]');
-
-		const showFallback = () => {
-			wrap.removeAttribute('data-challenge-history-thumb-pending');
-			if (img instanceof HTMLImageElement) {
-				img.removeAttribute('src');
-				img.hidden = true;
-			}
-			if (fallback instanceof HTMLElement) {
-				fallback.hidden = false;
-			}
-		};
-
-		if (!(img instanceof HTMLImageElement)) {
-			showFallback();
-			continue;
-		}
-
-		let src = null;
-		const challengeId = wrap.getAttribute('data-challenge-id') || '';
-		const challengeOpts = challengeId ? { challengeId } : null;
-		const cref = parseHeroCreationOrShareRef(raw);
-		if (cref?.kind === 'creation') {
-			const data = await fetchCreationEmbedPayload(cref.creationId, cref.shareOpts, challengeOpts);
-			src = imageUrlFromCreationPayload(data);
-		} else {
-			src = parseHeroDirectMediaUrl(raw);
-		}
-
-		if (!src) {
-			showFallback();
-			continue;
-		}
-
-		if (fallback instanceof HTMLElement) fallback.hidden = true;
-		wrap.removeAttribute('data-challenge-history-thumb-pending');
-		img.hidden = false;
-		img.addEventListener(
-			'error',
-			() => {
-				showFallback();
-			},
-			{ once: true }
-		);
-		img.addEventListener(
-			'load',
-			() => {
-				if (img.naturalWidth > 0) {
-					wrap.removeAttribute('data-challenge-history-thumb-pending');
-					img.hidden = false;
-				}
-			},
-			{ once: true }
-		);
-		img.src = src;
-		if (img.complete && img.naturalWidth > 0) {
-			wrap.removeAttribute('data-challenge-history-thumb-pending');
-			img.hidden = false;
-		}
-	}
+	).filter((el) => el instanceof HTMLElement);
+	if (!wraps.length) return;
+	await Promise.all(wraps.map((wrap) => hydrateOneChallengeHistoryThumb(wrap)));
 }
 
 /**

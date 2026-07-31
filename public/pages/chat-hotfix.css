@@ -1145,6 +1145,92 @@ button.chat-inline-image-lightbox-footer-btn.btn-secondary {
  * Desktop: force thread header above feed/embed chrome even when /build/chat.bundle.css is stale.
  * chat.html loads this sheet after the bundle — carousel arrows + zoom pseudo-elements stay underneath.
  */
+/* Organizer modals mount in messages; raise thread pane above mobile chrome (z-index 45). */
+html.chat-page body.chat-page.chat-page--challenges-organizer-modal-open .chat-page-thread-pane {
+	position: relative;
+	z-index: 50;
+}
+
+html.chat-page body.chat-page.chat-page--challenges-organize .chat-page-mobile-chrome-caret {
+	display: none !important;
+}
+
+/* In-pane Organize CTA (matches Vote hero size; quiet outline) */
+html.chat-page body.chat-page .challenge-pane-organize-entry {
+	margin-top: -8px;
+	margin-bottom: 16px;
+}
+
+html.chat-page body.chat-page .challenge-pane-organize-entry-btn {
+	box-sizing: border-box;
+	width: 100%;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	padding: 14px 22px;
+	font-size: 1.0625rem;
+	font-weight: 600;
+	line-height: 1.2;
+	text-decoration: none;
+	color: var(--text-muted);
+	border: 1px solid color-mix(in srgb, var(--border) 85%, var(--text) 15%);
+	border-radius: 12px;
+	cursor: pointer;
+	appearance: none;
+	-webkit-appearance: none;
+	background: transparent;
+	box-shadow: none;
+	transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+html.chat-page body.chat-page .challenge-pane-organize-entry-btn:hover {
+	color: var(--text);
+	background: color-mix(in srgb, var(--text) 4%, transparent);
+	border-color: color-mix(in srgb, var(--border) 55%, var(--text) 45%);
+}
+
+html.chat-page body.chat-page .challenge-pane-organize-entry-btn:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--accent, #5eead4) 55%, transparent);
+	outline-offset: 3px;
+}
+
+html.chat-page body.chat-page.chat-page--challenges-organizer-modal-open .chat-page-mobile-chrome {
+	z-index: 40;
+}
+
+html.chat-page body.chat-page .chat-page-header-title-text--breadcrumb {
+	display: inline-flex;
+	align-items: center;
+	gap: 0;
+	min-width: 0;
+	overflow: hidden;
+}
+
+html.chat-page body.chat-page .chat-page-header-breadcrumb-link {
+	color: var(--text-muted);
+	text-decoration: none;
+	font-weight: 500;
+}
+
+html.chat-page body.chat-page .chat-page-header-breadcrumb-link:hover,
+html.chat-page body.chat-page .chat-page-header-breadcrumb-link:focus-visible {
+	color: var(--text);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+html.chat-page body.chat-page .chat-page-header-breadcrumb-sep {
+	margin: 0 0.4em;
+	color: var(--text-muted);
+	font-weight: 400;
+}
+
+html.chat-page body.chat-page .chat-page-header-breadcrumb-current {
+	color: var(--text);
+	font-weight: 600;
+}
+
 @media (min-width: 769px) {
 	html.chat-page body.chat-page .chat-page-thread-body {
 		isolation: isolate;
@@ -1174,6 +1260,15 @@ button.chat-inline-image-lightbox-footer-btn.btn-secondary {
 	html.chat-page body.chat-page .chat-page-thread-body > .chat-page-messages {
 		position: relative !important;
 		z-index: 0 !important;
+	}
+
+	/* Organize / challenge organizer modals live inside messages; lift above sticky topbar. */
+	html.chat-page body.chat-page.chat-page--challenges-organizer-modal-open .chat-page-thread-body > .chat-page-messages {
+		z-index: 3 !important;
+	}
+
+	html.chat-page body.chat-page.chat-page--challenges-organizer-modal-open .chat-page-thread-body > header.chat-page-topbar {
+		z-index: 1 !important;
 	}
 
 	html.chat-page body.chat-page .chat-page-thread-body:has(> .chat-page-pinned-banner:not([hidden])) > .chat-page-messages {
@@ -2133,12 +2228,22 @@ body.chat-page #chat-doom-scroll-overlay video.chat-doom-video::-webkit-media-co
 }
 
 /*
- * Organizer edit modal: stale chat.bundle.css kept the form at flex:1 + min-height:0, so the
- * scroll area ended at the viewport edge and bottom padding never appeared. hotfix loads after bundle.
+ * Organizer edit modal: form fills the panel; fields scroll; Delete/Save stay pinned at the bottom.
+ * hotfix loads after bundle so it wins over stale chat.bundle.css.
  */
 .challenge-pane-organizer-modal-body .challenge-pane-admin-config-form {
-	flex: 0 0 auto !important;
-	min-height: auto !important;
+	flex: 1 1 auto !important;
+	min-height: 0 !important;
+	display: flex !important;
+	flex-direction: column !important;
+}
+
+.challenge-pane-admin-form-main {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
 }
 
 .challenge-pane-admin-form-footer {
@@ -2146,7 +2251,12 @@ body.chat-page #chat-doom-scroll-overlay video.chat-doom-video::-webkit-media-co
 	flex-direction: column;
 	gap: 12px;
 	flex-shrink: 0;
-	padding-bottom: 24px;
+	margin-top: auto;
+	margin-left: -20px;
+	margin-right: -20px;
+	padding: 14px 20px max(20px, env(safe-area-inset-bottom, 0px));
+	border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+	background: var(--surface);
 }
 
 .challenge-pane-organizer-modal-body .challenge-pane-admin-form-footer > .challenge-pane-admin-submit {
@@ -2154,8 +2264,10 @@ body.chat-page #chat-doom-scroll-overlay video.chat-doom-video::-webkit-media-co
 }
 
 .chat-page-challenges-organizer-modal-panel .challenge-pane-organizer-modal-body {
-	padding-bottom: 24px;
-	scroll-padding-bottom: 24px;
+	overflow: hidden;
+	padding-bottom: 0;
+	display: flex;
+	flex-direction: column;
 }
 
 /* Minimal header dismiss (Settings modal pattern) — hotfix when chat.bundle.css lags global.css. */

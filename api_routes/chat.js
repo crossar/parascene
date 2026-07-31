@@ -10,10 +10,22 @@ import { getShareBaseUrl } from "./utils/url.js";
 import { ACTIVE_SHARE_VERSION, mintShareToken } from "./utils/shareLink.js";
 import { removeJoinedPrivateChannelInviteDmMessages } from "./utils/chatInviteCleanup.js";
 import {
-	resolveChallengeOrganizerAllowlistFromMessages
+	resolveChallengeOrganizerAllowlistFromMessages,
+	resolveOrganizersByTrackFromGlobalPayload,
+	pickLatestChallengesGlobalConfigPayload,
+	viewerOrganizesTrack,
+	fetchThreadMessagesChronological,
+	findChallengesChannelThreadId
 } from "./utils/challengeSubmitShared.js";
 import {
-	collectChatMiscGenericKeysFromMessageBody,
+	loadEditorialPinPolicyDocument,
+	parseEditorialPinPolicyDocument,
+	serializeEditorialPinPolicyDocument,
+	validateEditorialPinPolicyDocument,
+	FEED_EDITORIAL_PINS_POLICY_KEY
+} from "./feed/editorialPinPolicy.js";
+import { bumpFeedVersionCounter } from "./feed/feedVersion.js";
+import { collectChatMiscGenericKeysFromMessageBody,
 	isChatMiscGenericKeyOwnedByUser
 } from "./utils/chatMiscGenericKeys.js";
 import { canvasBodyMarkdownToSafeHtml } from "./utils/canvasBodyHtml.js";
@@ -625,7 +637,7 @@ export default function createChatRoutes({ queries, storage }) {
 		return `${CHAT_PRIVATE_BODY_PREFIX}${nextCipher}`;
 	}
 
-	async function validateAndNormalizeChallengesGlobalConfigBody(sb, threadRow, bodyRaw) {
+	async function validateAndNormalizeChallengesGlobalConfigBody(sb, threadRow, bodyRaw, userId) {
 		const body = typeof bodyRaw === "string" ? bodyRaw : "";
 		const parsed = tryParseChallengeJsonBody(body);
 		const kind = String(parsed?.kind || "").trim();
@@ -642,38 +654,158 @@ export default function createChatRoutes({ queries, storage }) {
 				message: "challenges_global_config can only be posted in #challenges."
 			};
 		}
-		const organizerUserNames = normalizeOrganizerUserNamesList(parsed?.organizer_user_names);
-		if (organizerUserNames.length === 0) {
+		const viewerProfile =
+			typeof queries?.selectUserProfileByUserId?.get === "function"
+				? await queries.selectUserProfileByUserId.get(userId).catch(() => null)
+				: null;
+		const viewerUserName =
+			typeof viewerProfile?.user_name === "string"
+				? viewerProfile.user_name.trim().toLowerCase()
+				: "";
+		if (viewerUserName !== "oceanman") {
 			return {
 				ok: false,
-				status: 400,
-				message: "Challenge Organizer Team must include at least one valid username."
+				status: 403,
+				message: "Only oceanman can edit challenge organizer settings."
 			};
 		}
-		const { data: rows, error } = await sb
-			.from("prsn_user_profiles")
-			.select("user_name")
-			.in("user_name", organizerUserNames);
-		if (error) throw error;
-		const existing = new Set(
-			(Array.isArray(rows) ? rows : [])
-				.map((row) => (typeof row?.user_name === "string" ? row.user_name.trim().toLowerCase() : ""))
-				.filter(Boolean)
-		);
-		const missing = organizerUserNames.filter((u) => !existing.has(u));
-		if (missing.length > 0) {
-			return {
-				ok: false,
-				status: 400,
-				message: `Unknown usernames in Challenge Organizer Team: ${missing.join(", ")}`
-			};
+		const implied = "oceanman";
+		const withoutImplied = (raw) =>
+			normalizeOrganizerUserNamesList(raw).filter((u) => u !== implied);
+		const byTrackRaw =
+			parsed?.organizers_by_track && typeof parsed.organizers_by_track === "object"
+				? parsed.organizers_by_track
+				: null;
+		const legacy = withoutImplied(parsed?.organizer_user_names);
+		const organizersByTrack = {
+			monthly: withoutImplied(
+				byTrackRaw
+					? Array.isArray(byTrackRaw.monthly)
+						? byTrackRaw.monthly
+						: []
+					: legacy
+			),
+			weekly: withoutImplied(
+				byTrackRaw
+					? Array.isArray(byTrackRaw.weekly)
+						? byTrackRaw.weekly
+						: []
+					: legacy
+			),
+			suno: withoutImplied(
+				byTrackRaw ? (Array.isArray(byTrackRaw.suno) ? byTrackRaw.suno : []) : legacy
+			)
+		};
+		const organizerUserNames = normalizeOrganizerUserNamesList([
+			...organizersByTrack.monthly,
+			...organizersByTrack.weekly,
+			...organizersByTrack.suno
+		]);
+		if (organizerUserNames.length > 0) {
+			const { data: rows, error } = await sb
+				.from("prsn_user_profiles")
+				.select("user_name")
+				.in("user_name", organizerUserNames);
+			if (error) throw error;
+			const existing = new Set(
+				(Array.isArray(rows) ? rows : [])
+					.map((row) =>
+						typeof row?.user_name === "string" ? row.user_name.trim().toLowerCase() : ""
+					)
+					.filter(Boolean)
+			);
+			const missing = organizerUserNames.filter((u) => !existing.has(u));
+			if (missing.length > 0) {
+				return {
+					ok: false,
+					status: 400,
+					message: `Unknown usernames in Challenge Organizer Team: ${missing.join(", ")}`
+				};
+			}
 		}
 		const normalizedPayload = {
 			...parsed,
 			kind: "challenges_global_config",
+			organizers_by_track: organizersByTrack,
 			organizer_user_names: organizerUserNames
 		};
 		return { ok: true, body: JSON.stringify(normalizedPayload) };
+	}
+
+	/**
+	 * Ensure the viewer may set `track` on challenge_config (create, or when changing type).
+	 * @param {import("@supabase/supabase-js").SupabaseClient} sb
+	 * @param {object | null | undefined} threadRow
+	 * @param {number} userId
+	 * @param {string} bodyRaw
+	 * @param {string | null | undefined} [previousBody] prior message body when patching
+	 */
+	async function validateChallengeConfigOrganizerTrack(
+		sb,
+		threadRow,
+		userId,
+		bodyRaw,
+		previousBody
+	) {
+		const parsed = tryParseChallengeJsonBody(bodyRaw);
+		const kind = String(parsed?.kind || "").trim();
+		if (kind !== "challenge_config") {
+			return { ok: true, body: bodyRaw };
+		}
+		const isChallengesThread =
+			threadRow?.type === "channel" &&
+			String(threadRow?.channel_slug || "").trim().toLowerCase() === "challenges";
+		if (!isChallengesThread) {
+			return { ok: true, body: bodyRaw };
+		}
+		const nextRaw = String(parsed?.track || "monthly")
+			.trim()
+			.toLowerCase();
+		const nextTrack =
+			nextRaw === "weekly" || nextRaw === "suno" || nextRaw === "monthly" ? nextRaw : "monthly";
+		const prevParsed = tryParseChallengeJsonBody(previousBody);
+		const prevRaw =
+			prevParsed && String(prevParsed.kind || "").trim() === "challenge_config"
+				? String(prevParsed.track || "monthly")
+						.trim()
+						.toLowerCase()
+				: "";
+		const prevTrack =
+			prevRaw === "weekly" || prevRaw === "suno" || prevRaw === "monthly" ? prevRaw : "";
+		const trackUnchanged = Boolean(prevTrack) && prevTrack === nextTrack;
+		if (trackUnchanged) {
+			return { ok: true, body: bodyRaw };
+		}
+		const viewerProfile =
+			typeof queries?.selectUserProfileByUserId?.get === "function"
+				? await queries.selectUserProfileByUserId.get(userId).catch(() => null)
+				: null;
+		const viewerUserName =
+			typeof viewerProfile?.user_name === "string"
+				? viewerProfile.user_name.trim().toLowerCase()
+				: "";
+		if (!viewerUserName) {
+			return {
+				ok: false,
+				status: 403,
+				message: "Username required to save challenge config."
+			};
+		}
+		const tid = Number(threadRow?.id);
+		const messages =
+			Number.isFinite(tid) && tid > 0
+				? await fetchThreadMessagesChronological(sb, tid)
+				: [];
+		const globalCfg = pickLatestChallengesGlobalConfigPayload(messages);
+		const byTrack = resolveOrganizersByTrackFromGlobalPayload(globalCfg?.payload);
+		if (!viewerOrganizesTrack(viewerUserName, byTrack, nextTrack)) {
+			return {
+				ok: false,
+				status: 403,
+				message: "You can only set the challenge type to a type you organize."
+			};
+		}
+		return { ok: true, body: bodyRaw };
 	}
 
 	async function setUserPrivateKeyForThread(sb, userId, threadId, secretK) {
@@ -2234,6 +2366,102 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 		}
 	});
 
+	/**
+	 * POST /api/chat/challenges/organize/pins — challenge organizers upsert a timed editorial pin.
+	 * Body: { kind: 'open'|'winners', challenge_id, created_image_id, title? }
+	 */
+	router.post("/api/chat/challenges/organize/pins", async (req, res) => {
+		const userId = requireUser(req, res);
+		if (userId == null) return;
+		const sb = getSb(res);
+		if (!sb) return;
+
+		try {
+			const profile =
+				typeof queries?.selectUserProfileByUserId?.get === "function"
+					? await queries.selectUserProfileByUserId.get(userId)
+					: null;
+			const viewerUserName =
+				typeof profile?.user_name === "string" ? profile.user_name.trim().toLowerCase() : "";
+			if (!viewerUserName) {
+				return res.status(403).json({ error: "Forbidden", message: "Username required" });
+			}
+
+			const challengesTid = await findChallengesChannelThreadId(sb);
+			if (!Number.isFinite(Number(challengesTid)) || Number(challengesTid) <= 0) {
+				return res.status(404).json({ error: "Not found", message: "Challenges channel missing" });
+			}
+			const messages = await fetchThreadMessagesChronological(sb, Number(challengesTid));
+			const allow = resolveChallengeOrganizerAllowlistFromMessages(messages);
+			if (!new Set(allow).has(viewerUserName)) {
+				return res.status(403).json({ error: "Forbidden", message: "Not a challenge organizer" });
+			}
+
+			const body = req.body && typeof req.body === "object" ? req.body : {};
+			const kind = String(body.kind || "open").trim().toLowerCase();
+			const challengeId = String(body.challenge_id || body.challengeId || "").trim();
+			const createdImageId = Number(body.created_image_id ?? body.createdImageId);
+			if (!challengeId) {
+				return res.status(400).json({ error: "Bad request", message: "challenge_id required" });
+			}
+			if (!Number.isFinite(createdImageId) || createdImageId <= 0) {
+				return res.status(400).json({
+					error: "Bad request",
+					message: "created_image_id required (promo / winners creation)"
+				});
+			}
+			if (!queries.upsertPolicyKey?.run) {
+				return res.status(500).json({ error: "Policy storage unavailable." });
+			}
+
+			const doc = await loadEditorialPinPolicyDocument(queries);
+			const pinId = `challenge-${kind}-${challengeId}`;
+			const now = Date.now();
+			const startsAt = new Date(now).toISOString();
+			const untilMs = kind === "winners" ? now + 14 * 86400000 : now + 7 * 86400000;
+			const until = new Date(untilMs).toISOString();
+			const nextPin = {
+				id: pinId,
+				created_image_id: createdImageId,
+				enabled: true,
+				starts_at: startsAt,
+				until,
+				show_metadata: true,
+				extra_spacing: true,
+				surfaces: ["all"],
+				inject: {
+					slot: "min_index",
+					respect_challenge: true,
+					after_challenge_offset: 2
+				}
+			};
+			const pins = Array.isArray(doc.pins) ? [...doc.pins] : [];
+			const idx = pins.findIndex((p) => String(p?.id || "") === pinId);
+			if (idx >= 0) pins[idx] = { ...pins[idx], ...nextPin };
+			else pins.push(nextPin);
+
+			const parsed = parseEditorialPinPolicyDocument({
+				defaults: doc.defaults,
+				pins
+			});
+			const validated = validateEditorialPinPolicyDocument(parsed);
+			if (!validated.ok) {
+				return res.status(400).json({ error: validated.error });
+			}
+			const serialized = serializeEditorialPinPolicyDocument(validated.document);
+			await queries.upsertPolicyKey.run(
+				FEED_EDITORIAL_PINS_POLICY_KEY,
+				serialized,
+				"Sitewide editorial feed pins: inject creations on page 1 with placement and display knobs."
+			);
+			await bumpFeedVersionCounter(queries);
+			return res.status(200).json({ ok: true, pin: nextPin, document: validated.document });
+		} catch (err) {
+			console.error("[POST /api/chat/challenges/organize/pins]", err);
+			return res.status(500).json({ error: "Server error", message: err?.message || "Failed" });
+		}
+	});
+
 	// GET /api/chat/threads/:threadId/challenges/:challengeId/stats
 	router.get("/api/chat/threads/:threadId/challenges/:challengeId/stats", async (req, res) => {
 		const userId = requireUser(req, res);
@@ -2491,15 +2719,32 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			const globalConfigBodyResult = await validateAndNormalizeChallengesGlobalConfigBody(
 				sb,
 				threadRow,
-				body
+				body,
+				userId
 			);
 			if (!globalConfigBodyResult.ok) {
-				return res.status(globalConfigBodyResult.status || 400).json({
-					error: "Bad request",
+				const status = globalConfigBodyResult.status || 400;
+				return res.status(status).json({
+					error: status === 403 ? "Forbidden" : "Bad request",
 					message: globalConfigBodyResult.message || "Invalid challenges global config"
 				});
 			}
 			body = globalConfigBodyResult.body;
+
+			const challengeTrackResult = await validateChallengeConfigOrganizerTrack(
+				sb,
+				threadRow,
+				userId,
+				body,
+				null
+			);
+			if (!challengeTrackResult.ok) {
+				return res.status(challengeTrackResult.status || 403).json({
+					error: "Forbidden",
+					message: challengeTrackResult.message || "Not allowed for this challenge type"
+				});
+			}
+			body = challengeTrackResult.body;
 
 			body = await normalizeBodyForThreadStorage(sb, threadRow, userId, body);
 			if (body.length > MAX_MESSAGE_CHARS) {
@@ -3119,19 +3364,35 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				const globalConfigBodyResult = await validateAndNormalizeChallengesGlobalConfigBody(
 					sb,
 					threadRow,
-					b
+					b,
+					userId
 				);
 				if (!globalConfigBodyResult.ok) {
-					return res.status(globalConfigBodyResult.status || 400).json({
-						error: "Bad request",
+					const status = globalConfigBodyResult.status || 400;
+					return res.status(status).json({
+						error: status === 403 ? "Forbidden" : "Bad request",
 						message: globalConfigBodyResult.message || "Invalid challenges global config"
+					});
+				}
+				const challengeTrackResult = await validateChallengeConfigOrganizerTrack(
+					sb,
+					threadRow,
+					userId,
+					globalConfigBodyResult.body,
+					msg.body != null ? String(msg.body) : null
+				);
+				if (!challengeTrackResult.ok) {
+					return res.status(challengeTrackResult.status || 403).json({
+						error: "Forbidden",
+						message:
+							challengeTrackResult.message || "Not allowed for this challenge type"
 					});
 				}
 				newBody = await normalizeBodyForThreadStorage(
 					sb,
 					threadRow,
 					userId,
-					globalConfigBodyResult.body
+					challengeTrackResult.body
 				);
 				if (newBody.length > MAX_MESSAGE_CHARS) {
 					return res.status(400).json({

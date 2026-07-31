@@ -8,6 +8,7 @@ export function challengePhaseDisplayLabel(phase) {
 	if (phase === 'submit_and_vote') return 'Open for submissions & voting';
 	if (phase === 'finalizing') return 'Finalizing (winners soon)';
 	if (phase === 'results') return 'Winners announced';
+	if (phase === 'deleted') return 'Deleted';
 	const s = String(phase || '').replace(/_/g, ' ');
 	return s || '—';
 }
@@ -18,6 +19,13 @@ export function challengePhaseDisplayLabel(phase) {
  */
 export function deriveChallengePhase(cfg, nowMs) {
 	if (!cfg) return 'empty';
+	if (cfg.purged === true || cfg.purged === 1) return 'purged';
+	const purgedAt = cfg.purged_at ?? cfg.purgedAt;
+	if (purgedAt != null && String(purgedAt).trim()) return 'purged';
+	if (cfg.deleted === true || cfg.deleted === 1) return 'deleted';
+	const deletedAt = cfg.deleted_at ?? cfg.deletedAt;
+	if (deletedAt != null && String(deletedAt).trim()) return 'deleted';
+
 	const subStart =
 		parseIso(cfg.submission_start_at) ??
 		parseIso(cfg.start_at) ??

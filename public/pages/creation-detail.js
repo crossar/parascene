@@ -5237,8 +5237,9 @@ async function loadCreation() {
 				const v = getAssetVersionParam();
 				const qs = getImportQuery(v);
 				const ctxMod = await import(`/shared/challengeSubmitContext.js${qs}`);
+				const ctx = ctxMod.readChallengeSubmitContext?.() || null;
 				const fromApi = Number(lastCreationMeta?.challenge_submit?.thread_id);
-				const fromCtx = Number(ctxMod.readChallengeSubmitContext?.()?.threadId);
+				const fromCtx = Number(ctx?.threadId);
 				const tid =
 					Number.isFinite(fromApi) && fromApi > 0
 						? fromApi
@@ -5255,11 +5256,23 @@ async function loadCreation() {
 					}
 					return;
 				}
+				const fromApiChallenge =
+					typeof lastCreationMeta?.challenge_submit?.challenge_id === 'string'
+						? lastCreationMeta.challenge_submit.challenge_id.trim()
+						: '';
+				const fromCtxChallenge =
+					typeof ctx?.challengeId === 'string' ? ctx.challengeId.trim() : '';
+				const challengeSubmitChallengeId = fromApiChallenge || fromCtxChallenge || '';
 				const res = await fetch(`/api/create/images/${creationId}/challenge-submit`, {
 					method: 'POST',
 					credentials: 'include',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ thread_id: tid })
+					body: JSON.stringify({
+						thread_id: tid,
+						...(challengeSubmitChallengeId
+							? { challenge_id: challengeSubmitChallengeId }
+							: {})
+					})
 				});
 				const data = await res.json().catch(() => ({}));
 				if (!res.ok) {

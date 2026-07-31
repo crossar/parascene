@@ -14,6 +14,8 @@ function clearLogoutSideEffects() {
 		window.localStorage?.removeItem('credits-last-claim');
 		window.localStorage?.removeItem('profile-avatar-url');
 		window.localStorage?.removeItem('prsn-chat-threads-v1');
+		window.localStorage?.removeItem('prsn-challenges-organize-v1');
+		window.localStorage?.removeItem('prsn-challenge-history-thumbs-v1');
 		window.sessionStorage?.removeItem('prsn-chat-sidebar-roster-v1');
 		if (typeof clearChatAudibleNotificationsStorage === 'function') {
 			clearChatAudibleNotificationsStorage();

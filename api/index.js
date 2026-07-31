@@ -171,6 +171,23 @@ app.use(
 	})
 );
 
+// Local/dev: serve `src/` as ESM so pages can load without a Rollup rebuild when
+// chat/challenges-organize bundles are missing (e.g. rollup not installed).
+if (!process.env.VERCEL) {
+	app.use(
+		"/@src",
+		express.static(path.join(__dirname, "..", "src"), {
+			index: false,
+			fallthrough: false,
+			setHeaders(res, filePath) {
+				if (filePath.endsWith(".js")) {
+					res.setHeader("Content-Type", "text/javascript; charset=utf-8");
+				}
+			}
+		})
+	);
+}
+
 // Analytics overview report — DEV ONLY, unauthenticated, local-only.
 // Served at http://localhost:2367/reports/. Never mounted in production (Vercel).
 // The report app (scripts/analytics/overview) uses ES modules and fetches the

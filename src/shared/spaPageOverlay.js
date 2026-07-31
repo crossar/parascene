@@ -176,7 +176,7 @@ function isOverlayLanePath(pathname) {
 	if (p === '/create') {
 		return Boolean(window.history?.state?.[HISTORY_FLAG]);
 	}
-	if (p === '/' || p === '/index.html' || p === '/feed' || p === '/explore' || p === '/creations' || p === '/challenges') {
+	if (p === '/' || p === '/index.html' || p === '/feed' || p === '/explore' || p === '/creations' || p === '/challenges' || p === '/challenges/organize') {
 		return true;
 	}
 	if (/^\/chat\/c\/(feed|explore|creations|comments)(\/|$)/.test(p)) return true;
@@ -665,7 +665,7 @@ export function routeSpaPageOverlayFromEmbed(href, options = {}) {
 		return;
 	}
 
-	if (path === '/creations' || path === '/feed' || path === '/explore' || path === '/challenges') {
+	if (path === '/creations' || path === '/feed' || path === '/explore' || path === '/challenges' || path === '/challenges/organize') {
 		dismissEntireSpaPageOverlay();
 		return;
 	}

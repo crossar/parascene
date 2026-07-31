@@ -3,7 +3,8 @@ import { summarizeLatestChallengeConfigs } from '../model/organizerSummaries.js'
 import {
 	mergeFullChallengeConfigForChallenge,
 	pickChallengeConfigTimestamp,
-	pickChallengeHeroImageUrl
+	pickChallengeHeroImageUrl,
+	isChallengeListedForUpcoming
 } from '../challengeAdmin.js';
 import { deriveChallengePhase } from '../model/phases.js';
 import { ACTIVE_PARTICIPANT_PHASES } from '../model/participantSlice.js';
@@ -122,7 +123,8 @@ function pickNextChallengeSummary(configs = [], opts = {}) {
 		const cid = typeof s.challenge_id === 'string' ? s.challenge_id.trim() : '';
 		if (excludeChallengeId && cid === excludeChallengeId) return false;
 		const phase = deriveChallengePhase(s.payload, Date.now());
-		return phase === 'pre_submit';
+		if (phase !== 'pre_submit') return false;
+		return isChallengeListedForUpcoming(s.payload);
 	});
 	if (!upcoming.length) return null;
 	upcoming.sort((a, b) => {
@@ -152,7 +154,7 @@ function renderChallengeHistoryCards(configs = [], opts = {}) {
 			typeof s.challenge_id === 'string' ? s.challenge_id.trim() : '';
 		const effectivePayload = effectiveChallengePayload(configs, s.payload, challengeId);
 		const phase = deriveChallengePhase(effectivePayload, Date.now());
-		if (phase === 'pre_submit') return false;
+		if (phase === 'pre_submit' || phase === 'deleted' || phase === 'purged') return false;
 		if (ACTIVE_PARTICIPANT_PHASES.has(phase)) return false;
 		return true;
 	}).sort((a, b) => {

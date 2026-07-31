@@ -3545,6 +3545,12 @@ export default function createCreateRoutes({ queries, storage }) {
 			return res.status(400).json({ error: "thread_id required" });
 		}
 		const noteRaw = req.body?.note;
+		const requestedChallengeId =
+			req.body?.challenge_id != null
+				? String(req.body.challenge_id).trim()
+				: req.body?.challengeId != null
+					? String(req.body.challengeId).trim()
+					: "";
 
 		const sb = getSupabaseServiceClient();
 		if (!sb) {
@@ -3579,7 +3585,8 @@ export default function createCreateRoutes({ queries, storage }) {
 				creationId: imageId,
 				meta,
 				threadId,
-				note: noteRaw
+				note: noteRaw,
+				challengeId: requestedChallengeId || undefined
 			});
 			if (!v.ok) {
 				return res.status(v.status).json({ error: v.message });

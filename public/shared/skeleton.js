@@ -200,28 +200,55 @@ export function renderServerCardsSkeleton(count = 4) {
 }
 
 /**
- * Chat #challenges pane — title + badge, hero image, Vote, two time lines, Details, Reward.
+ * Chat #challenges pane — a few large blobs (no diagrammed fields).
  * @returns {string} HTML skeleton (wrap in `.challenge-pane-root` in chat messages column)
  */
 export function renderChallengePaneSkeleton() {
 	return `<div class="challenge-pane-skeleton" aria-hidden="true">
-		<div class="challenge-pane-skeleton-head">
-			${skeletonLine('78%', 'skeleton-line--short')}
-			${skeletonPill('min(240px, 72%)', 28)}
-		</div>
+		<span class="skeleton skeleton-line challenge-pane-skeleton-blob-title" style="width: 56%;" aria-hidden="true"></span>
 		<div class="challenge-pane-skeleton-strip"></div>
-		<div class="challenge-pane-skeleton-vote">${skeletonPill('100%', 48)}</div>
-		<div class="challenge-pane-skeleton-times">${skeletonLine('96%')}</div>
-		<div class="challenge-pane-skeleton-block">
-			${skeletonLine('22%', 'skeleton-line--short')}
-			${skeletonLine('100%')}
-			${skeletonLine('94%')}
-			${skeletonLine('62%', 'skeleton-line--medium')}
-		</div>
-		<div class="challenge-pane-skeleton-block">
-			${skeletonLine('18%', 'skeleton-line--short')}
-			${skeletonLine('86%')}
-		</div>
+		<div class="challenge-pane-skeleton-blob"></div>
+		<div class="challenge-pane-skeleton-blob challenge-pane-skeleton-blob--short"></div>
+	</div>`;
+}
+
+/**
+ * Blank organize card shell (rounded blob).
+ * @returns {string}
+ */
+export function renderChallengesOrganizeCardSkeleton() {
+	return `<div class="skeleton challenges-organize-card challenges-organize-card--skeleton" aria-hidden="true"></div>`;
+}
+
+/**
+ * `/challenges/organize` board skeleton — a few header + card blobs only.
+ * @returns {string}
+ */
+export function renderChallengesOrganizeBoardSkeleton() {
+	const header = (width) =>
+		`<span class="skeleton skeleton-line challenges-organize-skeleton-header" style="width: ${width};" aria-hidden="true"></span>`;
+	const card = () => renderChallengesOrganizeCardSkeleton();
+	return `<div class="challenges-organize-board challenges-organize-board--skeleton" aria-hidden="true">
+		<section class="challenges-organize-current">
+			${header('72px')}
+			<div class="challenges-organize-card-list challenges-organize-card-list--main">
+				${card()}
+				${card()}
+			</div>
+		</section>
+		<section class="challenges-organize-draft">
+			${header('56px')}
+			<div class="challenges-organize-card-list">
+				${card()}
+			</div>
+		</section>
+		<section class="challenges-organize-past">
+			${header('48px')}
+			<div class="challenges-organize-card-list">
+				${card()}
+				${card()}
+			</div>
+		</section>
 	</div>`;
 }
 

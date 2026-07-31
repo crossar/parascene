@@ -51,11 +51,12 @@ export function pickLatestConfigMsgForChallenge(configEntries, challengeId) {
 }
 
 /**
- * Participant focus: prefer a currently active challenge over the most recently edited config row.
+ * All currently active participant challenges (soonest-ending first).
  * @param {{ msg: object, payload: object }[]} configEntries
  * @param {number} nowMs
+ * @returns {{ challengeId: string, payload: object, phase: string, sortKey: number, endMs: number }[]}
  */
-export function pickParticipantFocusConfig(configEntries, nowMs) {
+export function listActiveParticipantConfigs(configEntries, nowMs) {
 	const summaries = summarizeLatestChallengeConfigs(configEntries);
 	/** @type {{ challengeId: string, payload: object, phase: string, sortKey: number, endMs: number }[]} */
 	const active = [];
@@ -79,30 +80,42 @@ export function pickParticipantFocusConfig(configEntries, nowMs) {
 		});
 	}
 
+	active.sort((a, b) => {
+		if (a.endMs !== b.endMs) return a.endMs - b.endMs;
+		return b.sortKey - a.sortKey;
+	});
+	return active;
+}
+
+/**
+ * Participant focus: prefer a currently active challenge over the most recently edited config row.
+ * @param {{ msg: object, payload: object }[]} configEntries
+ * @param {number} nowMs
+ */
+export function pickParticipantFocusConfig(configEntries, nowMs) {
+	const active = listActiveParticipantConfigs(configEntries, nowMs);
 	if (active.length) {
-		active.sort((a, b) => {
-			if (a.endMs !== b.endMs) return a.endMs - b.endMs;
-			return b.sortKey - a.sortKey;
-		});
 		const pick = active[0];
 		return {
 			latestConfig: pick.payload,
-			latestConfigMsg: pickLatestConfigMsgForChallenge(configEntries, pick.challengeId)
+			latestConfigMsg: pickLatestConfigMsgForChallenge(configEntries, pick.challengeId),
+			activeConfigs: active
 		};
 	}
 
 	const { latestConfig: rawLatest, latestConfigMsg } = pickLatestConfig(configEntries);
 	if (!rawLatest) {
-		return { latestConfig: null, latestConfigMsg: null };
+		return { latestConfig: null, latestConfigMsg: null, activeConfigs: [] };
 	}
 	const cid =
 		rawLatest.challenge_id != null ? String(rawLatest.challenge_id).trim() : '';
 	if (!cid) {
-		return { latestConfig: rawLatest, latestConfigMsg };
+		return { latestConfig: rawLatest, latestConfigMsg, activeConfigs: [] };
 	}
 	return {
 		latestConfig: mergeFullChallengeConfigForChallenge(configEntries, cid),
-		latestConfigMsg: pickLatestConfigMsgForChallenge(configEntries, cid)
+		latestConfigMsg: pickLatestConfigMsgForChallenge(configEntries, cid),
+		activeConfigs: []
 	};
 }
 
@@ -205,10 +218,39 @@ export function buildReactionsByMessageId(messages) {
  */
 export function buildParticipantSliceFromExtracted(extracted, messages, nowMs) {
 	const { configs, submissions } = extracted;
-	const { latestConfig, latestConfigMsg } = pickParticipantFocusConfig(configs, nowMs);
+	const { latestConfig, latestConfigMsg, activeConfigs } = pickParticipantFocusConfig(
+		configs,
+		nowMs
+	);
 	const phase = deriveChallengePhase(latestConfig, nowMs);
-	const forChallenge = submissionsForLatestChallenge(submissions, latestConfig);
 	const reactionMap = buildReactionsByMessageId(messages);
+	const activeList =
+		Array.isArray(activeConfigs) && activeConfigs.length
+			? activeConfigs
+			: latestConfig && ACTIVE_PARTICIPANT_PHASES.has(phase)
+				? [
+						{
+							challengeId:
+								latestConfig.challenge_id != null
+									? String(latestConfig.challenge_id).trim()
+									: '',
+							payload: latestConfig,
+							phase
+						}
+					]
+				: [];
+
+	const activeChallenges = activeList.map((row) => {
+		const forChallenge = submissionsForLatestChallenge(submissions, row.payload);
+		return {
+			challengeId: row.challengeId,
+			latestConfig: row.payload,
+			phase: row.phase,
+			rankedSubmissions: rankSubmissionsForChallenge(forChallenge, reactionMap)
+		};
+	});
+
+	const forChallenge = submissionsForLatestChallenge(submissions, latestConfig);
 	const rankedSubmissions = rankSubmissionsForChallenge(forChallenge, reactionMap);
 
 	return {
@@ -216,6 +258,7 @@ export function buildParticipantSliceFromExtracted(extracted, messages, nowMs) {
 		latestConfigMsg,
 		phase,
 		rankedSubmissions,
+		activeChallenges,
 		reactionMap,
 		rawConfigCount: configs.length
 	};

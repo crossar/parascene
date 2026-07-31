@@ -142,56 +142,108 @@ function consumeAutoOpenVoteIntentFromUrl() {
  *   viewerId: number | null,
  * }} opts
  */
+function renderOrganizeEntryCta() {
+	return `<section class="challenge-pane-section challenge-pane-organize-entry">
+	<a href="/challenges/organize" class="challenge-pane-organize-entry-btn" data-chat-challenges-organizer-open>
+		<span class="challenge-pane-organize-entry-btn-label">Organize</span>
+	</a>
+</section>`;
+}
+
 export function renderChallengesPaneHtml(model, opts) {
 	let html = '<div class="challenge-pane">';
-	const { latestConfig, phase, rankedSubmissions } = model.participant;
-	const challengeId =
-		latestConfig && latestConfig.challenge_id != null
-			? String(latestConfig.challenge_id).trim()
+	const showOrganize = Boolean(opts?.showOrganizeEntry);
+	const activeChallenges = Array.isArray(model.participant?.activeChallenges)
+		? model.participant.activeChallenges
+		: [];
+	const focusConfig = model.participant.latestConfig;
+	const focusPhase = model.participant.phase;
+	const focusId =
+		focusConfig && focusConfig.challenge_id != null
+			? String(focusConfig.challenge_id).trim()
 			: '';
-	const isActiveChallenge =
-		phase === 'submitting' || phase === 'voting' || phase === 'submit_and_vote';
 
-	if (!latestConfig) {
+	const live =
+		activeChallenges.length > 0
+			? activeChallenges
+			: focusConfig &&
+				  (focusPhase === 'submitting' ||
+						focusPhase === 'voting' ||
+						focusPhase === 'submit_and_vote')
+				? [
+						{
+							challengeId: focusId,
+							latestConfig: focusConfig,
+							phase: focusPhase,
+							rankedSubmissions: model.participant.rankedSubmissions || []
+						}
+					]
+				: [];
+
+	if (!live.length) {
+		if (showOrganize) {
+			html += renderOrganizeEntryCta();
+		}
+		if (!focusConfig) {
+			html += renderEmptyParticipantPane(model.raw.configs);
+			html += '</div>';
+			return html;
+		}
 		html += renderEmptyParticipantPane(model.raw.configs);
 		html += '</div>';
 		return html;
 	}
 
-	if (!isActiveChallenge) {
-		html += renderEmptyParticipantPane(model.raw.configs);
-		html += '</div>';
-		return html;
+	html += `<div class="challenge-pane-active-list">`;
+	let organizePlaced = false;
+	for (const item of live) {
+		const latestConfig = item.latestConfig;
+		const phase = item.phase;
+		const rankedSubmissions = item.rankedSubmissions || [];
+		const challengeId =
+			latestConfig && latestConfig.challenge_id != null
+				? String(latestConfig.challenge_id).trim()
+				: item.challengeId || '';
+		const heroVm = participantHeroViewModel(latestConfig, rankedSubmissions);
+		html += `<section class="challenge-pane-active-card" data-challenge-id="${challengeId}">`;
+		html += renderHeroSection({
+			title: heroVm.title,
+			phase,
+			stats: heroVm.stats,
+			countdownHtml: renderChallengeCountdowns(latestConfig, phase, model.nowMs)
+		});
+		html += renderChallengeHeroImage(latestConfig, heroVm.title);
+		html += renderChallengeVoteHeroCta({
+			phase,
+			viewerId: opts.viewerId ?? null,
+			ranked: rankedSubmissions
+		});
+		if (showOrganize && !organizePlaced) {
+			html += renderOrganizeEntryCta();
+			organizePlaced = true;
+		}
+		html += renderDetailsAndReward(latestConfig);
+		html += renderSubmissionsSection({
+			phase,
+			viewerId: opts.viewerId ?? null,
+			ranked: rankedSubmissions
+		});
+		html += `</section>`;
 	}
+	html += `</div>`;
 
-	const heroVm = participantHeroViewModel(latestConfig, rankedSubmissions);
-	html += renderHeroSection({
-		title: heroVm.title,
-		phase,
-		stats: heroVm.stats,
-		countdownHtml: renderChallengeCountdowns(latestConfig, phase, model.nowMs)
-	});
-
-	html += renderChallengeHeroImage(latestConfig, heroVm.title);
-	html += renderChallengeVoteHeroCta({
-		phase,
-		viewerId: opts.viewerId ?? null,
-		ranked: rankedSubmissions
-	});
-	html += renderDetailsAndReward(latestConfig);
-
-	html += renderSubmissionsSection({
-		phase,
-		viewerId: opts.viewerId ?? null,
-		ranked: rankedSubmissions
-	});
-
+	const excludeIds = live
+		.map((x) =>
+			x.latestConfig?.challenge_id != null
+				? String(x.latestConfig.challenge_id).trim()
+				: String(x.challengeId || '').trim()
+		)
+		.filter(Boolean);
 	html += renderNextChallengeSection(model.raw.configs, {
-		excludeChallengeId: challengeId
+		excludeChallengeId: excludeIds[0] || ''
 	});
-
 	html += renderPastChallengesSection(model.raw.configs, {
-		excludeChallengeId: challengeId
+		excludeChallengeId: excludeIds[0] || ''
 	});
 
 	html += '</div>';
@@ -264,6 +316,7 @@ function syncVoteTabChrome(root, ranked, viewerId, phase) {
  *   postMessage: (body: string) => Promise<{ ok: boolean, error?: string }>,
  *   toggleReaction: (messageId: number, emojiKey: string) => Promise<{ ok?: boolean, data?: { added?: boolean } }>,
  *   reactionIconHtml: (key: string, className?: string) => string,
+ *   showOrganizeEntry?: boolean,
  * }} opts
  */
 export async function mountChallengesPane(opts) {
@@ -279,7 +332,8 @@ export async function mountChallengesPane(opts) {
 	const phase = model.participant.phase;
 
 	root.innerHTML = renderChallengesPaneHtml(model, {
-		viewerId
+		viewerId,
+		showOrganizeEntry: Boolean(opts.showOrganizeEntry)
 	});
 
 	void hydrateChallengeHeroImage(root);

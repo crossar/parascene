@@ -8313,11 +8313,10 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	width: 100%;
 }
 
-.challenge-pane-skeleton-head {
-	display: flex;
-	flex-direction: column;
-	gap: 10px;
-	align-items: flex-start;
+.challenge-pane-skeleton-blob-title {
+	display: block;
+	height: 22px;
+	border-radius: 6px;
 }
 
 .challenge-pane-skeleton-strip {
@@ -8338,22 +8337,16 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	animation: skeleton-shimmer 1.6s ease-in-out infinite;
 }
 
-.challenge-pane-skeleton-vote .skeleton-pill {
-	display: block;
+.challenge-pane-skeleton-blob {
 	width: 100%;
-	box-sizing: border-box;
+	height: 48px;
+	border-radius: 10px;
+	background: var(--skeleton);
 }
 
-.challenge-pane-skeleton-times {
-	width: 100%;
-}
-
-.challenge-pane-skeleton-block {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	align-items: flex-start;
-	width: 100%;
+.challenge-pane-skeleton-blob--short {
+	height: 96px;
+	opacity: 0.85;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -8599,6 +8592,49 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	align-items: center;
 	justify-content: center;
 	gap: 10px;
+}
+
+.challenge-pane-organize-entry {
+	margin-top: -8px;
+	margin-bottom: 16px;
+}
+
+.challenge-pane-organize-entry-btn {
+	box-sizing: border-box;
+	width: 100%;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	padding: 14px 22px;
+	font-size: 1.0625rem;
+	font-weight: 600;
+	line-height: 1.2;
+	text-decoration: none;
+	color: var(--text-muted);
+	border: 1px solid color-mix(in srgb, var(--border) 85%, var(--text) 15%);
+	border-radius: 12px;
+	cursor: pointer;
+	appearance: none;
+	-webkit-appearance: none;
+	background: transparent;
+	box-shadow: none;
+	transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.challenge-pane-organize-entry-btn:hover {
+	color: var(--text);
+	background: color-mix(in srgb, var(--text) 4%, transparent);
+	border-color: color-mix(in srgb, var(--border) 55%, var(--text) 45%);
+}
+
+.challenge-pane-organize-entry-btn:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--accent, #5eead4) 55%, transparent);
+	outline-offset: 3px;
+}
+
+.challenge-pane-organize-entry-btn-label {
+	position: relative;
 }
 
 .challenge-pane-vote-hero-btn {

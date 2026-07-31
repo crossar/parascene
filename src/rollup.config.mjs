@@ -178,53 +178,68 @@ function touchDevAssetStampPlugin() {
 	};
 }
 
-export default {
-	input: path.join(__dirname, 'chat', 'main.js'),
-	output: {
-		file: path.join(repoRoot, 'public', 'build', 'chat.bundle.js'),
-		format: 'es',
-		inlineDynamicImports: true,
-		sourcemap: true
-	},
-	plugins: [
+function sharedBundlePlugins({ withChatCss = false } = {}) {
+	return [
 		resolvePublicAbsoluteImports(),
 		nodeResolve(),
 		resolveBundledSupabaseBrowser(),
 		...(minifyChatBundle
 			? [
-				terser({
-					ecma: 2022,
-					module: true,
-					compress: {
-						passes: 1,
-						unsafe: false,
-						unsafe_comps: false,
-					},
-					format: {
-						comments: false,
-					},
-				}),
-			]
+					terser({
+						ecma: 2022,
+						module: true,
+						compress: {
+							passes: 1,
+							unsafe: false,
+							unsafe_comps: false
+						},
+						format: {
+							comments: false
+						}
+					})
+				]
 			: []),
-		buildChatCssBundlePlugin(),
-		writeSpaPageOverlayShimPlugin(),
-		touchDevAssetStampPlugin(),
-	],
-	onwarn(warning, warn) {
-		// Ignore the known circular dependency inside Supabase WebAuthn helpers.
-		if (
-			warning.code === 'CIRCULAR_DEPENDENCY' &&
-			Array.isArray(warning.ids) &&
-			warning.ids.some((id) => id && id.includes('/webauthn'))
-		) {
-			if (!loggedSupabaseCircular) {
-				console.log(
-					'[rollup] suppressed circular dep warning for Supabase WebAuthn modules'
-				);
-				loggedSupabaseCircular = true;
-			}
-			return;
+		...(withChatCss ? [buildChatCssBundlePlugin(), writeSpaPageOverlayShimPlugin()] : []),
+		touchDevAssetStampPlugin()
+	];
+}
+
+function sharedOnWarn(warning, warn) {
+	if (
+		warning.code === 'CIRCULAR_DEPENDENCY' &&
+		Array.isArray(warning.ids) &&
+		warning.ids.some((id) => id && id.includes('/webauthn'))
+	) {
+		if (!loggedSupabaseCircular) {
+			console.log('[rollup] suppressed circular dep warning for Supabase WebAuthn modules');
+			loggedSupabaseCircular = true;
 		}
-		warn(warning);
+		return;
+	}
+	warn(warning);
+}
+
+export default [
+	{
+		input: path.join(__dirname, 'chat', 'main.js'),
+		output: {
+			file: path.join(repoRoot, 'public', 'build', 'chat.bundle.js'),
+			format: 'es',
+			inlineDynamicImports: true,
+			sourcemap: true
+		},
+		plugins: sharedBundlePlugins({ withChatCss: true }),
+		onwarn: sharedOnWarn
 	},
-};
+	{
+		input: path.join(__dirname, 'chat', 'challenges', 'organizePageMain.js'),
+		output: {
+			file: path.join(repoRoot, 'public', 'build', 'challenges-organize.bundle.js'),
+			format: 'es',
+			inlineDynamicImports: true,
+			sourcemap: true
+		},
+		plugins: sharedBundlePlugins({ withChatCss: false }),
+		onwarn: sharedOnWarn
+	}
+];

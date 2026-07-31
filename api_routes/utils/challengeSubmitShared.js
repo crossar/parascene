@@ -1,5 +1,30 @@
 import { deriveChallengePhase } from "../../src/chat/challenges/model/phases.js";
-import { pickChallengeHeroImageUrl } from "../../src/chat/challenges/challengeAdmin.js";
+import {
+	pickChallengeHeroImageUrl,
+	IMPLIED_CHALLENGE_ORGANIZER,
+	normalizeChallengeOrganizerUserNames,
+	organizersWithoutImplied,
+	withImpliedChallengeOrganizer,
+	resolveOrganizersByTrackFromGlobalPayload,
+	resolveChallengeOrganizerAllowlistFromMessages,
+	pickLatestChallengesGlobalConfig,
+	viewerOrganizesTrack,
+	tracksViewerCanOrganize
+} from "../../src/chat/challenges/challengeAdmin.js";
+
+export {
+	IMPLIED_CHALLENGE_ORGANIZER,
+	normalizeChallengeOrganizerUserNames,
+	organizersWithoutImplied,
+	withImpliedChallengeOrganizer,
+	resolveOrganizersByTrackFromGlobalPayload,
+	resolveChallengeOrganizerAllowlistFromMessages,
+	viewerOrganizesTrack,
+	tracksViewerCanOrganize
+};
+
+/** @deprecated Prefer pickLatestChallengesGlobalConfig from challengeAdmin; kept for API callers. */
+export const pickLatestChallengesGlobalConfigPayload = pickLatestChallengesGlobalConfig;
 
 const MAX_NOTE_CHARS = 500;
 const MESSAGE_FETCH_LIMIT = 500;
@@ -72,54 +97,6 @@ export function pickChallengeConfigAcceptingSubmissions(messagesNewestFirst, now
 		}
 	}
 	return best;
-}
-
-/**
- * @param {unknown} raw
- * @returns {string[]}
- */
-export function normalizeChallengeOrganizerUserNames(raw) {
-	const list = Array.isArray(raw) ? raw : [];
-	const out = [];
-	const seen = new Set();
-	for (const entry of list) {
-		const u = String(entry || "").trim().replace(/^@+/, "").toLowerCase();
-		if (!u || seen.has(u)) continue;
-		seen.add(u);
-		out.push(u);
-	}
-	return out;
-}
-
-/**
- * @param {{ body?: unknown, id?: unknown }[]} messagesAsc chronological
- * @returns {{ payload: object, messageId: number } | null}
- */
-export function pickLatestChallengesGlobalConfigPayload(messagesAsc) {
-	let latest = null;
-	let latestSortId = -1;
-	for (const m of messagesAsc || []) {
-		const p = tryParseChallengeJsonBody(m?.body);
-		if (!p || String(p.kind || "").trim() !== "challenges_global_config") continue;
-		const mid = Number(m?.id);
-		const sortId = Number.isFinite(mid) && mid > 0 ? Math.floor(mid) : 0;
-		if (sortId >= latestSortId) {
-			latestSortId = sortId;
-			latest = { payload: p, messageId: sortId };
-		}
-	}
-	return latest;
-}
-
-/**
- * @param {{ body?: unknown, id?: unknown }[]} messagesAsc chronological
- */
-export function resolveChallengeOrganizerAllowlistFromMessages(messagesAsc) {
-	const globalCfg = pickLatestChallengesGlobalConfigPayload(messagesAsc);
-	if (globalCfg) {
-		return normalizeChallengeOrganizerUserNames(globalCfg.payload?.organizer_user_names);
-	}
-	return [];
 }
 
 /**
@@ -441,7 +418,17 @@ export async function findDuplicateChallengeSubmissionMessage(sb, threadId, send
  * }} args
  * @returns {Promise<{ ok: true, challengeId: string, cfg: object, threadRow: object, noteTrim: string } | { ok: false, status: number, message: string }>}
  */
-export async function validateChallengeSubmission({ sb, userId, ownerUserId, creationId, meta, threadId, note, nowMs }) {
+export async function validateChallengeSubmission({
+	sb,
+	userId,
+	ownerUserId,
+	creationId,
+	meta,
+	threadId,
+	note,
+	nowMs,
+	challengeId: requestedChallengeId
+}) {
 	const now = typeof nowMs === "number" ? nowMs : Date.now();
 	if (Number(userId) !== Number(ownerUserId)) {
 		return { ok: false, status: 403, message: "Only the creation owner can submit to a challenge." };
@@ -467,7 +454,23 @@ export async function validateChallengeSubmission({ sb, userId, ownerUserId, cre
 		}
 
 		const messages = await fetchThreadMessagesChronological(sb, tid);
-		const cfg = pickChallengeConfigAcceptingSubmissions([...messages].reverse(), now);
+		const messagesNewest = [...messages].reverse();
+		const wantId =
+			requestedChallengeId != null ? String(requestedChallengeId).trim() : "";
+		let cfg = null;
+		if (wantId) {
+			cfg = pickLatestChallengeConfigForChallengeId(messagesNewest, wantId);
+			const phase = cfg ? deriveChallengePhase(cfg, now) : "";
+			if (!cfg || (phase !== "submitting" && phase !== "submit_and_vote")) {
+				return {
+					ok: false,
+					status: 400,
+					message: "That challenge is not accepting submissions right now."
+				};
+			}
+		} else {
+			cfg = pickChallengeConfigAcceptingSubmissions(messagesNewest, now);
+		}
 		const challengeId =
 			cfg && cfg.challenge_id != null ? String(cfg.challenge_id).trim() : "";
 		if (!challengeId) {

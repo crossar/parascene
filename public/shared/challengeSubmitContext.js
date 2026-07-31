@@ -1,6 +1,6 @@
 /**
- * Remembers which Challenges channel thread the viewer opened so creation detail can offer
- * “Submit to challenge” without bloating the URL. Cleared after TTL.
+ * Remembers which Challenges channel thread (and optional challenge_id) the viewer opened
+ * so creation detail can offer “Submit to challenge” without bloating the URL. Cleared after TTL.
  */
 const STORAGE_KEY = 'parascene_challenge_submit_ctx_v1';
 const MAX_AGE_MS = 48 * 60 * 60 * 1000;
@@ -8,19 +8,28 @@ const MAX_AGE_MS = 48 * 60 * 60 * 1000;
 /**
  * Call when the Challenges lane loads (real thread id).
  * @param {number | string | null | undefined} threadId
+ * @param {string | null | undefined} [challengeId]
  */
-export function captureChallengeSubmitThread(threadId) {
+export function captureChallengeSubmitThread(threadId, challengeId) {
 	const tid = Number(threadId);
 	if (!Number.isFinite(tid) || tid <= 0) return;
+	const cid = challengeId != null ? String(challengeId).trim() : '';
 	try {
-		sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ threadId: tid, at: Date.now() }));
+		sessionStorage.setItem(
+			STORAGE_KEY,
+			JSON.stringify({
+				threadId: tid,
+				...(cid ? { challengeId: cid } : {}),
+				at: Date.now()
+			})
+		);
 	} catch {
 		// ignore quota / private mode
 	}
 }
 
 /**
- * @returns {{ threadId: number } | null}
+ * @returns {{ threadId: number, challengeId?: string } | null}
  */
 export function readChallengeSubmitContext() {
 	try {
@@ -34,7 +43,11 @@ export function readChallengeSubmitContext() {
 			sessionStorage.removeItem(STORAGE_KEY);
 			return null;
 		}
-		return { threadId: tid };
+		const challengeId =
+			o.challengeId != null && String(o.challengeId).trim()
+				? String(o.challengeId).trim()
+				: undefined;
+		return challengeId ? { threadId: tid, challengeId } : { threadId: tid };
 	} catch {
 		return null;
 	}

@@ -597,6 +597,8 @@ let renderCommentRowsSkeleton;
 let renderChatThreadSkeleton;
 /** @type {(() => string) | undefined} */
 let renderChallengePaneSkeleton;
+/** @type {((cardCount?: number) => string) | undefined} */
+let renderChallengesOrganizeBoardSkeleton;
 let toggleChatMessageReaction;
 let setupReactionTooltipTap;
 let createConnectCommentRowElement;
@@ -754,6 +756,7 @@ async function loadDeps() {
 	renderCommentRowsSkeleton = _cdSkeleton.renderCommentRowsSkeleton;
 	renderChatThreadSkeleton = _cdSkeleton.renderChatThreadSkeleton;
 	renderChallengePaneSkeleton = _cdSkeleton.renderChallengePaneSkeleton;
+	renderChallengesOrganizeBoardSkeleton = _cdSkeleton.renderChallengesOrganizeBoardSkeleton;
 }
 
 function escapeHtml(str) {
@@ -912,6 +915,9 @@ function parseChatPathname(pathname) {
 	}
 	if (p === '/challenges') {
 		return { kind: 'channel', slug: 'challenges' };
+	}
+	if (p === '/challenges/organize') {
+		return { kind: 'channel', slug: 'challenges', organize: true };
 	}
 	const parts = p.split('/').filter(Boolean);
 	if (parts[0] !== 'chat') return { kind: 'invalid' };
@@ -1348,10 +1354,20 @@ export async function initChatPage(root, options = {}) {
 	let roomBroadcastTeardown = null;
 	/** @type {null | (() => void)} */
 	let challengesPaneTeardown = null;
+	/** Fingerprint of last mounted participant challenges messages (soft refresh). */
+	let lastChallengesParticipantFp = '';
+	/** @type {ReturnType<typeof setTimeout> | null} */
+	let challengesRoomDirtyTimer = null;
 	/** @type {null | (() => void)} */
-	let challengesOrganizerSidebarTeardown = null;
-	/** Challenge channel: viewer may open organizer sidebar (see `isChallengeChannelAdmin`). */
+	let challengesOrganizeTeardown = null;
+	/** @type {{ remount?: () => Promise<void>, softRefresh?: () => Promise<boolean>, openGlobalSettings?: () => void, isOceanman?: () => boolean } | null} */
+	let challengesOrganizeApi = null;
+	/** @type {null | (() => void)} */
+	let challengesOrganizePtrCleanup = null;
+	/** Challenge channel: viewer may open Organize (see `isChallengeChannelAdmin`). */
 	let chatChallengesOrganizerEligible = false;
+	/** Oceanman-only settings gear on Organize route. */
+	let chatChallengesOrganizeOceanman = false;
 	/** @type {null | (() => void)} */
 	let visibilityResyncCleanup = null;
 	/** True when the viewer is pinned to the latest messages (used for lazy embeds + viewport resize). */
@@ -3136,6 +3152,7 @@ export async function initChatPage(root, options = {}) {
 	let chatCreateComposerApi = null;
 
 	function isOverlayCreateComposerPseudoChannel() {
+		if (isChallengesOrganizePath()) return false;
 		return (
 			activePseudoChannelSlug === 'feed' ||
 			activePseudoChannelSlug === 'creations' ||
@@ -3159,7 +3176,11 @@ export async function initChatPage(root, options = {}) {
 	}
 
 	function shouldHideBottomComposers() {
-		return isFeedDoomLaneHideBottomComposers() || isMobilePseudoChannelHideBottomComposers();
+		return (
+			isFeedDoomLaneHideBottomComposers() ||
+			isMobilePseudoChannelHideBottomComposers() ||
+			isChallengesOrganizePath()
+		);
 	}
 
 	/** Full create composer overlay — desktop/tablet pseudo channels only. */
@@ -4300,8 +4321,11 @@ export async function initChatPage(root, options = {}) {
 		const titleEl = root.querySelector('[data-chat-title]');
 		const awaiting = titleEl?.getAttribute('data-chat-title-awaiting') === '1';
 		const channelPart = awaiting ? '' : String(titleEl?.getAttribute('data-chat-title-label') || '').trim();
+		const organizeMobile = isChallengesOrganizePath();
 		chEl.innerHTML = channelPart
-			? buildChatHeaderTitleInnerHtml(activeHeaderMeta, channelPart, { mobile: true })
+			? buildChatHeaderTitleInnerHtml(activeHeaderMeta, organizeMobile ? 'Organize' : channelPart, {
+					mobile: true
+				})
 			: '';
 		if (wrap instanceof HTMLElement) {
 			// Keep mobile header title stable to the channel name; pinned canvas is indicated
@@ -4309,11 +4333,13 @@ export async function initChatPage(root, options = {}) {
 			wrap.hidden = true;
 			if (cvEl instanceof HTMLElement) cvEl.textContent = '';
 		}
-		if (channelPart) {
-			h1.setAttribute('aria-label', channelPart);
+		const ariaLabel = organizeMobile ? 'Organize' : channelPart;
+		if (ariaLabel) {
+			h1.setAttribute('aria-label', ariaLabel);
 		} else {
 			h1.removeAttribute('aria-label');
 		}
+		syncOrganizeMobileChrome();
 	}
 
 	function tearDownChatGlobalUnreadBroadcast() {
@@ -4397,23 +4423,31 @@ export async function initChatPage(root, options = {}) {
 			pseudoLabel && String(pseudoLabel).trim()
 				? String(pseudoLabel).trim()
 				: '';
-		if (!label) {
+		if (isChallengesOrganizePath()) {
+			label = 'Organize';
+		} else if (!label) {
 			label = (meta?.title && String(meta.title).trim())
 				? String(meta.title).trim()
 				: (cs ? `#${cs}` : 'Chat');
 		}
-		document.title = `${label} · ${base}`;
+		document.title = isChallengesOrganizePath()
+			? `Challenges › Organize · ${base}`
+			: `${label} · ${base}`;
 		applyChatGlobalUnreadChrome(chatGlobalUnreadTotal);
 		const titleEl = root.querySelector('[data-chat-title]');
 		activeHeaderMeta = meta || null;
 		if (titleEl) {
-			titleEl.setAttribute('data-chat-title-label', label);
+			titleEl.setAttribute(
+				'data-chat-title-label',
+				isChallengesOrganizePath() ? 'Challenges › Organize' : label
+			);
 			titleEl.innerHTML = buildChatHeaderTitleInnerHtml(meta, label, { mobile: false });
 			if (String(label).trim()) {
 				titleEl.removeAttribute('data-chat-title-awaiting');
 				titleEl.removeAttribute('aria-hidden');
 			}
 		}
+		syncOrganizeChromeBackLink();
 		paintMobileChromeTitle();
 	}
 
@@ -4522,12 +4556,61 @@ export async function initChatPage(root, options = {}) {
 	}
 
 	function buildChatHeaderTitleInnerHtml(meta, label, opts = {}) {
+		if (isChallengesOrganizePath()) {
+			const avatarHtml = buildChatHeaderAvatarHtml(
+				{ type: 'channel', channel_slug: 'challenges', title: 'Challenges' },
+				opts
+			);
+			if (opts?.mobile === true) {
+				return `${avatarHtml}<span class="chat-page-header-title-text">Organize</span>`;
+			}
+			return `${avatarHtml}<span class="chat-page-header-title-text chat-page-header-title-text--breadcrumb"><a href="/challenges" class="chat-page-header-breadcrumb-link" data-chat-organize-back>Challenges</a><span class="chat-page-header-breadcrumb-sep" aria-hidden="true">›</span><span class="chat-page-header-breadcrumb-current">Organize</span></span>`;
+		}
 		const avatarHtml = buildChatHeaderAvatarHtml(meta, opts);
 		const inner = `${avatarHtml}<span class="chat-page-header-title-text">${escapeHtml(label)}</span>`;
 		const profileHref = getDmProfileHrefFromMeta(meta);
 		if (!profileHref) return inner;
 		const ariaLabel = `View ${String(label || 'user').trim()} profile`;
 		return `<a class="chat-page-header-profile-link" href="${escapeHtml(profileHref)}" data-profile-link aria-label="${escapeHtml(ariaLabel)}">${inner}</a>`;
+	}
+
+	function syncOrganizeChromeBackLink() {
+		const back = root.querySelector('.chat-page-topbar .chat-page-back');
+		if (back instanceof HTMLAnchorElement) {
+			if (isChallengesOrganizePath()) {
+				back.href = '/challenges';
+				back.setAttribute('aria-label', 'Back to Challenges');
+			} else {
+				back.href = '/chat#channels';
+				back.setAttribute('aria-label', 'Back to channels');
+			}
+		}
+		const mobileBack =
+			mainColumn instanceof HTMLElement
+				? mainColumn.querySelector('[data-chat-mobile-chrome-back]')
+				: null;
+		if (mobileBack instanceof HTMLButtonElement || mobileBack instanceof HTMLAnchorElement) {
+			mobileBack.setAttribute(
+				'aria-label',
+				isChallengesOrganizePath() ? 'Back to Challenges' : 'Back to channels'
+			);
+		}
+	}
+
+	function syncOrganizeMobileChrome() {
+		const caret =
+			mainColumn instanceof HTMLElement
+				? mainColumn.querySelector('[data-chat-mobile-chrome-sheet-trigger]')
+				: null;
+		if (!(caret instanceof HTMLButtonElement)) return;
+		const organize = isChallengesOrganizePath();
+		caret.hidden = organize;
+		if (organize) {
+			caret.setAttribute('aria-hidden', 'true');
+			closeMobileChromeSheet();
+		} else {
+			caret.removeAttribute('aria-hidden');
+		}
 	}
 
 	function buildChatReactionMetaRowHtml(m) {
@@ -5786,7 +5869,7 @@ export async function initChatPage(root, options = {}) {
 				typeof prof.avatar_url === 'string' && prof.avatar_url.trim()
 					? prof.avatar_url.trim()
 					: null;
-			return { display_name, user_name, avatar_url };
+			return { display_name, user_name, avatar_url, id: Number.isFinite(Number(user?.id)) ? Number(user.id) : null };
 		} catch {
 			return null;
 		}
@@ -11068,6 +11151,278 @@ export async function initChatPage(root, options = {}) {
 		}
 	}
 
+	function isChallengesOrganizePath(pathname = window.location.pathname) {
+		const p = String(pathname || '').replace(/\/+$/, '') || '/';
+		if (p === '/challenges/organize') return true;
+		try {
+			if (window.sessionStorage?.getItem('prsn-chat-organize-boot') === '1') return true;
+		} catch {
+			// ignore
+		}
+		return false;
+	}
+
+	function consumeChallengesOrganizeBootFlag() {
+		try {
+			if (window.sessionStorage?.getItem('prsn-chat-organize-boot') !== '1') return false;
+			window.sessionStorage.removeItem('prsn-chat-organize-boot');
+			const cur = String(window.location.pathname || '').replace(/\/+$/, '') || '/';
+			if (cur !== '/challenges/organize') {
+				const st =
+					window.history?.state && typeof window.history.state === 'object'
+						? { ...window.history.state, prsnChat: true }
+						: { prsnChat: true };
+				window.history.replaceState(st, '', `/challenges/organize${window.location.search || ''}`);
+			}
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	function setChallengesOrganizeBodyClass(on) {
+		if (typeof document === 'undefined' || !document.body) return;
+		document.body.classList.toggle('chat-page--challenges-organize', Boolean(on));
+		syncOrganizeChromeBackLink();
+		syncOrganizeMobileChrome();
+	}
+
+	function syncOrganizeSettingsButtons() {
+		const show = isChallengesOrganizePath() && chatChallengesOrganizeOceanman;
+		const gearHtml = gearIcon('chat-page-organize-settings-icon');
+		const isMobile = isChatPageMobileLayout();
+		const buttons = root.querySelectorAll('[data-chat-organize-settings]');
+		for (const btn of buttons) {
+			if (!(btn instanceof HTMLButtonElement)) continue;
+			const mobileBtn = btn.classList.contains('chat-page-mobile-chrome-organize-settings');
+			if ((mobileBtn && !isMobile) || (!mobileBtn && isMobile)) {
+				btn.hidden = true;
+				continue;
+			}
+			btn.hidden = !show;
+			if (show) {
+				btn.innerHTML = gearHtml;
+			}
+		}
+	}
+
+	function tearDownChallengesOrganizeView() {
+		if (typeof challengesOrganizePtrCleanup === 'function') {
+			try {
+				challengesOrganizePtrCleanup();
+			} catch {
+				// ignore
+			}
+		}
+		challengesOrganizePtrCleanup = null;
+		if (typeof challengesOrganizeTeardown === 'function') {
+			try {
+				challengesOrganizeTeardown();
+			} catch {
+				// ignore
+			}
+		}
+		challengesOrganizeTeardown = null;
+		challengesOrganizeApi = null;
+		chatChallengesOrganizeOceanman = false;
+		setChallengesOrganizeBodyClass(false);
+		syncOrganizeSettingsButtons();
+	}
+
+	/**
+	 * Custom pull-to-refresh on Organize scroll root (document on mobile viewport-scroll; messages pane on desktop).
+	 * @param {() => Promise<void>} onRefresh
+	 */
+	function bindChallengesOrganizePullToRefresh(onRefresh) {
+		if (typeof challengesOrganizePtrCleanup === 'function') {
+			try {
+				challengesOrganizePtrCleanup();
+			} catch {
+				// ignore
+			}
+		}
+		challengesOrganizePtrCleanup = null;
+		const messagesEl = root.querySelector('[data-chat-messages]');
+		if (!(messagesEl instanceof HTMLElement)) return;
+
+		let startY = 0;
+		let pulling = false;
+		let refreshing = false;
+		const THRESHOLD = 64;
+
+		const scrollTop = () => {
+			if (isChatPageMobileLayout() && document.body?.classList.contains('chat-page--viewport-scroll')) {
+				return window.scrollY || document.documentElement.scrollTop || 0;
+			}
+			return messagesEl.scrollTop || 0;
+		};
+
+		const onTouchStart = (e) => {
+			if (refreshing || !(e.touches && e.touches[0])) return;
+			if (scrollTop() > 2) {
+				pulling = false;
+				return;
+			}
+			startY = e.touches[0].clientY;
+			pulling = true;
+		};
+		const onTouchMove = (e) => {
+			if (!pulling || refreshing || !(e.touches && e.touches[0])) return;
+			if (scrollTop() > 2) {
+				pulling = false;
+				messagesEl.classList.remove('chat-page-organize-ptr-pulling');
+				return;
+			}
+			const dy = e.touches[0].clientY - startY;
+			messagesEl.classList.toggle('chat-page-organize-ptr-pulling', dy > 12);
+		};
+		const onTouchEnd = (e) => {
+			if (!pulling || refreshing) return;
+			pulling = false;
+			messagesEl.classList.remove('chat-page-organize-ptr-pulling');
+			const endY = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : startY;
+			const dy = endY - startY;
+			if (dy < THRESHOLD || scrollTop() > 2) return;
+			refreshing = true;
+			messagesEl.classList.add('chat-page-organize-ptr-refreshing');
+			Promise.resolve()
+				.then(() => onRefresh())
+				.catch(() => {})
+				.finally(() => {
+					refreshing = false;
+					messagesEl.classList.remove('chat-page-organize-ptr-refreshing');
+				});
+		};
+
+		messagesEl.addEventListener('touchstart', onTouchStart, { passive: true });
+		messagesEl.addEventListener('touchmove', onTouchMove, { passive: true });
+		messagesEl.addEventListener('touchend', onTouchEnd, { passive: true });
+		challengesOrganizePtrCleanup = () => {
+			messagesEl.removeEventListener('touchstart', onTouchStart);
+			messagesEl.removeEventListener('touchmove', onTouchMove);
+			messagesEl.removeEventListener('touchend', onTouchEnd);
+			messagesEl.classList.remove('chat-page-organize-ptr-pulling', 'chat-page-organize-ptr-refreshing');
+		};
+	}
+
+	async function loadChallengesOrganizeView() {
+		const messagesEl = root.querySelector('[data-chat-messages]');
+		const tid = Number(activeThreadId);
+		if (!messagesEl) return;
+
+		applyComposerState();
+		const paneEpoch = bumpChatMessagesPaneEpoch();
+		enterPseudoChannelLoad();
+		messagesEl.setAttribute('aria-busy', 'true');
+		setChallengesOrganizeBodyClass(true);
+
+		if (typeof challengesPaneTeardown === 'function') {
+			try {
+				challengesPaneTeardown();
+			} catch {
+				// ignore
+			}
+		}
+		challengesPaneTeardown = null;
+		tearDownChallengesOrganizeView();
+		setChallengesOrganizeBodyClass(true);
+
+		try {
+			updateTitleFromMeta({
+				type: 'channel',
+				channel_slug: 'challenges',
+				title: 'Organize'
+			});
+			paintMobileChromeTitle();
+
+			if (isStaleChatPane(paneEpoch)) return;
+			lastChatMessagesPayload = [];
+			messagesEl.innerHTML = '';
+			const mountWrap = document.createElement('div');
+			mountWrap.className = 'challenges-organize-root challenges-organize-root--spa';
+			mountWrap.setAttribute('aria-live', 'polite');
+			mountWrap.setAttribute('aria-busy', 'true');
+			mountWrap.setAttribute('aria-label', 'Loading');
+			if (typeof renderChallengesOrganizeBoardSkeleton === 'function') {
+				mountWrap.innerHTML = renderChallengesOrganizeBoardSkeleton();
+			}
+			messagesEl.appendChild(mountWrap);
+
+			const viewerProf = await fetchChatViewerProfileMini();
+			const api = await challengesChannelModule.mountOrganizeLane?.(mountWrap, {
+				threadId: Number.isFinite(tid) && tid > 0 ? tid : null,
+				viewer: viewerProf?.user_name
+					? {
+							id: Number.isFinite(Number(chatViewerId)) ? Number(chatViewerId) : viewerProf.id,
+							user_name: viewerProf.user_name
+						}
+					: null,
+				onEligibility: (eligible) => {
+					chatChallengesOrganizerEligible = Boolean(eligible);
+					rebuildTopbarMenuDynamic();
+				},
+				onOceanman: (isOceanman) => {
+					chatChallengesOrganizeOceanman = Boolean(isOceanman);
+					syncOrganizeSettingsButtons();
+				}
+			});
+
+			if (isStaleChatPane(paneEpoch)) {
+				if (api && typeof api.destroy === 'function') {
+					try {
+						api.destroy();
+					} catch {
+						// ignore
+					}
+				}
+				return;
+			}
+
+			if (!api) {
+				chatChallengesOrganizerEligible = false;
+				chatChallengesOrganizeOceanman = false;
+				syncOrganizeSettingsButtons();
+				return;
+			}
+
+			challengesOrganizeApi = api;
+			challengesOrganizeTeardown = api.destroy;
+			chatChallengesOrganizeOceanman = Boolean(api.isOceanman?.());
+			syncOrganizeSettingsButtons();
+			bindChallengesOrganizePullToRefresh(async () => {
+				if (typeof challengesOrganizeApi?.remount === 'function') {
+					await challengesOrganizeApi.remount();
+				}
+			});
+			scrollChatFeedPseudoChannelToTop();
+		} catch (err) {
+			console.error('[Chat page] challenges organize:', err);
+			tearDownChallengesOrganizeView();
+			if (!isStaleChatPane(paneEpoch)) {
+				const { title, detail } = getChallengesChannelLoadFailureCopy(err);
+				paintChatMessagesPaneError(messagesEl, detail, title, {
+					showRetry: true,
+					onRetry: () => {
+						void loadChallengesOrganizeView();
+					},
+					buttonText: 'Back to Challenges',
+					buttonHref: '/challenges'
+				});
+			}
+		} finally {
+			exitPseudoChannelLoad();
+			unlockChatMessagesPaneScroll(messagesEl);
+			if (!isStaleChatPane(paneEpoch) && messagesEl.isConnected) {
+				messagesEl.removeAttribute('aria-busy');
+			}
+			if (!isStaleChatPane(paneEpoch) && activePseudoChannelSlug === 'challenges') {
+				scrollChatFeedPseudoChannelToTop();
+			}
+			rebuildTopbarMenuDynamic();
+			syncOrganizeSettingsButtons();
+		}
+	}
+
 	/**
 	 * Human-readable title + body when the #challenges pane fails (fetch, chunk load, or mount).
 	 * Keep recoverable cases actionable (Retry); avoid raw stack traces in UI.
@@ -11096,7 +11451,8 @@ export async function initChatPage(root, options = {}) {
 		return { title, detail };
 	}
 
-	async function loadChallengesChannelMessages() {
+	async function loadChallengesChannelMessages(opts = {}) {
+		const soft = opts.soft === true;
 		const messagesEl = root.querySelector('[data-chat-messages]');
 		const tid = Number(activeThreadId);
 		if (!messagesEl || !Number.isFinite(tid) || tid <= 0) return;
@@ -11109,53 +11465,66 @@ export async function initChatPage(root, options = {}) {
 
 		applyComposerState();
 		const paneEpoch = bumpChatMessagesPaneEpoch();
-		enterPseudoChannelLoad();
-		messagesEl.setAttribute('aria-busy', 'true');
-		if (typeof challengesPaneTeardown === 'function') {
-			try {
-				challengesPaneTeardown();
-			} catch {
-				// ignore
+		if (!soft) {
+			enterPseudoChannelLoad();
+			messagesEl.setAttribute('aria-busy', 'true');
+			if (typeof challengesPaneTeardown === 'function') {
+				try {
+					challengesPaneTeardown();
+				} catch {
+					// ignore
+				}
 			}
+			challengesPaneTeardown = null;
+			lastChallengesParticipantFp = '';
+			tearDownChallengesOrganizeView();
 		}
-		challengesPaneTeardown = null;
-		const organizerWasOpen =
-			isChallengesOrganizerSidebarOpen() || isOpenOrganizerToolsStoredForThread(tid);
-		if (typeof challengesOrganizerSidebarTeardown === 'function') {
-			try {
-				challengesOrganizerSidebarTeardown();
-			} catch {
-				// ignore
-			}
-		}
-		challengesOrganizerSidebarTeardown = null;
-		try {
-			const [messages, viewerProf] = await Promise.all([
-				challengesChannelModule.fetchAllChatThreadMessages(tid),
-				fetchChatViewerProfileMini()
-			]);
+
+		const reactionIconHtml = (key, cls) => {
+			const fn = REACTION_ICONS[key];
+			return typeof fn === 'function' ? fn(cls || '') : '';
+		};
+
+		const mountParticipant = async (messages, viewerProf) => {
 			const viewerUserName = viewerProf?.user_name ?? null;
-			const organizerUserNames = challengesChannelModule.resolveChallengeOrganizerAllowlistFromMessages?.(
-				messages
-			);
-			const globalConfig =
-				typeof challengesChannelModule.pickLatestChallengesGlobalConfig === 'function'
-					? challengesChannelModule.pickLatestChallengesGlobalConfig(messages)
-					: null;
+			const organizerUserNames =
+				challengesChannelModule.resolveChallengeOrganizerAllowlistFromMessages?.(messages);
+			try {
+				const focus = challengesChannelModule.pickParticipantFocusConfig?.(
+					challengesChannelModule.buildChallengesChannelModel?.(messages, {
+						viewerId: Number.isFinite(Number(chatViewerId)) ? Number(chatViewerId) : null,
+						nowMs: Date.now()
+					})?.raw?.configs || [],
+					Date.now()
+				);
+				const focusChallengeId =
+					focus?.latestConfig?.challenge_id != null
+						? String(focus.latestConfig.challenge_id).trim()
+						: '';
+				if (focusChallengeId) {
+					captureChallengeSubmitThread?.(tid, focusChallengeId);
+				}
+			} catch {
+				// ignore
+			}
 			chatChallengesOrganizerEligible = Boolean(
 				challengesChannelModule.isChallengeChannelAdmin?.(viewerUserName, organizerUserNames)
 			);
 			if (isStaleChatPane(paneEpoch)) return;
+
+			if (typeof challengesPaneTeardown === 'function') {
+				try {
+					challengesPaneTeardown();
+				} catch {
+					// ignore
+				}
+			}
+			challengesPaneTeardown = null;
 			lastChatMessagesPayload = [];
 			messagesEl.innerHTML = '';
 			const mountWrap = document.createElement('div');
 			mountWrap.className = 'challenge-pane-root';
 			messagesEl.appendChild(mountWrap);
-
-			const reactionIconHtml = (key, cls) => {
-				const fn = REACTION_ICONS[key];
-				return typeof fn === 'function' ? fn(cls || '') : '';
-			};
 
 			const api = await challengesChannelModule.mountChallengesPane({
 				root: mountWrap,
@@ -11167,85 +11536,112 @@ export async function initChatPage(root, options = {}) {
 				},
 				postMessage: (body) => postChatMessage(tid, body),
 				toggleReaction: (mid, ek) => toggleChatMessageReaction(mid, ek),
-				reactionIconHtml
+				reactionIconHtml,
+				showOrganizeEntry: chatChallengesOrganizerEligible
 			});
 			challengesPaneTeardown = api.destroy;
-
-			const orgHost = chatCanvasScope?.querySelector('[data-chat-challenges-organizer-sidebar]');
-			if (chatChallengesOrganizerEligible && orgHost instanceof HTMLElement && challengesChannelModule.mountChallengesOrganizerSidebar) {
-				const orgApi = challengesChannelModule.mountChallengesOrganizerSidebar(orgHost, {
-					messages,
-					viewerId: Number.isFinite(Number(chatViewerId)) ? Number(chatViewerId) : null,
-					viewerUserName,
-					organizerUserNames: Array.isArray(organizerUserNames) ? organizerUserNames : [],
-					globalConfigMessageId:
-						Number.isFinite(Number(globalConfig?.messageId)) && Number(globalConfig?.messageId) > 0
-							? Number(globalConfig.messageId)
-							: null,
-					threadId: tid,
-					postMessage: (body) => postChatMessage(tid, body),
-					patchMessage: (messageId, body) => patchChatMessageBody(messageId, body),
-					reload: async () => {
-						await loadChallengesChannelMessages();
-					},
-					gearIcon,
-					statsIcon: statsBarsIcon,
-					plusIcon
-				});
-				challengesOrganizerSidebarTeardown = orgApi.destroy;
-			} else {
-				chatChallengesOrganizerEligible = false;
-				closeChallengesOrganizerSidebar();
-			}
-
-			if (organizerWasOpen && chatChallengesOrganizerEligible) {
-				openChallengesOrganizerSidebar();
-			}
+			lastChallengesParticipantFp =
+				challengesChannelModule.challengesMessagesFingerprint?.(messages) || '';
 
 			const last = messages[messages.length - 1];
 			const midLast = last?.id != null ? Number(last.id) : null;
 			if (Number.isFinite(midLast) && midLast > 0) {
 				void markThreadReadByMessageId(tid, midLast);
 			}
-			scrollChatFeedPseudoChannelToTop();
-		} catch (err) {
-			console.error('[Chat page] challenges channel:', err);
-			chatChallengesOrganizerEligible = false;
-			if (typeof challengesPaneTeardown === 'function') {
-				try {
-					challengesPaneTeardown();
-				} catch {
-					// ignore
+		};
+
+		let paintedFromCache = false;
+		try {
+			const viewerProfPromise = fetchChatViewerProfileMini();
+			const cached = challengesChannelModule.readChallengesChannelCache?.();
+			const viewerIdNum = Number.isFinite(Number(chatViewerId)) ? Number(chatViewerId) : null;
+
+			if (
+				!soft &&
+				cached &&
+				Number(cached.threadId) === tid &&
+				Array.isArray(cached.messages) &&
+				cached.messages.length > 0
+			) {
+				const viewerProfEarly = await viewerProfPromise;
+				const cacheViewerOk =
+					!viewerProfEarly?.user_name ||
+					String(cached.viewerUserName || '').toLowerCase() ===
+						String(viewerProfEarly.user_name).toLowerCase();
+				const cacheIdOk =
+					viewerIdNum == null ||
+					!Number.isFinite(Number(cached.viewerId)) ||
+					Number(cached.viewerId) === viewerIdNum;
+				if (cacheViewerOk && cacheIdOk) {
+					await mountParticipant(cached.messages, viewerProfEarly);
+					paintedFromCache = true;
+					if (!isStaleChatPane(paneEpoch)) {
+						messagesEl.removeAttribute('aria-busy');
+						exitPseudoChannelLoad();
+						unlockChatMessagesPaneScroll(messagesEl);
+					}
 				}
 			}
-			challengesPaneTeardown = null;
-			if (typeof challengesOrganizerSidebarTeardown === 'function') {
-				try {
-					challengesOrganizerSidebarTeardown();
-				} catch {
-					// ignore
-				}
-			}
-			challengesOrganizerSidebarTeardown = null;
-			closeChallengesOrganizerSidebar();
-			if (!isStaleChatPane(paneEpoch)) {
-				const { title, detail } = getChallengesChannelLoadFailureCopy(err);
-				paintChatMessagesPaneError(messagesEl, detail, title, {
-					showRetry: true,
-					onRetry: () => {
-						void loadChallengesChannelMessages();
-					},
-					buttonText: 'Back to channels',
-					buttonHref: '/chat#channels'
+
+			const [messages, viewerProf] = await Promise.all([
+				challengesChannelModule.fetchAllChatThreadMessages(tid),
+				viewerProfPromise
+			]);
+			if (isStaleChatPane(paneEpoch)) return;
+
+			const nextFp = challengesChannelModule.challengesMessagesFingerprint?.(messages) || '';
+			if (viewerProf?.user_name) {
+				challengesChannelModule.writeChallengesChannelCache?.({
+					viewerId: Number(viewerProf.id) || viewerIdNum || 0,
+					viewerUserName: viewerProf.user_name,
+					threadId: tid,
+					messages
 				});
 			}
+
+			if (nextFp && nextFp === lastChallengesParticipantFp && challengesPaneTeardown) {
+				// Unchanged — keep current pane
+			} else {
+				await mountParticipant(messages, viewerProf);
+			}
+
+			if (!soft) scrollChatFeedPseudoChannelToTop();
+		} catch (err) {
+			console.error('[Chat page] challenges channel:', err);
+			if (!paintedFromCache) chatChallengesOrganizerEligible = false;
+			if (!soft && !paintedFromCache) {
+				if (typeof challengesPaneTeardown === 'function') {
+					try {
+						challengesPaneTeardown();
+					} catch {
+						// ignore
+					}
+				}
+				challengesPaneTeardown = null;
+				tearDownChallengesOrganizeView();
+				if (!isStaleChatPane(paneEpoch)) {
+					const { title, detail } = getChallengesChannelLoadFailureCopy(err);
+					paintChatMessagesPaneError(messagesEl, detail, title, {
+						showRetry: true,
+						onRetry: () => {
+							void loadChallengesChannelMessages();
+						},
+						buttonText: 'Back to channels',
+						buttonHref: '/chat#channels'
+					});
+				}
+			} else if (!soft) {
+				console.warn('[Chat page] challenges refresh failed; keeping cached pane', err);
+			}
 		} finally {
-			exitPseudoChannelLoad();
-			unlockChatMessagesPaneScroll(messagesEl);
+			if (!soft) {
+				exitPseudoChannelLoad();
+				unlockChatMessagesPaneScroll(messagesEl);
+			}
 			if (!isStaleChatPane(paneEpoch) && messagesEl.isConnected) {
 				messagesEl.removeAttribute('aria-busy');
 			}
-			if (!isStaleChatPane(paneEpoch) && activePseudoChannelSlug === 'challenges') {
+			if (!soft && !isStaleChatPane(paneEpoch) && activePseudoChannelSlug === 'challenges') {
 				scrollChatFeedPseudoChannelToTop();
 			}
 			rebuildTopbarMenuDynamic();
@@ -11321,13 +11717,32 @@ export async function initChatPage(root, options = {}) {
 		visibilityResyncCleanup = null;
 	}
 
+	function scheduleChallengesRoomReconcile() {
+		if (challengesRoomDirtyTimer) {
+			window.clearTimeout(challengesRoomDirtyTimer);
+		}
+		challengesRoomDirtyTimer = window.setTimeout(() => {
+			challengesRoomDirtyTimer = null;
+			if (activePseudoChannelSlug !== 'challenges') return;
+			if (isChallengesOrganizePath()) {
+				if (typeof challengesOrganizeApi?.softRefresh === 'function') {
+					void challengesOrganizeApi.softRefresh();
+				} else if (typeof challengesOrganizeApi?.remount === 'function') {
+					void challengesOrganizeApi.remount();
+				}
+				return;
+			}
+			void loadChallengesChannelMessages({ soft: true });
+		}, 400);
+	}
+
 	function bindVisibilityResync() {
 		tearDownVisibilityResync();
 		const onVis = () => {
 			if (document.visibilityState !== 'visible') return;
 			if (activePseudoChannelSlug === 'challenges') {
 				if (!activeThreadId || loadingPseudoChannelMessages) return;
-				void loadChallengesChannelMessages();
+				scheduleChallengesRoomReconcile();
 				return;
 			}
 			if (activePseudoChannelSlug) return;
@@ -11346,7 +11761,7 @@ export async function initChatPage(root, options = {}) {
 		try {
 			const onRoomDirty = () => {
 				if (activePseudoChannelSlug === 'challenges') {
-					void loadChallengesChannelMessages();
+					scheduleChallengesRoomReconcile();
 				} else {
 					void syncChatMessagesFromServer();
 					void refreshChannelPinnedMessage();
@@ -11354,7 +11769,7 @@ export async function initChatPage(root, options = {}) {
 			};
 			const onRoomReconnect = () => {
 				if (activePseudoChannelSlug === 'challenges') {
-					void loadChallengesChannelMessages();
+					scheduleChallengesRoomReconcile();
 				} else {
 					void loadMessages();
 				}
@@ -12304,16 +12719,8 @@ export async function initChatPage(root, options = {}) {
 			}
 		}
 		challengesPaneTeardown = null;
-		if (typeof challengesOrganizerSidebarTeardown === 'function') {
-			try {
-				challengesOrganizerSidebarTeardown();
-			} catch {
-				// ignore
-			}
-		}
-		challengesOrganizerSidebarTeardown = null;
+		tearDownChallengesOrganizeView();
 		chatChallengesOrganizerEligible = false;
-		closeChallengesOrganizerSidebar();
 		teardownChatDoomScroll();
 		activePseudoChannelSlug = null;
 		if (parsed.kind === 'channel') {
@@ -12332,6 +12739,8 @@ export async function initChatPage(root, options = {}) {
 			exploreQueryRef.q = getExploreChannelSearchFromUrl();
 		}
 		canonicalizePrimaryPseudoChannelUrl(activePseudoChannelSlug);
+		consumeChallengesOrganizeBootFlag();
+		setChallengesOrganizeBodyClass(isChallengesOrganizePath());
 		syncChatSidebarPseudoStripActiveNow(window.location.pathname);
 		syncChatBrowseViewBodyClass();
 		applyComposerState();
@@ -12355,6 +12764,13 @@ export async function initChatPage(root, options = {}) {
 			} else if (channelSlugForLoading === 'comments' && typeof renderCommentRowsSkeleton === 'function') {
 				messagesEl.innerHTML = `<div class="chat-comments-channel-loading" aria-busy="true" aria-label="Loading">${renderCommentRowsSkeleton(10)}</div>`;
 				resetAndLockChatMessagesScrollForSkeleton(messagesEl, 'comments');
+			} else if (channelSlugForLoading === 'challenges' && isChallengesOrganizePath()) {
+				const organizeSkeleton =
+					typeof renderChallengesOrganizeBoardSkeleton === 'function'
+						? renderChallengesOrganizeBoardSkeleton()
+						: '<p class="challenge-pane-muted challenges-organize-status">Loading organizer…</p>';
+				messagesEl.innerHTML = `<div class="challenges-organize-root challenges-organize-root--spa" aria-busy="true" aria-label="Loading">${organizeSkeleton}</div>`;
+				resetAndLockChatMessagesScrollForSkeleton(messagesEl, 'challenges');
 			} else if (channelSlugForLoading === 'challenges') {
 				messagesEl.innerHTML =
 					typeof renderChallengePaneSkeleton === 'function'
@@ -12520,16 +12936,28 @@ export async function initChatPage(root, options = {}) {
 				if (slug === 'challenges') {
 					activePseudoChannelSlug = 'challenges';
 					applyComposerState();
+					const organizeMode = isChallengesOrganizePath() || parsed.organize === true;
 					const matchCh = (chatThreads || []).find(
 						(t) => t.type === 'channel' && String(t.channel_slug || '').toLowerCase() === 'challenges'
 					);
 					if (matchCh) {
 						activeThreadId = Number(matchCh.id);
-						updateTitleFromMeta(matchCh);
-						if (messagesEl) {
-							messagesEl.removeAttribute('aria-busy');
+						if (organizeMode) {
+							updateTitleFromMeta({
+								...matchCh,
+								title: 'Organize'
+							});
+							if (messagesEl) {
+								messagesEl.removeAttribute('aria-busy');
+							}
+							await loadChallengesOrganizeView();
+						} else {
+							updateTitleFromMeta(matchCh);
+							if (messagesEl) {
+								messagesEl.removeAttribute('aria-busy');
+							}
+							await loadChallengesChannelMessages();
 						}
-						await loadChallengesChannelMessages();
 						await bindRoomBroadcast(activeThreadId);
 						return;
 					}
@@ -12550,11 +12978,23 @@ export async function initChatPage(root, options = {}) {
 					if (Number.isFinite(tidCh) && tidCh > 0) {
 						activeThreadId = tidCh;
 						const metaCh = (chatThreads || []).find((t) => Number(t.id) === tidCh);
-						updateTitleFromMeta(metaCh || { type: 'channel', channel_slug: 'challenges', title: 'Challenges' });
-						if (messagesEl) {
-							messagesEl.removeAttribute('aria-busy');
+						if (organizeMode) {
+							updateTitleFromMeta(
+								metaCh
+									? { ...metaCh, title: 'Organize' }
+									: { type: 'channel', channel_slug: 'challenges', title: 'Organize' }
+							);
+							if (messagesEl) {
+								messagesEl.removeAttribute('aria-busy');
+							}
+							await loadChallengesOrganizeView();
+						} else {
+							updateTitleFromMeta(metaCh || { type: 'channel', channel_slug: 'challenges', title: 'Challenges' });
+							if (messagesEl) {
+								messagesEl.removeAttribute('aria-busy');
+							}
+							await loadChallengesChannelMessages();
 						}
-						await loadChallengesChannelMessages();
 						await bindRoomBroadcast(activeThreadId);
 					} else if (messagesEl) {
 						chatThreadLoadFailed = true;
@@ -12785,7 +13225,8 @@ export async function initChatPage(root, options = {}) {
 			pathOnly === '/feed' ||
 			pathOnly === '/explore' ||
 			pathOnly === '/creations' ||
-			pathOnly === '/challenges';
+			pathOnly === '/challenges' ||
+			pathOnly === '/challenges/organize';
 		if (!isHashtagTagPath && !isChatInAppRoute) return false;
 		e.preventDefault();
 		e.stopPropagation();
@@ -13144,6 +13585,7 @@ export async function initChatPage(root, options = {}) {
 				pathOnly === '/explore' ||
 				pathOnly === '/creations' ||
 				pathOnly === '/challenges' ||
+				pathOnly === '/challenges/organize' ||
 				pathOnly === '/create' ||
 				pathOnly.startsWith('/chat/');
 			if (!isFeedShellRoute) return;
@@ -13926,18 +14368,6 @@ export async function initChatPage(root, options = {}) {
 			membersBtn.textContent = 'Members';
 			body.appendChild(membersBtn);
 		}
-		if (chatChallengesOrganizerEligible && activePseudoChannelSlug === 'challenges') {
-			const orgMb = document.createElement('button');
-			orgMb.type = 'button';
-			orgMb.className = 'feed-card-menu-item';
-			orgMb.dataset.chatChallengesOrganizerOpen = '';
-			orgMb.setAttribute('role', 'menuitem');
-			orgMb.textContent = 'Organizer tools';
-			if (isChallengesOrganizerSidebarOpen()) {
-				orgMb.classList.add('chat-page-mobile-chrome-sheet-item--current');
-			}
-			body.appendChild(orgMb);
-		}
 		const canCreateCanvas = isActiveThreadCanvasEligible() && chatViewerIsFounder;
 		const hasCanvasSection = chatCanvasesList.length > 0 || canCreateCanvas;
 		if (hasCanvasSection) {
@@ -14084,42 +14514,15 @@ export async function initChatPage(root, options = {}) {
 	}
 
 	function isChallengesOrganizerSidebarOpen() {
-		const orgShell = chatCanvasScope?.querySelector('[data-chat-challenges-organizer-sidebar]');
-		return orgShell instanceof HTMLElement && !orgShell.hidden;
+		return false;
 	}
 
 	function closeChallengesOrganizerSidebar() {
-		const defaultShell = chatCanvasScope?.querySelector('[data-chat-canvas-default-shell]');
-		const orgShell = chatCanvasScope?.querySelector('[data-chat-challenges-organizer-sidebar]');
-		const panel = getChatCanvasPanelEls().panel;
-		forgetOpenOrganizerToolsForActiveThread();
-		if (defaultShell instanceof HTMLElement) defaultShell.hidden = false;
-		if (orgShell instanceof HTMLElement) orgShell.hidden = true;
-		if (panel instanceof HTMLElement) {
-			panel.hidden = true;
-			panel.setAttribute('aria-label', 'Canvas');
-		}
-		setChatCanvasOpenBodyClass(false);
-		rebuildTopbarMenuDynamic();
-		syncTopbarPinnedCanvasButton();
+		// Organizer tools rail removed; Organize is a chat SPA route.
 	}
 
 	function openChallengesOrganizerSidebar() {
-		closeMobileChromeSheet();
-		closeCanvasOwnerDropdown();
-		closeTopbarMenu();
-		const defaultShell = chatCanvasScope?.querySelector('[data-chat-canvas-default-shell]');
-		const orgShell = chatCanvasScope?.querySelector('[data-chat-challenges-organizer-sidebar]');
-		const panel = getChatCanvasPanelEls().panel;
-		if (!(orgShell instanceof HTMLElement) || !(panel instanceof HTMLElement)) return;
-		if (defaultShell instanceof HTMLElement) defaultShell.hidden = true;
-		orgShell.hidden = false;
-		panel.hidden = false;
-		rememberOpenOrganizerToolsForActiveThread();
-		panel.setAttribute('aria-label', 'Challenge organizer tools');
-		setChatCanvasOpenBodyClass(true);
-		rebuildTopbarMenuDynamic();
-		syncTopbarPinnedCanvasButton();
+		navigateWithinChatShell('/challenges/organize');
 	}
 
 	function updateCanvasBodyLimitHint(inputEl, hintEl) {
@@ -14345,9 +14748,7 @@ export async function initChatPage(root, options = {}) {
 		closeMobileChromeSheet();
 		closeCanvasOwnerDropdown();
 		const defaultShellOpen = chatCanvasScope.querySelector('[data-chat-canvas-default-shell]');
-		const orgShellOpen = chatCanvasScope.querySelector('[data-chat-challenges-organizer-sidebar]');
 		if (defaultShellOpen instanceof HTMLElement) defaultShellOpen.hidden = false;
-		if (orgShellOpen instanceof HTMLElement) orgShellOpen.hidden = true;
 		activeCanvasRow = {
 			id: Number(row.id),
 			title: String(row.title || '').trim(),
@@ -14376,10 +14777,6 @@ export async function initChatPage(root, options = {}) {
 	}
 
 	closeChatCanvasPanel = ({ forgetOpenPreference = false } = {}) => {
-		if (isChallengesOrganizerSidebarOpen()) {
-			closeChallengesOrganizerSidebar();
-			return;
-		}
 		if (forgetOpenPreference && activeThreadId != null) {
 			forgetOpenCanvasForThread(activeThreadId);
 		}
@@ -14408,7 +14805,7 @@ export async function initChatPage(root, options = {}) {
 		syncTopbarPinnedCanvasButton();
 	};
 
-	/** Header accessory button: pinned canvas title (channels) or Organizer tools (#challenges). */
+	/** Header accessory button: pinned canvas title (channels) or Organize (#challenges). */
 	function syncTopbarPinnedCanvasButton() {
 		const desktopBtn = root.querySelector('[data-chat-topbar-pinned-canvas]');
 		const mobileBtn = mainColumn instanceof HTMLElement
@@ -14425,29 +14822,6 @@ export async function initChatPage(root, options = {}) {
 				btn.hidden = true;
 				btn.textContent = '';
 				btn.removeAttribute('aria-label');
-				return;
-			}
-			if (chatChallengesOrganizerEligible && activePseudoChannelSlug === 'challenges') {
-				const label = 'Organizer tools';
-				const viewing = isChallengesOrganizerSidebarOpen();
-				if (viewing && !mobile) {
-					btn.hidden = true;
-					btn.textContent = '';
-					btn.removeAttribute('aria-label');
-					return;
-				}
-				btn.hidden = false;
-				btn.textContent = label;
-				btn.dataset.chatChallengesOrganizerOpen = '';
-				if (viewing && mobile) {
-					btn.classList.add('is-active');
-				}
-				btn.setAttribute(
-					'aria-label',
-					viewing
-						? 'Return to challenges from organizer tools'
-						: 'Open organizer tools'
-				);
 				return;
 			}
 			if (!isActiveThreadCanvasEligible()) {
@@ -14497,6 +14871,7 @@ export async function initChatPage(root, options = {}) {
 
 		applyButtonState(desktopBtn, { mobile: false });
 		applyButtonState(mobileBtn, { mobile: true });
+		syncOrganizeSettingsButtons();
 	}
 
 	rebuildTopbarMenuDynamic = () => {
@@ -14533,15 +14908,6 @@ export async function initChatPage(root, options = {}) {
 			filterBtn.setAttribute('role', 'menuitem');
 			filterBtn.textContent = 'Filter';
 			dyn.appendChild(filterBtn);
-		}
-		if (chatChallengesOrganizerEligible && activePseudoChannelSlug === 'challenges') {
-			const orgBtn = document.createElement('button');
-			orgBtn.type = 'button';
-			orgBtn.className = 'feed-card-menu-item';
-			orgBtn.dataset.chatChallengesOrganizerOpen = '';
-			orgBtn.setAttribute('role', 'menuitem');
-			orgBtn.textContent = 'Organizer tools';
-			dyn.appendChild(orgBtn);
 		}
 		const canCreateCanvas = isActiveThreadCanvasEligible() && chatViewerIsFounder;
 		const hasCanvasSection = chatCanvasesList.length > 0 || canCreateCanvas;
@@ -14922,6 +15288,10 @@ export async function initChatPage(root, options = {}) {
 		) {
 			e.preventDefault();
 			e.stopPropagation();
+			if (isChallengesOrganizePath()) {
+				navigateWithinChatShell('/challenges');
+				return;
+			}
 			const next = `/chat${window.location.search || ''}#channels`;
 			const cur = `${window.location.pathname}${window.location.search || ''}${window.location.hash || ''}`;
 			if (next !== cur) {
@@ -14939,23 +15309,30 @@ export async function initChatPage(root, options = {}) {
 		if (
 			topbarBack instanceof HTMLAnchorElement &&
 			mainColumn instanceof HTMLElement &&
-			mainColumn.contains(topbarBack) &&
-			isChatPageMobileLayout()
+			mainColumn.contains(topbarBack)
 		) {
-			e.preventDefault();
-			e.stopPropagation();
-			const next = `/chat${window.location.search || ''}#channels`;
-			const cur = `${window.location.pathname}${window.location.search || ''}${window.location.hash || ''}`;
-			if (next !== cur) {
-				history.pushState({ prsnChat: true }, '', next);
-				try {
-					window.dispatchEvent(new HashChangeEvent('hashchange'));
-				} catch {
-					window.dispatchEvent(new Event('hashchange'));
-				}
+			if (isChallengesOrganizePath()) {
+				e.preventDefault();
+				e.stopPropagation();
+				navigateWithinChatShell('/challenges');
+				return;
 			}
-			setMobileSidebarMode(true);
-			return;
+			if (isChatPageMobileLayout()) {
+				e.preventDefault();
+				e.stopPropagation();
+				const next = `/chat${window.location.search || ''}#channels`;
+				const cur = `${window.location.pathname}${window.location.search || ''}${window.location.hash || ''}`;
+				if (next !== cur) {
+					history.pushState({ prsnChat: true }, '', next);
+					try {
+						window.dispatchEvent(new HashChangeEvent('hashchange'));
+					} catch {
+						window.dispatchEvent(new Event('hashchange'));
+					}
+				}
+				setMobileSidebarMode(true);
+				return;
+			}
 		}
 		const sheetTrig = t.closest('[data-chat-mobile-chrome-sheet-trigger]');
 		if (
@@ -15061,23 +15438,33 @@ export async function initChatPage(root, options = {}) {
 			showPrivateChannelMembersOverlay();
 			return;
 		}
+		if (t.closest('[data-chat-organize-back]')) {
+			e.preventDefault();
+			e.stopPropagation();
+			closeTopbarMenu();
+			closeMobileChromeSheet();
+			navigateWithinChatShell('/challenges');
+			return;
+		}
 		if (t.closest('[data-chat-challenges-organizer-open]')) {
 			e.preventDefault();
 			closeTopbarMenu();
 			closeMobileChromeSheet();
-			if (
-				t.closest('[data-chat-mobile-pinned-canvas]') &&
-				isChallengesOrganizerSidebarOpen()
-			) {
-				closeChallengesOrganizerSidebar();
-			} else {
-				openChallengesOrganizerSidebar();
+			navigateWithinChatShell('/challenges/organize');
+			return;
+		}
+		if (t.closest('[data-chat-organize-settings]')) {
+			e.preventDefault();
+			closeTopbarMenu();
+			closeMobileChromeSheet();
+			if (typeof challengesOrganizeApi?.openGlobalSettings === 'function') {
+				challengesOrganizeApi.openGlobalSettings();
 			}
 			return;
 		}
 		if (t.closest('[data-chat-challenges-organizer-close]')) {
 			e.preventDefault();
-			closeChallengesOrganizerSidebar();
+			navigateWithinChatShell('/challenges');
 			return;
 		}
 		if (t.closest('[data-chat-canvas-create]')) {
@@ -15113,10 +15500,6 @@ export async function initChatPage(root, options = {}) {
 		}
 		if (t.closest('[data-chat-canvas-close]')) {
 			e.preventDefault();
-			if (isChallengesOrganizerSidebarOpen()) {
-				closeChallengesOrganizerSidebar();
-				return;
-			}
 			closeChatCanvasPanel({ forgetOpenPreference: true });
 			return;
 		}

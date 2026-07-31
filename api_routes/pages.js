@@ -1590,6 +1590,9 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 		return res.send(pageHtml);
 	});
 
+	// Challenge organizer is served by the chat SPA (same shell as /challenges).
+	// Catch-all below maps /challenges/organize → chat.html.
+
 	// Try page (unauthenticated). try.html includes global.css and entry.js itself; do not inject common head to avoid loading them twice.
 	router.get("/try", async (req, res) => {
 		const fs = await import("fs/promises");
@@ -1714,6 +1717,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			req.path === "/creations/" ||
 			req.path === "/challenges" ||
 			req.path === "/challenges/" ||
+			req.path === "/challenges/organize" ||
 			req.path === "/chat" ||
 			req.path === "/chat/" ||
 			req.path.startsWith("/chat/")
@@ -1732,7 +1736,13 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			if (req.path === "/feed" || req.path === "/feed/") sidebarPath = "/chat/c/feed";
 			if (req.path === "/explore" || req.path === "/explore/") sidebarPath = "/chat/c/explore";
 			if (req.path === "/creations" || req.path === "/creations/") sidebarPath = "/chat/c/creations";
-			if (req.path === "/challenges" || req.path === "/challenges/") sidebarPath = "/chat/c/challenges";
+			if (
+				req.path === "/challenges" ||
+				req.path === "/challenges/" ||
+				req.path === "/challenges/organize"
+			) {
+				sidebarPath = "/chat/c/challenges";
+			}
 			const chatPageTokens = buildChatPageTokens(req, sidebarPath);
 			htmlContent = injectCommonHead(htmlContent, chatPageTokens);
 			res.setHeader("Content-Type", "text/html");

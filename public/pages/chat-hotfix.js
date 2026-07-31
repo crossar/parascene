@@ -894,6 +894,347 @@ function initReactionPickerStackFix() {
 
 initReactionPickerStackFix();
 
+/**
+ * Organize SPA fold-in for stale chat.bundle.js:
+ * - Keep a hidden organizer-sidebar host so eligibility still works
+ * - Prefer an in-pane Organize CTA (same size as Vote); clear any header/menu Organize entry
+ * - Navigate Challenges ↔ Organize via `prsn-chat-open-path` (no full reload)
+ * - When booting via `prsn-chat-organize-boot`, mount the board from `/@src`
+ */
+function normalizeChatPathname(pathname) {
+	return String(pathname || '').replace(/\/+$/, '') || '/';
+}
+
+function isChallengesMainPath() {
+	return normalizeChatPathname(window.location.pathname) === '/challenges';
+}
+
+function isChallengesOrganizeBootPending() {
+	try {
+		return window.sessionStorage?.getItem('prsn-chat-organize-boot') === '1';
+	} catch {
+		return false;
+	}
+}
+
+function clearChallengesOrganizeBootFlag() {
+	try {
+		window.sessionStorage?.removeItem('prsn-chat-organize-boot');
+	} catch {
+		// ignore
+	}
+}
+
+function ensureOrganizerSidebarHostForEligibility() {
+	const scope =
+		document.querySelector('[data-chat-canvas-scope]') ||
+		document.querySelector('[data-chat-main-split]') ||
+		document.body;
+	if (!(scope instanceof HTMLElement)) return;
+	let host = scope.querySelector('[data-chat-challenges-organizer-sidebar]');
+	if (host instanceof HTMLElement) {
+		host.hidden = true;
+		host.setAttribute('aria-hidden', 'true');
+		return;
+	}
+	host = document.createElement('div');
+	host.className = 'chat-page-challenges-organizer-sidebar';
+	host.setAttribute('data-chat-challenges-organizer-sidebar', '');
+	host.hidden = true;
+	host.setAttribute('aria-hidden', 'true');
+	scope.appendChild(host);
+}
+
+function relabelOrganizerEntryButtons(root) {
+	const scope = root instanceof HTMLElement ? root : document;
+	clearHeaderOrganizeButtons();
+	for (const btn of scope.querySelectorAll('.challenge-pane-organize-entry-btn')) {
+		if (!(btn instanceof HTMLElement)) continue;
+		btn.dataset.chatChallengesOrganizerOpen = '';
+		const label = btn.querySelector('.challenge-pane-organize-entry-btn-label');
+		if (label instanceof HTMLElement) label.textContent = 'Organize';
+		else if (!btn.textContent?.trim()) btn.textContent = 'Organize';
+	}
+}
+
+/**
+ * Prefer in-shell SPA navigation (chatPage listens for `prsn-chat-open-path`).
+ * Only full-reload when the chat shell is not ready.
+ * @param {string} href
+ * @param {Event | null | undefined} ev
+ */
+function navigateChatSpa(href, ev) {
+	if (ev) {
+		ev.preventDefault();
+		ev.stopPropagation();
+	}
+	const raw = String(href || '').trim();
+	if (!raw) return;
+
+	let pathOnly = raw.split('?')[0].split('#')[0];
+	try {
+		pathOnly = normalizeChatPathname(new URL(raw, window.location.origin).pathname);
+	} catch {
+		pathOnly = normalizeChatPathname(pathOnly);
+	}
+	if (pathOnly === normalizeChatPathname(window.location.pathname)) return;
+
+	const onChatPage =
+		document.body?.classList?.contains('chat-page') ||
+		document.documentElement?.classList?.contains('chat-page') ||
+		document.body?.dataset?.entry === 'chat';
+	if (onChatPage && document.querySelector('[data-chat-page], [data-chat-messages]')) {
+		try {
+			document.dispatchEvent(
+				new CustomEvent('prsn-chat-open-path', {
+					bubbles: true,
+					detail: { href: raw }
+				})
+			);
+			return;
+		} catch {
+			// fall through
+		}
+	}
+	window.location.assign(raw);
+}
+
+function navigateToChallengesOrganize(ev) {
+	navigateChatSpa(`/challenges/organize${window.location.search || ''}`, ev);
+}
+
+async function mountOrganizeBoardViaSrc() {
+	const messagesEl = document.querySelector('[data-chat-messages]');
+	if (!(messagesEl instanceof HTMLElement)) return false;
+	if (messagesEl.querySelector('[data-organize-board], .challenges-organize-root--spa')) {
+		clearChallengesOrganizeBootFlag();
+		return true;
+	}
+
+	let mountOrganizeLane = null;
+	try {
+		const mod = await import(`/@src/chat/challenges/organizePageMain.js${assetQuery()}`);
+		mountOrganizeLane = mod?.mountOrganizeLane;
+	} catch (err) {
+		console.warn('[chat-hotfix] organize /@src import failed', err);
+		return false;
+	}
+	if (typeof mountOrganizeLane !== 'function') return false;
+
+	document.body?.classList.add('chat-page--challenges-organize');
+	messagesEl.innerHTML = '';
+	const mountWrap = document.createElement('div');
+	mountWrap.className = 'challenges-organize-root challenges-organize-root--spa';
+	mountWrap.setAttribute('aria-live', 'polite');
+	messagesEl.appendChild(mountWrap);
+
+	const titleEl = document.querySelector('[data-chat-title]');
+	if (titleEl instanceof HTMLElement) {
+		titleEl.setAttribute('data-chat-title-label', 'Challenges › Organize');
+		titleEl.innerHTML =
+			'<span class="chat-page-header-title-text chat-page-header-title-text--breadcrumb"><a href="/challenges" class="chat-page-header-breadcrumb-link" data-chat-organize-back>Challenges</a><span class="chat-page-header-breadcrumb-sep" aria-hidden="true">›</span><span class="chat-page-header-breadcrumb-current">Organize</span></span>';
+		titleEl.removeAttribute('data-chat-title-awaiting');
+		titleEl.removeAttribute('aria-hidden');
+	}
+	const mobileTitle = document.querySelector('[data-chat-mobile-chrome-channel]');
+	if (mobileTitle instanceof HTMLElement) {
+		mobileTitle.textContent = 'Organize';
+	}
+	const caret = document.querySelector('[data-chat-mobile-chrome-sheet-trigger]');
+	if (caret instanceof HTMLButtonElement) {
+		caret.hidden = true;
+		caret.setAttribute('aria-hidden', 'true');
+	}
+	const topbarBack = document.querySelector('.chat-page-topbar .chat-page-back');
+	if (topbarBack instanceof HTMLAnchorElement) {
+		topbarBack.href = '/challenges';
+		topbarBack.setAttribute('aria-label', 'Back to Challenges');
+	}
+	const mobileBack = document.querySelector('[data-chat-mobile-chrome-back]');
+	if (mobileBack instanceof HTMLElement) {
+		mobileBack.setAttribute('aria-label', 'Back to Challenges');
+	}
+
+	try {
+		const st =
+			window.history?.state && typeof window.history.state === 'object'
+				? { ...window.history.state, prsnChat: true }
+				: { prsnChat: true };
+		window.history.replaceState(st, '', `/challenges/organize${window.location.search || ''}`);
+	} catch {
+		// ignore
+	}
+
+	await mountOrganizeLane(mountWrap, {
+		onEligibility: () => {},
+		onOceanman: (isOceanman) => {
+			const show = Boolean(isOceanman);
+			for (const btn of document.querySelectorAll('[data-chat-organize-settings]')) {
+				if (!(btn instanceof HTMLButtonElement)) continue;
+				btn.hidden = !show;
+			}
+		}
+	});
+	clearChallengesOrganizeBootFlag();
+	return true;
+}
+
+function clearHeaderOrganizeButtons() {
+	for (const btn of document.querySelectorAll(
+		'[data-chat-topbar-pinned-canvas], [data-chat-mobile-pinned-canvas]'
+	)) {
+		if (!(btn instanceof HTMLButtonElement)) continue;
+		const isOrganize =
+			btn.hasAttribute('data-chat-challenges-organizer-open') ||
+			btn.textContent?.trim() === 'Organize';
+		if (!isOrganize) continue;
+		delete btn.dataset.chatChallengesOrganizerOpen;
+		btn.removeAttribute('data-chat-challenges-organizer-open');
+		btn.hidden = true;
+		btn.textContent = '';
+		btn.removeAttribute('aria-label');
+	}
+	for (const item of document.querySelectorAll(
+		'[data-chat-topbar-menu-dynamic] [data-chat-challenges-organizer-open], [data-chat-mobile-chrome-sheet-body] [data-chat-challenges-organizer-open]'
+	)) {
+		if (!(item instanceof HTMLElement)) continue;
+		if (item.classList.contains('challenge-pane-organize-entry-btn')) continue;
+		item.remove();
+	}
+}
+
+function injectOrganizeEntryButtons() {
+	if (!isChallengesMainPath()) return;
+	clearHeaderOrganizeButtons();
+
+	const pane = document.querySelector('.challenge-pane-root .challenge-pane, .challenge-pane');
+	if (!(pane instanceof HTMLElement)) return;
+	if (pane.querySelector('.challenge-pane-organize-entry-btn')) return;
+
+	const section = document.createElement('section');
+	section.className = 'challenge-pane-section challenge-pane-organize-entry';
+	const link = document.createElement('a');
+	link.href = '/challenges/organize';
+	link.className = 'challenge-pane-organize-entry-btn';
+	link.dataset.chatChallengesOrganizerOpen = '';
+	link.innerHTML = '<span class="challenge-pane-organize-entry-btn-label">Organize</span>';
+	section.appendChild(link);
+
+	const voteCta = pane.querySelector('.challenge-pane-vote-hero-cta');
+	if (voteCta instanceof HTMLElement && voteCta.parentNode) {
+		voteCta.insertAdjacentElement('afterend', section);
+		return;
+	}
+	const heroImg = pane.querySelector('.challenge-pane-active-card .challenge-pane-hero-image-section');
+	if (heroImg instanceof HTMLElement && heroImg.parentNode) {
+		heroImg.insertAdjacentElement('afterend', section);
+		return;
+	}
+	const firstCard = pane.querySelector('.challenge-pane-active-card');
+	if (firstCard instanceof HTMLElement) {
+		firstCard.appendChild(section);
+		return;
+	}
+	pane.prepend(section);
+}
+
+async function viewerLooksLikeChallengeOrganizer() {
+	try {
+		const res = await fetch('/api/profile', { credentials: 'include' });
+		if (!res.ok) return false;
+		const user = await res.json().catch(() => null);
+		const prof = user?.profile && typeof user.profile === 'object' ? user.profile : {};
+		const userName =
+			typeof prof.user_name === 'string' && prof.user_name.trim() ? prof.user_name.trim() : '';
+		if (!userName) return false;
+		const admin = await import(`/@src/chat/challenges/challengeAdmin.js${assetQuery()}`);
+		if (admin.isImpliedChallengeOrganizer?.(userName)) return true;
+
+		const { readChallengesChannelCache } = await import(
+			`/@src/chat/challenges/challengesChannelCache.js${assetQuery()}`
+		);
+		const cached = readChallengesChannelCache?.();
+		if (cached && Array.isArray(cached.messages) && cached.messages.length) {
+			const names = admin.resolveChallengeOrganizerAllowlistFromMessages?.(cached.messages);
+			return Boolean(admin.isChallengeChannelAdmin?.(userName, names));
+		}
+
+		// Fall back: show entry for logged-in organizers-to-be; Organize page still gates.
+		return true;
+	} catch {
+		return true;
+	}
+}
+
+let organizeEligibilityPromise = null;
+function ensureOrganizeEntryWhenEligible() {
+	if (!isChallengesMainPath()) return;
+	if (!organizeEligibilityPromise) {
+		organizeEligibilityPromise = viewerLooksLikeChallengeOrganizer().finally(() => {
+			window.setTimeout(() => {
+				organizeEligibilityPromise = null;
+			}, 5000);
+		});
+	}
+	void organizeEligibilityPromise.then((ok) => {
+		if (!ok) return;
+		if (!isChallengesMainPath()) return;
+		injectOrganizeEntryButtons();
+		relabelOrganizerEntryButtons(document);
+	});
+}
+
+function initChallengesOrganizeSpaHotfix() {
+	ensureOrganizerSidebarHostForEligibility();
+
+	document.addEventListener(
+		'click',
+		(e) => {
+			const t = e.target;
+			if (!(t instanceof Element)) return;
+			if (t.closest('[data-chat-organize-back]')) {
+				clearChallengesOrganizeBootFlag();
+				navigateChatSpa(`/challenges${window.location.search || ''}`, e);
+				return;
+			}
+			const openBtn = t.closest('[data-chat-challenges-organizer-open]');
+			if (!(openBtn instanceof HTMLElement)) return;
+			navigateToChallengesOrganize(e);
+		},
+		true
+	);
+
+	const syncLabels = () => {
+		ensureOrganizerSidebarHostForEligibility();
+		if (isChallengesMainPath() || isChallengesOrganizeBootPending()) {
+			relabelOrganizerEntryButtons(document);
+			ensureOrganizeEntryWhenEligible();
+		}
+	};
+	syncLabels();
+	const mo = new MutationObserver(() => {
+		window.clearTimeout(initChallengesOrganizeSpaHotfix._t);
+		initChallengesOrganizeSpaHotfix._t = window.setTimeout(syncLabels, 40);
+	});
+	mo.observe(document.documentElement, { childList: true, subtree: true });
+
+	const tryBootOrganize = () => {
+		if (!isChallengesOrganizeBootPending()) return;
+		if (document.querySelector('[data-organize-board], .challenges-organize-root--spa')) {
+			clearChallengesOrganizeBootFlag();
+			return;
+		}
+		void mountOrganizeBoardViaSrc();
+	};
+	tryBootOrganize();
+	window.setTimeout(tryBootOrganize, 250);
+	window.setTimeout(tryBootOrganize, 1200);
+	window.setTimeout(ensureOrganizeEntryWhenEligible, 300);
+	window.setTimeout(ensureOrganizeEntryWhenEligible, 1500);
+}
+
+initChallengesOrganizeSpaHotfix();
+
 void import(`/shared/consoleGen.js${assetQuery()}`)
 	.then((mod) => {
 		mod.installConsoleGen?.();

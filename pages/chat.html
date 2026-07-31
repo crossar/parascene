@@ -10,6 +10,7 @@
 	<meta name="description" content="Chat in Parascene Connect: direct messages, servers, and channels." />
 	<link rel="stylesheet" href="/build/chat.bundle.css{{V}}" />
 	<link rel="stylesheet" href="/pages/creations.css{{V}}" />
+	<link rel="stylesheet" href="/pages/challenges-organize.css{{V}}" />
 	<link rel="stylesheet" href="/pages/chat-hotfix.css{{V}}" />
 	<script>
 		(function () {
@@ -22,6 +23,24 @@
 				window.scrollTo(0, 0);
 				document.documentElement.scrollTop = 0;
 				document.body.scrollTop = 0;
+			} catch (e) { }
+			/* Stale chat.bundle treats /challenges/organize as invalid and bounces to #channels.
+			 * Boot Challenges instead; chat-hotfix / chatPage consume this flag and mount Organize. */
+			try {
+				var organizePath = String(window.location.pathname || '').replace(/\/+$/, '') || '/';
+				if (organizePath === '/challenges/organize') {
+					window.sessionStorage.setItem('prsn-chat-organize-boot', '1');
+					var orgState =
+						window.history && window.history.state && typeof window.history.state === 'object'
+							? Object.assign({}, window.history.state)
+							: { prsnChat: true };
+					orgState.prsnChat = true;
+					window.history.replaceState(
+						orgState,
+						'',
+						'/challenges' + (window.location.search || '')
+					);
+				}
 			} catch (e) { }
 			var root = document.documentElement;
 			if (!root) return;
@@ -333,6 +352,8 @@
 						</h1>
 						<button type="button" class="chat-page-mobile-chrome-pinned-canvas-btn"
 							data-chat-mobile-pinned-canvas hidden></button>
+						<button type="button" class="chat-page-mobile-chrome-organize-settings"
+							data-chat-organize-settings hidden aria-label="Organizer settings"></button>
 						<button type="button" class="chat-page-mobile-chrome-caret"
 							data-chat-mobile-chrome-sheet-trigger aria-label="Channel and canvases"
 							aria-expanded="false" aria-haspopup="menu">
@@ -364,6 +385,8 @@
 										<div class="chat-page-topbar-actions">
 											<button type="button" class="chat-page-topbar-pinned-canvas-btn"
 												data-chat-topbar-pinned-canvas hidden></button>
+											<button type="button" class="chat-page-topbar-organize-settings"
+												data-chat-organize-settings hidden aria-label="Organizer settings"></button>
 											<button type="button" class="feed-card-action feed-card-action-more"
 												data-chat-more-button aria-label="More chat actions"
 												aria-haspopup="menu" aria-expanded="false">
@@ -534,8 +557,9 @@
 									</div>
 								</div>
 							</div>
+							<!-- Kept for stale chat.bundle eligibility; Organize is a SPA route, not a rail. -->
 							<div class="chat-page-challenges-organizer-sidebar" data-chat-challenges-organizer-sidebar
-								hidden aria-label="Challenge organizer tools"></div>
+								hidden aria-hidden="true"></div>
 						</aside>
 					</div>
 				</div>

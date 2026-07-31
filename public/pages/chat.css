@@ -182,6 +182,24 @@ body.chat-page main.chat-page-outer {
 	box-sizing: border-box;
 }
 
+.challenge-pane-organizer-bridge {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 12px;
+}
+
+.challenge-pane-organizer-bridge-copy {
+	margin: 0;
+	max-width: 18em;
+	line-height: 1.4;
+}
+
+.challenge-pane-organizer-bridge-link {
+	display: inline-flex;
+	text-decoration: none;
+}
+
 .challenge-pane-organizer-sidebar-body .challenge-pane-admin-config-form {
 	max-width: none;
 }
@@ -469,11 +487,21 @@ body.chat-page main.chat-page-outer {
 }
 
 .challenge-pane-organizer-modal-body .challenge-pane-admin-config-form {
-	flex: 0 0 auto;
+	flex: 1 1 auto;
+	min-height: 0;
 	display: flex;
 	flex-direction: column;
 	max-width: none;
+	width: 100%;
 	box-sizing: border-box;
+}
+
+.challenge-pane-admin-form-main {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
 }
 
 .challenge-pane-admin-form-footer {
@@ -481,13 +509,19 @@ body.chat-page main.chat-page-outer {
 	flex-direction: column;
 	gap: 12px;
 	flex-shrink: 0;
-	padding-bottom: 24px;
+	margin-top: auto;
+	margin-left: -20px;
+	margin-right: -20px;
+	padding: 14px 20px max(20px, env(safe-area-inset-bottom, 0px));
+	border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+	background: var(--surface);
 }
 
 .challenge-pane-organizer-modal-body .challenge-pane-admin-config-form > .challenge-pane-label:not(.challenge-pane-organizer-details-field),
 .challenge-pane-organizer-modal-body .challenge-pane-admin-config-form > .challenge-pane-admin-rewards-group,
 .challenge-pane-organizer-modal-body .challenge-pane-admin-config-form > .challenge-pane-admin-datetimes,
 .challenge-pane-organizer-modal-body .challenge-pane-admin-config-form > .challenge-pane-admin-results-row,
+.challenge-pane-organizer-modal-body .challenge-pane-admin-config-form > .challenges-organize-modal-toolbar,
 .challenge-pane-organizer-modal-body .challenge-pane-admin-config-form > .challenge-pane-admin-form-footer,
 .challenge-pane-organizer-modal-body .challenge-pane-admin-config-form > .challenge-pane-admin-submit,
 .challenge-pane-organizer-modal-body .challenge-pane-admin-config-form > .challenge-pane-admin-error,
@@ -523,11 +557,20 @@ body.chat-page main.chat-page-outer {
 
 .chat-page-challenges-organizer-modal-panel .challenge-pane-organizer-modal-body {
 	flex: 1 1 auto;
-	overflow-y: auto;
+	overflow: hidden;
 	min-height: 0;
 	max-height: none;
-	padding-bottom: 24px;
-	scroll-padding-bottom: 24px;
+	padding-bottom: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.chat-page-challenges-organizer-modal-panel .challenge-pane-organizer-modal-body > .challenges-organize-soft-delete-confirm,
+.chat-page-challenges-organizer-modal-panel .challenge-pane-organizer-modal-body > .challenge-pane-organizer-stats-view {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
 }
 
 .challenge-pane-organizer-stats-view {
@@ -837,6 +880,74 @@ button[data-chat-topbar-pinned-canvas] {
 	text-align: center;
 	gap: 7px;
 	min-width: 0;
+}
+
+/* Organize lane: oceanman settings gear in existing chat chrome */
+.chat-page-topbar-organize-settings,
+.chat-page-mobile-chrome-organize-settings {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 36px;
+	height: 36px;
+	margin: 0;
+	padding: 0;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.chat-page-topbar-organize-settings:hover,
+.chat-page-mobile-chrome-organize-settings:hover {
+	color: var(--text);
+	background: var(--surface-hover, rgba(255, 255, 255, 0.06));
+}
+
+.chat-page-topbar-organize-settings:focus-visible,
+.chat-page-mobile-chrome-organize-settings:focus-visible {
+	outline: 2px solid var(--focus-ring, var(--color-green, #22c55e));
+	outline-offset: 2px;
+}
+
+.chat-page-organize-settings-icon {
+	width: 20px;
+	height: 20px;
+	display: block;
+}
+
+body.chat-page.chat-page--challenges-organize .challenges-organize-root--spa {
+	width: 100%;
+}
+
+@media (max-width: 768px) {
+	body.chat-page.chat-page--challenges-organize .chat-page-mobile-chrome-caret {
+		display: none !important;
+	}
+}
+
+.chat-page-messages.chat-page-organize-ptr-pulling {
+	opacity: 0.92;
+}
+
+body.chat-page.chat-page--challenges-organizer-modal-open .chat-page-messages.chat-page-organize-ptr-refreshing {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+/* Organizer modals mount inside the thread messages pane; keep them above chat chrome. */
+body.chat-page.chat-page--challenges-organizer-modal-open .chat-page-thread-pane {
+	position: relative;
+	z-index: 50;
+}
+
+@media (max-width: 768px) {
+	body.chat-page.chat-page--challenges-organizer-modal-open .chat-page-mobile-chrome {
+		z-index: 40;
+	}
 }
 
 .chat-page-canvas-panel-title-input {
@@ -2094,6 +2205,12 @@ body.chat-page.chat-page--mobile-sidebar-open .chat-page-sidebar-create-sticky {
 		color: var(--text);
 	}
 
+	.chat-page-mobile-chrome-organize-settings {
+		width: 34px;
+		height: 34px;
+		margin: 0 2px 0 0;
+	}
+
 	.chat-page-mobile-chrome-channel-part {
 		flex: 0 1 auto;
 		display: inline-flex;
@@ -2475,6 +2592,43 @@ body.chat-page .chat-route {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.chat-page-header-title-text--breadcrumb {
+	display: inline-flex;
+	align-items: center;
+	gap: 0;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.chat-page-header-breadcrumb-link {
+	color: var(--text-muted);
+	text-decoration: none;
+	font-weight: 500;
+	flex-shrink: 0;
+}
+
+.chat-page-header-breadcrumb-link:hover,
+.chat-page-header-breadcrumb-link:focus-visible {
+	color: var(--text);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.chat-page-header-breadcrumb-sep {
+	margin: 0 0.4em;
+	color: var(--text-muted);
+	font-weight: 400;
+	flex-shrink: 0;
+}
+
+.chat-page-header-breadcrumb-current {
+	color: var(--text);
+	font-weight: 600;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .chat-page-header-profile-link {

@@ -529,7 +529,7 @@ export function parseChatSidebarPathname(pathname) {
 	if (p === '/creations') {
 		return { kind: 'channel', slug: 'creations' };
 	}
-	if (p === '/challenges') {
+	if (p === '/challenges' || p === '/challenges/organize') {
 		return { kind: 'channel', slug: 'challenges' };
 	}
 	const parts = p.split('/').filter(Boolean);
