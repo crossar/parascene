@@ -741,7 +741,9 @@ export function closeSpaPageOverlay(options = {}) {
 	store.overlayReturnPath = null;
 	store.overlayPushCount = 0;
 	store.overlayDismissEntirePending = false;
-	notifyOverlayDismissed(returnPath);
+	if (!options.skipNotify) {
+		notifyOverlayDismissed(returnPath);
+	}
 }
 
 export const closeCreationDetailOverlay = closeSpaPageOverlay;
@@ -775,12 +777,18 @@ function fallbackDismissEntireSpaPageOverlay(options = {}) {
 	if (preferMyCreations) {
 		// Close before navigating so chat lane loaders (openThreadForCurrentPath) are not
 		// blocked by the overlay-open guard while the URL is already /creations.
-		closeSpaPageOverlay();
+		// Skip the dismissed notification until after the URL is restored: nav highlight
+		// listeners (e.g. the mobile bottom nav) re-read location on that event and would
+		// otherwise latch onto the stale /create overlay pathname.
+		closeSpaPageOverlay({ skipNotify: true });
 		navigateToMyCreationsIfNeeded({
 			replace: true,
 			forceFreshFirstPage: false,
 			stripOverlayHistory: true,
 		});
+		notifyOverlayDismissed(
+			window.location.pathname + window.location.search + window.location.hash
+		);
 		return;
 	}
 	try {

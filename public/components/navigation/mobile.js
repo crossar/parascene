@@ -116,6 +116,9 @@ class AppNavigationMobile extends HTMLElement {
 
 	handleOverlayDismissed() {
 		this.handleRouteChange();
+		// Some dismissal paths restore the URL right after dispatching the event;
+		// re-check on the next tick so the highlight can't latch a stale overlay path.
+		setTimeout(() => this.handleRouteChange(), 0);
 	}
 
 	setupEventListeners() {
@@ -265,7 +268,25 @@ class AppNavigationMobile extends HTMLElement {
 	handleRouteChange() {
 		const navButtons = this.querySelectorAll('.mobile-bottom-nav-item[data-route]');
 		if (navButtons.length === 0) return;
-		const pathname = window.location.pathname;
+		let pathname = window.location.pathname;
+		let hash = window.location.hash;
+		// While an SPA page overlay (create, creation detail, profile, …) is open, the
+		// location points at the overlay route; highlight the underlying lane instead.
+		const histState = window.history?.state;
+		const overlayActive = Boolean(histState && histState.prsnSpaPageOverlay);
+		if (
+			overlayActive &&
+			typeof histState.prsnOverlayReturnPath === 'string' &&
+			histState.prsnOverlayReturnPath
+		) {
+			try {
+				const returnUrl = new URL(histState.prsnOverlayReturnPath, window.location.origin);
+				pathname = returnUrl.pathname;
+				hash = returnUrl.hash;
+			} catch {
+				// keep location values
+			}
+		}
 		const header = document.querySelector('app-navigation');
 		const defaultRoute = header?.getAttribute('default-route') || 'feed';
 		let currentRoute = pathname === '/' || pathname === '' ? defaultRoute : pathname.slice(1);
@@ -277,12 +298,12 @@ class AppNavigationMobile extends HTMLElement {
 		}
 		if (
 			pathname === '/chat' &&
-			window.location.hash !== '#channels' &&
+			hash !== '#channels' &&
 			!document.body?.classList?.contains('chat-page--mobile-sidebar-open')
 		) {
 			currentRoute = 'feed';
 		}
-		if ((pathname === '/chat' || pathname.startsWith('/chat/')) && window.location.hash === '#channels') {
+		if ((pathname === '/chat' || pathname.startsWith('/chat/')) && hash === '#channels') {
 			currentRoute = 'connect';
 		}
 		if (
@@ -309,8 +330,9 @@ class AppNavigationMobile extends HTMLElement {
 		if (/^\/audio-clips\/\d+$/.test(pathname)) {
 			currentRoute = null;
 		}
-		// Create is a standalone page at /create
-		const isCreatePage = pathname === '/create';
+		// Create is a standalone page at /create; the create overlay keeps the
+		// underlying lane highlighted, so only disable on the real standalone page.
+		const isCreatePage = !overlayActive && pathname === '/create';
 		navButtons.forEach(button => {
 			const route = button.getAttribute('data-route');
 			const isActive = Boolean(currentRoute) && route === currentRoute;

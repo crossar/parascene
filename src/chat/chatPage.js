@@ -3198,26 +3198,35 @@ export async function initChatPage(root, options = {}) {
 		}
 	}
 
+	let chatCreateComposerMountPromise = null;
+
 	async function mountChatCreateComposer() {
 		if (chatCreateComposerApi) return;
+		if (chatCreateComposerMountPromise) return chatCreateComposerMountPromise;
 		const createComposerHost = root.querySelector('[data-create-composer-host]');
 		if (!(createComposerHost instanceof HTMLElement)) return;
-		try {
-			const v =
-				document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() ||
-				'';
-			const qs = v ? `?v=${encodeURIComponent(v)}` : '';
-			const { mountCreateComposer } = await import(`/shared/createComposer.js${qs}`);
-			chatCreateComposerApi = mountCreateComposer(createComposerHost, {
-				refreshAutoGrowTextareas: _cdAutogrow.refreshAutoGrowTextareas,
-				navigate: 'creations',
-				attachPromptSuggest: _cdTriggeredSuggest.attachCreateComposerSuggest,
-				isTriggeredSuggestPopupOpen: _cdTriggeredSuggest.isTriggeredSuggestPopupOpen,
-			});
-			chatCreateComposerApi?.syncFromSharedSettings?.();
-		} catch (err) {
-			console.error('[Chat page] create composer mount failed:', err);
-		}
+		chatCreateComposerMountPromise = (async () => {
+			try {
+				const v =
+					document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() ||
+					'';
+				const qs = v ? `?v=${encodeURIComponent(v)}` : '';
+				const { mountCreateComposer } = await import(`/shared/createComposer.js${qs}`);
+				chatCreateComposerApi = mountCreateComposer(createComposerHost, {
+					refreshAutoGrowTextareas: _cdAutogrow.refreshAutoGrowTextareas,
+					navigate: 'creations',
+					attachPromptSuggest: _cdTriggeredSuggest.attachCreateComposerSuggest,
+					isTriggeredSuggestPopupOpen: _cdTriggeredSuggest.isTriggeredSuggestPopupOpen,
+				});
+				chatCreateComposerApi?.syncFromSharedSettings?.();
+			} catch (err) {
+				// Leave chatCreateComposerApi null so the next visibility attempt retries.
+				console.error('[Chat page] create composer mount failed:', err);
+			} finally {
+				chatCreateComposerMountPromise = null;
+			}
+		})();
+		return chatCreateComposerMountPromise;
 	}
 
 	function setFeedOverlayCreateComposerVisible(visible) {
@@ -3226,6 +3235,14 @@ export async function initChatPage(root, options = {}) {
 			createComposerEl.hidden = !visible;
 		}
 		if (visible) {
+			if (!chatCreateComposerApi) {
+				// Initial mount can fail transiently (dynamic import hiccup, mid-deploy asset
+				// swap); retry whenever the composer should be visible so a lane is never
+				// stuck with an empty composer host until full reload.
+				void mountChatCreateComposer().then(() => {
+					refreshChatCreateComposerModelsIfVisible();
+				});
+			}
 			refreshChatCreateComposerModelsIfVisible();
 			chatCreateComposerApi?.syncFromSharedSettings?.();
 		}
@@ -11154,6 +11171,11 @@ export async function initChatPage(root, options = {}) {
 	function isChallengesOrganizePath(pathname = window.location.pathname) {
 		const p = String(pathname || '').replace(/\/+$/, '') || '/';
 		if (p === '/challenges/organize') return true;
+		// The organize boot flag is set by the /challenges/organize HTML shell right before
+		// it parks the URL on /challenges; only honor it during that boot window so a
+		// lingering flag can't put every other lane into organize mode (which hides the
+		// create composer everywhere).
+		if (p !== '/challenges') return false;
 		try {
 			if (window.sessionStorage?.getItem('prsn-chat-organize-boot') === '1') return true;
 		} catch {
@@ -11167,13 +11189,15 @@ export async function initChatPage(root, options = {}) {
 			if (window.sessionStorage?.getItem('prsn-chat-organize-boot') !== '1') return false;
 			window.sessionStorage.removeItem('prsn-chat-organize-boot');
 			const cur = String(window.location.pathname || '').replace(/\/+$/, '') || '/';
-			if (cur !== '/challenges/organize') {
-				const st =
-					window.history?.state && typeof window.history.state === 'object'
-						? { ...window.history.state, prsnChat: true }
-						: { prsnChat: true };
-				window.history.replaceState(st, '', `/challenges/organize${window.location.search || ''}`);
-			}
+			if (cur === '/challenges/organize') return true;
+			// Only rewrite to /challenges/organize from /challenges (where the organize HTML
+			// shell parked the URL); a stale flag must not hijack navigation to other lanes.
+			if (cur !== '/challenges') return false;
+			const st =
+				window.history?.state && typeof window.history.state === 'object'
+					? { ...window.history.state, prsnChat: true }
+					: { prsnChat: true };
+			window.history.replaceState(st, '', `/challenges/organize${window.location.search || ''}`);
 			return true;
 		} catch {
 			return false;
@@ -12658,6 +12682,9 @@ export async function initChatPage(root, options = {}) {
 			if (cardsHost instanceof HTMLElement && pseudoColumnPager) {
 				syncChatCreationsLaneFromSession();
 				maybeStartChatCreationsPseudoChannelPoll();
+				// Short-circuit skips the full route pipeline; still re-evaluate composer
+				// visibility so a stale hidden state can recover on re-navigation.
+				applyComposerState();
 				return;
 			}
 		}
@@ -15943,7 +15970,24 @@ export async function initChatPage(root, options = {}) {
 		}
 	}
 
+	/* Composer visibility depends on isChatPageMobileLayout(); re-evaluate when the
+	 * viewport crosses the mobile boundary (resize, browser zoom) so the create
+	 * composer never stays stuck hidden after returning to a desktop layout. */
+	let chatComposerLayoutReapplyRaf = 0;
+	const scheduleComposerLayoutReapply = () => {
+		if (chatComposerLayoutReapplyRaf) return;
+		chatComposerLayoutReapplyRaf = window.requestAnimationFrame(() => {
+			chatComposerLayoutReapplyRaf = 0;
+			applyComposerState();
+		});
+	};
+	try {
+		window.matchMedia('(max-width: 768px)').addEventListener('change', scheduleComposerLayoutReapply);
+	} catch {
+		// ignore
+	}
 	window.addEventListener('resize', () => {
+		scheduleComposerLayoutReapply();
 		setMobileSidebarMode(shouldShowMobileSidebarFromLocation());
 		if (chatLayoutOuter instanceof HTMLElement) {
 			const sidebar = chatLayoutOuter.querySelector('[data-chat-sidebar]');
@@ -16007,6 +16051,7 @@ export async function initChatPage(root, options = {}) {
 			if (cards instanceof HTMLElement && pseudoColumnPager) {
 				syncChatCreationsLaneFromSession();
 				maybeStartChatCreationsPseudoChannelPoll();
+				applyComposerState();
 				chatCreationsNavigateDetail = null;
 				return;
 			}
