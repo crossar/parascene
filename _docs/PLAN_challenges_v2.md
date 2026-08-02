@@ -1,6 +1,8 @@
 # Plan: Challenges v2 — organize and participate
 
-Successor to PLAN_challenges_remaining.md. Supersedes its items 1–5 with agreed product direction.
+Source of truth for challenges v2 (replaces the retired PLAN_challenges_remaining.md).
+
+Already shipped before this plan (do not re-do): SPA `/challenges/organize`, board CRUD + calendar + soft-delete, Draft vs Public in the edit modal, public Next / feed focus ignore unlisted drafts, shared challenges cache + soft live reconcile + save conflict, card chrome polish (pills, track meta, neutral cards).
 
 Phases below are numbered in **ship order**. Phase 1 is song creations (Suno posts) so users can play with that while the rest of challenges v2 is built. Each phase ends with a team validation gate. User-facing journeys are spelled out in **User flows** near the end; phases point at them as `→ User flow Fn`.
 
@@ -23,6 +25,21 @@ Phases below are numbered in **ship order**. Phase 1 is song creations (Suno pos
 10. Cleanup + data contract doc
 
 Within 3–6 and 7–9, per-phase "done when" = engineer checkpoint; team validates at the end of each numbered phase below.
+
+## Progress (implementer: keep this current)
+
+Note to the implementer: this is a big plan — progress MUST be visible in this doc. When you finish a phase, edit this checklist: mark `[x] built` with the date. Do NOT mark `validated` yourself — that box belongs to the user/team after they walk the phase's validation checklist (and the matching User flows). A phase is only done-done when both boxes are checked. If a phase ships partially, note what's missing next to it instead of checking the box.
+
+- Phase 1 — Song creations (Suno posts): [ ] built · [ ] validated
+- Phase 2 — Foundations (debt + snapshot freshness): [ ] built · [ ] validated
+- Phase 3 — Prize structures + inheritance: [ ] built · [ ] validated
+- Phase 4 — Results + publish + payouts: [ ] built · [ ] validated
+- Phase 5 — Board actions + review modal: [ ] built · [ ] validated
+- Phase 6 — Auto open-pins: [ ] built · [ ] validated
+- Phase 7 — Multi-track lane + voting + results display: [ ] built · [ ] validated
+- Phase 8 — Submit targeting: [ ] built · [ ] validated
+- Phase 9 — Music challenge wiring: [ ] built · [ ] validated
+- Phase 10 — Cleanup + data contract doc: [ ] built · [ ] validated
 
 ---
 
@@ -157,7 +174,7 @@ Done when: announce, close voting, and winner publication all happen from Organi
 
 Pins are authorless policy rows; announce messages need a human author. That's the auto/manual split.
 
-- In snapshot build (`api_routes/feed/challengeFeedSnapshotShared.js`): listed challenge entered open phase + no `challenge-open-{id}` pin in policy → fire `onChallengeOpened` in the lifecycle module (which upserts the pin; pins-route logic extracted there).
+- In snapshot build (`api_routes/feed/challengeFeedSnapshotShared.js`): listed challenge entered open phase + no `challenge-open-{id}` pin in policy → fire `onChallengeOpened` in the lifecycle module (which upserts the pin; pins-route logic extracted there). Pins keep the existing timed-window behavior from the organize pins route: `starts_at` now, `until` +7d open / +14d winners, `respect_challenge: true` so they sit correctly next to the engagement card.
 - Idempotency = existence of the pin id in the policy. Do NOT stamp markers onto the config message from the server: server-side config PATCHes change the body fingerprint and trigger phantom save-conflict banners for organizers with the edit modal open.
 - Pin upserts run after the feed response (fire-and-forget), inside the phase-2 single-flight lock. The pins policy is one JSON array under one key — unserialized concurrent upserts (feed rebuilds, admin UI) clobber each other.
 - Winners pins handled by phase 4. No system bot.
@@ -231,6 +248,7 @@ Team validate after phases 7–9: two concurrent open challenges (one Music); bo
 ## Phase 10 — Cleanup + docs
 
 - Write `_docs/CHALLENGES_data_contract.md` (see Extensibility guardrails) once schemas have settled.
+- Decision: the participant setup-timeline strip is NOT revived — delete it.
 - Delete dead stubs: `setupView.js`, `submitView.js`, `resultsView.js`, `organizeCache.js` shim, `mountChallengesOrganizerSidebar` stub + host in `chat.html`.
 - Retire standalone organize: `pages/challenges-organize.html`, `public/pages/challenges-organize-main.js`, `entry/entry-challenges-organize.js`, rollup entry (`src/rollup.config.mjs` ~235–244).
 - Remove orphaned `.challenge-pane-setup*` styles from `public/global.css`.
@@ -393,4 +411,5 @@ F10 — View past results in-app (phase 7)
 - Native audio hosting/upload (Suno embed only).
 - Auto-publishing results without human confirm.
 - Server If-Match on config messages; field-level merge.
+- Auto-list N days before start (optional-later idea; still not built).
 - Credit ledger (payout audit lives in `results.payouts`; ledger is the follow-up if payouts grow).
