@@ -1930,7 +1930,7 @@ function isExternalImportCreation(mediaType, meta) {
 
 /**
  * Cover + click-to-play Suno iframe (do not mount iframe on page load).
- * Player overlays the cover bottom — no extra vertical space under the image.
+ * Full-bleed over the hero once playing (same idea as YouTube imports).
  * @param {HTMLElement | null | undefined} imageWrapper
  * @param {object | null | undefined} meta
  */
@@ -3266,6 +3266,7 @@ async function loadCreation() {
 				'hero-video-pending',
 				'hero-audio-playing'
 			);
+			applyDetailHeroAspectLayout(creation);
 			showHeroImage(creation.url);
 			mountCreationDetailSunoPlayer(imageWrapper, meta);
 			markHeroReady({ state: 'audio' });

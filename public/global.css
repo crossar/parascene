@@ -19992,7 +19992,7 @@ app-modal-creation-details .creation-details-args-hint code {
 	transform: none;
 }
 
-/* Creation detail: click-to-play Suno overlays the cover (no extra page height) */
+/* Creation detail: click-to-play Suno — full-bleed over hero when playing */
 .creation-detail-image-wrapper.hero-audio-pending .creation-detail-suno-play {
 	position: absolute;
 	left: 50%;
@@ -20022,36 +20022,31 @@ app-modal-creation-details .creation-details-args-hint code {
 	display: none;
 }
 
-.creation-detail-image-wrapper .creation-detail-suno-embed {
+.creation-detail-image-wrapper.hero-audio-playing .creation-detail-suno-embed {
 	position: absolute;
-	left: 0;
-	right: 0;
-	bottom: 0;
+	inset: 0;
 	z-index: 3;
 	margin: 0;
-	height: 120px;
-	border-radius: 0;
+	border-radius: inherit;
 	overflow: hidden;
 	background: #0b1220;
-	box-shadow: none;
 }
 
-.creation-detail-image-wrapper .creation-detail-suno-embed-iframe {
+.creation-detail-image-wrapper.hero-audio-playing .creation-detail-suno-embed-iframe {
 	display: block;
 	width: 100%;
 	height: 100%;
 	border: 0;
-	border-radius: 0;
 	background: #0b1220;
 }
 
-@media (max-width: 768px) {
-	.creation-detail-image-wrapper .creation-detail-suno-embed {
-		height: 108px;
-	}
+.creation-detail-image-wrapper.hero-audio-playing [data-image],
+.creation-detail-image-wrapper.hero-audio-playing [data-background] {
+	opacity: 0;
+	pointer-events: none;
 }
 
-/* YouTube import: full-bleed embed over the hero (not the Suno bottom strip) */
+/* YouTube import: full-bleed embed over the hero */
 .creation-detail-image-wrapper.hero-youtube-playing .creation-detail-youtube-embed {
 	position: absolute;
 	inset: 0;
