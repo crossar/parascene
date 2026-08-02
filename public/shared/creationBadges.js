@@ -26,6 +26,18 @@ export function publishedBadgeHtml() {
 	return html`<div class="creation-published-badge" title="Published">${inner}</div>`;
 }
 
+/** Music / audio creation badge (cover-only cards — never an iframe). */
+export function musicBadgeHtml() {
+	const m = SvgIcons.audioClipMusicIcon;
+	const inner = typeof m === 'function' ? m() : '';
+	return html`<div class="creation-music-badge" title="Music" role="img" aria-label="Music">${inner}</div>`;
+}
+
+/** Imported YouTube / embed video badge (cover-only — never an iframe in feed). */
+export function videoImportBadgeHtml() {
+	return html`<div class="creation-music-badge creation-video-import-badge" title="Video" role="img" aria-label="Video"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg></div>`;
+}
+
 /** Centered trophy on blurred thumbnails for creations entered in a challenge. */
 export function challengeEnteredBadgeHtml() {
 	const t = SvgIcons.trophyIcon;

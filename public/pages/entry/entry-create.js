@@ -57,6 +57,50 @@ export async function init(version) {
 		}
 	}
 	runCreatePageInit(refreshAutoGrowTextareas, createSettingsSyncMod);
+	bindImportSunoEntry(qs);
+}
+
+async function bindImportSunoEntry(qs) {
+	const { openImportMediaModal } = await import(`../../shared/importSunoModal.js${qs}`);
+	const { showToast } = await import(`../../shared/toast.js${qs}`);
+	const { importCreationWithPending } = await import(`../../shared/createSubmit.js${qs}`);
+	const { importMediaFromUrl } = await import(`../../shared/importMedia.js${qs}`);
+
+	async function runImport({ provider, url }) {
+		const isEmbed = document.body.classList.contains('create-page-embed');
+		const result = await importCreationWithPending({
+			runImport: ({ creationToken }) =>
+				importMediaFromUrl(provider, url, { creationToken }),
+			navigate: isEmbed ? 'none' : 'full',
+		});
+		if (result?.warning?.code === 'duplicate_import') {
+			showToast(result.warning.message || 'You already imported this media', {
+				durationMs: 4000,
+			});
+		}
+		if (isEmbed) {
+			const runtimeMod = await import(`../../shared/createPageRuntime.js${qs}`);
+			runtimeMod.refreshAfterSubmit({ creationId: result.id });
+		}
+		return result;
+	}
+
+	document.addEventListener(
+		'click',
+		(e) => {
+			const btn = e.target?.closest?.('[data-import-media], [data-import-suno]');
+			if (!btn) return;
+			e.preventDefault();
+			e.stopPropagation();
+			openImportMediaModal({
+				onConfirm: runImport,
+				onError: (message) => {
+					if (message) alert(message);
+				},
+			});
+		},
+		true
+	);
 }
 
 function runCreatePageInit(refreshAutoGrowTextareas, createSettingsSyncMod = {}) {

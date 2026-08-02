@@ -52,7 +52,7 @@ const { getAvatarColor } = avatarMod;
 const { buildProfilePath } = profileLinksMod;
 const { getHelpHref } = helpUrlMod;
 const { creationMetaHasChallengeSubmission } = challengeSubmitMetaMod;
-const { challengeEnteredBadgeHtml, publishedBadgeHtml } = creationBadgesMod;
+const { challengeEnteredBadgeHtml, publishedBadgeHtml, musicBadgeHtml, videoImportBadgeHtml } = creationBadgesMod;
 const { groupCreationBadgeHtml, resolveGroupCoverDisplayUrl } = creationGroupMediaMod;
 const { creationTitleDisplay } = creationCardMod;
 const { primeMediaElementForAudioLeveling } = mediaAudioLevelingMod;
@@ -811,6 +811,14 @@ function buildFeedCreationCard(
 		const publishedOverlay = isPublished ? publishedBadgeHtml() : '';
 		const isGroupCreation = parsedMeta?.group?.kind === 'group_creations';
 		const groupOverlay = isGroupCreation ? groupCreationBadgeHtml() : '';
+		const musicOverlay = mediaType === 'audio' ? musicBadgeHtml() : '';
+		const videoImportOverlay =
+			mediaType === 'video' &&
+			!isVideo &&
+			String(parsedMeta?.import?.provider || '').toLowerCase() === 'youtube'
+				? videoImportBadgeHtml()
+				: '';
+		const mediaTypeOverlay = musicOverlay || videoImportOverlay;
 		const bulkOverlayBlock =
 			creationsBulkChrome
 				? html`
@@ -823,6 +831,7 @@ function buildFeedCreationCard(
         <img class="feed-card-img" alt="${item.title || 'Creation'}" loading="lazy" decoding="async">
         ${publishedOverlay}
         ${groupOverlay}
+        ${mediaTypeOverlay}
         ${isVideo ? html`<video class="feed-card-video" playsinline muted></video>` : ''}
         ${challengeBlurOverlay}
         ${bulkOverlayBlock}
@@ -891,6 +900,14 @@ function buildFeedCreationCard(
       <div class="feed-card-image${item.nsfw ? ' nsfw' : ''}${isVideo ? ' feed-card-image-video' : ''}${challengeBlurClass}">
         <img class="feed-card-img" alt="${item.title || 'Feed image'}" loading="lazy" decoding="async">
         ${isVideo ? html`<video class="feed-card-video" playsinline muted></video>` : ''}
+        ${mediaType === 'audio' ? musicBadgeHtml() : ''}
+        ${
+					mediaType === 'video' &&
+					!isVideo &&
+					String(parsedMeta?.import?.provider || '').toLowerCase() === 'youtube'
+						? videoImportBadgeHtml()
+						: ''
+				}
         ${challengeBlurOverlay}
       </div>
       <div class="feed-card-footer-grid">

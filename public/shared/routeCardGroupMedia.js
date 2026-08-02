@@ -54,7 +54,16 @@ export function hydrateRouteCardMedia(mediaEl, item, options = {}) {
 		typeof feedItem.media_type === "string"
 			? feedItem.media_type.trim().toLowerCase()
 			: (typeof meta?.media_type === "string" ? meta.media_type.trim().toLowerCase() : "image");
-	const isVideo = mediaType === "video";
+	const hasImportProvider =
+		meta?.import &&
+		typeof meta.import === "object" &&
+		typeof meta.import.provider === "string" &&
+		meta.import.provider.trim();
+	const hasNativeVideoFile =
+		(typeof feedItem.video_url === "string" && feedItem.video_url.trim()) ||
+		(meta?.video && typeof meta.video === "object");
+	// Imported YouTube covers are stills — treat like images so grid fill matches 9:16 photos.
+	const isVideo = mediaType === "video" && hasNativeVideoFile && !hasImportProvider;
 
 	const groupVideoSlides = getFeedItemGroupVideoSlides(feedItem);
 	if (isVideo && groupVideoSlides.length > 1) {

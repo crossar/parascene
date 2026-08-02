@@ -67,18 +67,30 @@ export function extractSunoSongIdFromHtml(html) {
 	return m[1].toLowerCase();
 }
 
+function extractOgMetaContent(html, property) {
+	const raw = String(html ?? "");
+	const prop = String(property || "").trim();
+	if (!prop) return "";
+	const escaped = prop.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const re = new RegExp(
+		`<meta[^>]+property=["']${escaped}["'][^>]+content=["']([^"']*)["']`,
+		"i"
+	);
+	const reSwap = new RegExp(
+		`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']${escaped}["']`,
+		"i"
+	);
+	const m = raw.match(re) || raw.match(reSwap);
+	return m?.[1] ? String(m[1]).trim() : "";
+}
+
 export function parseSunoPageMeta(html) {
 	const raw = String(html ?? "");
 	const songId = extractSunoSongIdFromHtml(raw);
 	if (!songId) return null;
 
-	let title = "";
-	const ogTitle = raw.match(
-		/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i
-	);
-	if (ogTitle?.[1]) {
-		title = ogTitle[1].trim();
-	}
+	let title = extractOgMetaContent(raw, "og:title");
+	const ogImage = extractOgMetaContent(raw, "og:image");
 
 	let creator = "";
 	const docTitle = raw.match(/<title>([^<]*)<\/title>/i);
@@ -89,7 +101,7 @@ export function parseSunoPageMeta(html) {
 		creator = byMatch[2].trim();
 	}
 
-	return { songId, title, creator };
+	return { songId, title, creator, ogImage: ogImage || "" };
 }
 
 /** Share links 307 to `/song/{uuid}?sh={slug}` — read Location instead of scraping HTML. */
@@ -136,6 +148,51 @@ async function fetchSunoSongMeta(songId) {
 	return parseSunoPageMeta(html);
 }
 
+/**
+ * Resolve a permissive Suno song/share/embed URL to song id + page meta.
+ * @param {string} rawUrl
+ * @returns {Promise<{ songId: string, title: string, creator: string, ogImage: string, url: string, embedUrl: string }>}
+ */
+export async function resolveSunoSongFromUrl(rawUrl) {
+	const url = normalizeUrl(rawUrl);
+	if (!url) {
+		const err = new Error("Missing url");
+		err.code = "INVALID_URL";
+		err.status = 400;
+		throw err;
+	}
+
+	const target = extractSunoLinkTarget(url);
+	if (!target) {
+		const err = new Error("Invalid Suno url");
+		err.code = "INVALID_SUNO_URL";
+		err.status = 400;
+		throw err;
+	}
+
+	let songId = target.songId;
+	if (!songId && target.slug) {
+		songId = await resolveSunoShareSlug(target.slug);
+	}
+	if (!songId) {
+		const err = new Error("Could not resolve Suno song");
+		err.code = "RESOLVE_FAILED";
+		err.status = 502;
+		throw err;
+	}
+
+	const meta = await fetchSunoSongMeta(songId);
+	const canonicalUrl = `https://suno.com/song/${encodeURIComponent(songId)}`;
+	return {
+		songId,
+		title: meta?.title || "",
+		creator: meta?.creator || "",
+		ogImage: meta?.ogImage || "",
+		url: canonicalUrl,
+		embedUrl: `https://suno.com/embed/${encodeURIComponent(songId)}`,
+	};
+}
+
 export default function createSunoRoutes() {
 	const router = express.Router();
 
@@ -149,33 +206,25 @@ export default function createSunoRoutes() {
 			return res.status(400).json({ error: "Missing url" });
 		}
 
-		const target = extractSunoLinkTarget(url);
-		if (!target) {
-			return res.status(400).json({ error: "Invalid Suno url" });
-		}
-
 		res.setHeader(
 			"Cache-Control",
 			"public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800"
 		);
 
 		try {
-			let songId = target.songId;
-			if (!songId && target.slug) {
-				songId = await resolveSunoShareSlug(target.slug);
-			}
-			if (!songId) {
-				return res.status(502).json({ error: "Could not resolve Suno song" });
-			}
-
-			const meta = await fetchSunoSongMeta(songId);
+			const resolved = await resolveSunoSongFromUrl(url);
 			return res.json({
-				songId,
-				title: meta?.title || "",
-				creator: meta?.creator || "",
+				songId: resolved.songId,
+				title: resolved.title,
+				creator: resolved.creator,
 			});
-		} catch {
-			return res.status(502).json({ error: "Suno resolve fetch failed" });
+		} catch (err) {
+			const status = Number(err?.status) || 502;
+			const message =
+				typeof err?.message === "string" && err.message.trim()
+					? err.message.trim()
+					: "Suno resolve fetch failed";
+			return res.status(status).json({ error: message });
 		}
 	});
 

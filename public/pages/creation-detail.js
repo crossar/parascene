@@ -452,9 +452,14 @@ function prepareCreationDetailHeroForLoad(
 			'image-error-moderated',
 			'hero-video-revealed',
 			'hero-video-pending',
+			'hero-audio-pending',
+			'hero-audio-playing',
+			'hero-youtube-pending',
+			'hero-youtube-playing',
 			'group-carousel-active',
 			'group-video-playlist-active'
 		);
+		clearCreationDetailSunoPlayer(imageWrapper);
 		if (imageEl instanceof HTMLImageElement) {
 			imageEl.style.visibility = 'hidden';
 		}
@@ -506,6 +511,35 @@ function applyDetailHeroAspectLayout(record) {
 	if (!(imageWrapper instanceof HTMLElement)) return;
 	if (typeof applyHeroAspectLayoutToElement !== 'function') return;
 	applyHeroAspectLayoutToElement(imageWrapper, heroAspectPayloadFromRecord(record));
+}
+
+/** Lock hero by YouTube link type: Shorts → 9:16, watch → 16:9 (not cover dims). */
+function applyYoutubeImportHeroAspect(creation, meta) {
+	const imageWrapper = document.querySelector('[data-image]')?.closest?.('.creation-detail-image-wrapper');
+	if (!(imageWrapper instanceof HTMLElement)) return;
+	if (typeof applyHeroAspectLayoutToElement !== 'function') return;
+
+	const importMeta =
+		meta?.import && typeof meta.import === 'object' && !Array.isArray(meta.import)
+			? meta.import
+			: null;
+	const kind =
+		typeof importMeta?.kind === 'string' ? importMeta.kind.trim().toLowerCase() : '';
+	const sourceUrl =
+		typeof importMeta?.url === 'string'
+			? importMeta.url
+			: typeof importMeta?.embed_url === 'string'
+				? importMeta.embed_url
+				: '';
+	const isShorts =
+		kind === 'shorts' || /(?:youtube\.com|youtu\.be)\/shorts\//i.test(sourceUrl);
+
+	applyHeroAspectLayoutToElement(imageWrapper, {
+		width: isShorts ? 9 : 16,
+		height: isShorts ? 16 : 9,
+		meta: creation?.meta ?? meta ?? null,
+		media_type: 'video',
+	});
 }
 
 /** Normalize image URL for queue match (origin + path). Same idea as creation-edit toParasceneImageUrl. */
@@ -834,7 +868,7 @@ function getCreationDetailMoreMenuItemDefs() {
 	},
 	{
 		action: 'copy-link',
-		show: () => true,
+		show: (d) => d.actionsContext?.showCopyLink,
 		icon: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
 	stroke-linejoin="round" aria-hidden="true">
 	<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -888,7 +922,7 @@ function getCreationDetailMoreMenuItemDefs() {
 	},
 	{
 		action: 'set-avatar',
-		show: (d) => d.isOwner,
+		show: (d) => d.actionsContext?.showSetAvatar,
 		icon: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
 	stroke-linejoin="round" aria-hidden="true">
 	<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -1859,6 +1893,197 @@ function createCreationDetailPerfTracker({ creationId, loadToken, isCurrentLoad 
 let creationDetailHeroVideoPlayer = null;
 let creationDetailHeroVideoStackEl = null;
 let creationDetailGroupHeroStackEl = null;
+
+function clearCreationDetailSunoPlayer(imageWrapper) {
+	const wrap =
+		imageWrapper instanceof HTMLElement
+			? imageWrapper
+			: document.querySelector('[data-image]')?.closest?.('.creation-detail-image-wrapper');
+	if (!(wrap instanceof HTMLElement)) return;
+	wrap.classList.remove(
+		'hero-audio-pending',
+		'hero-audio-playing',
+		'hero-youtube-pending',
+		'hero-youtube-playing'
+	);
+	wrap
+		.querySelectorAll(
+			'[data-suno-play], [data-suno-embed], [data-youtube-play], [data-youtube-embed]'
+		)
+		.forEach((el) => el.remove());
+}
+
+function getCreationImportProvider(meta) {
+	const importMeta =
+		meta?.import && typeof meta.import === 'object' && !Array.isArray(meta.import)
+			? meta.import
+			: null;
+	const provider =
+		typeof importMeta?.provider === 'string' ? importMeta.provider.trim().toLowerCase() : '';
+	return provider || '';
+}
+
+function isExternalImportCreation(mediaType, meta) {
+	if (mediaType === 'audio') return true;
+	return mediaType === 'video' && getCreationImportProvider(meta) === 'youtube';
+}
+
+/**
+ * Cover + click-to-play Suno iframe (do not mount iframe on page load).
+ * Player overlays the cover bottom — no extra vertical space under the image.
+ * @param {HTMLElement | null | undefined} imageWrapper
+ * @param {object | null | undefined} meta
+ */
+function mountCreationDetailSunoPlayer(imageWrapper, meta) {
+	if (!(imageWrapper instanceof HTMLElement)) return;
+	clearCreationDetailSunoPlayer(imageWrapper);
+
+	const importMeta =
+		meta?.import && typeof meta.import === 'object' && !Array.isArray(meta.import)
+			? meta.import
+			: null;
+	const songId =
+		typeof importMeta?.song_id === 'string' ? importMeta.song_id.trim() : '';
+	const embedUrlRaw =
+		typeof importMeta?.embed_url === 'string' ? importMeta.embed_url.trim() : '';
+	const title =
+		typeof importMeta?.title === 'string' && importMeta.title.trim()
+			? importMeta.title.trim()
+			: songId
+				? `suno ${songId.slice(0, 8)}`
+				: 'Suno song';
+
+	let embedSrc = '';
+	if (embedUrlRaw) {
+		try {
+			const parsed = new URL(embedUrlRaw);
+			if (
+				(parsed.hostname === 'suno.com' || parsed.hostname === 'www.suno.com') &&
+				parsed.pathname.startsWith('/embed/')
+			) {
+				embedSrc = parsed.toString();
+			}
+		} catch {
+			embedSrc = '';
+		}
+	}
+	if (!embedSrc && songId && /^[a-f0-9-]{36}$/i.test(songId)) {
+		embedSrc = `https://suno.com/embed/${encodeURIComponent(songId)}`;
+	}
+	if (!embedSrc) return;
+
+	imageWrapper.classList.add('hero-audio-pending');
+
+	const playBtn = document.createElement('button');
+	playBtn.type = 'button';
+	playBtn.className = 'creation-detail-suno-play';
+	playBtn.setAttribute('data-suno-play', '');
+	playBtn.setAttribute('aria-label', `Play ${title}`);
+	playBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg><span>Play song</span>`;
+	playBtn.addEventListener('click', (e) => {
+		e.preventDefault();
+		e.stopPropagation();
+		if (imageWrapper.querySelector('[data-suno-embed]')) return;
+		const embedWrap = document.createElement('div');
+		embedWrap.className = 'creation-detail-suno-embed';
+		embedWrap.setAttribute('data-suno-embed', '');
+		const iframe = document.createElement('iframe');
+		iframe.className = 'creation-detail-suno-embed-iframe';
+		iframe.src = embedSrc;
+		iframe.title = title;
+		iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+		iframe.setAttribute('allowfullscreen', '');
+		iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+		embedWrap.appendChild(iframe);
+		imageWrapper.appendChild(embedWrap);
+		imageWrapper.classList.remove('hero-audio-pending');
+		imageWrapper.classList.add('hero-audio-playing');
+	});
+	imageWrapper.appendChild(playBtn);
+}
+
+/**
+ * Cover + click-to-play YouTube iframe (no native video file).
+ * @param {HTMLElement | null | undefined} imageWrapper
+ * @param {object | null | undefined} meta
+ */
+function mountCreationDetailYoutubePlayer(imageWrapper, meta) {
+	if (!(imageWrapper instanceof HTMLElement)) return;
+	clearCreationDetailSunoPlayer(imageWrapper);
+
+	const importMeta =
+		meta?.import && typeof meta.import === 'object' && !Array.isArray(meta.import)
+			? meta.import
+			: null;
+	const videoId =
+		typeof importMeta?.video_id === 'string' ? importMeta.video_id.trim() : '';
+	const embedUrlRaw =
+		typeof importMeta?.embed_url === 'string' ? importMeta.embed_url.trim() : '';
+	const title =
+		typeof importMeta?.title === 'string' && importMeta.title.trim()
+			? importMeta.title.trim()
+			: videoId
+				? `youtube ${videoId}`
+				: 'YouTube video';
+
+	let embedSrc = '';
+	if (embedUrlRaw) {
+		try {
+			const parsed = new URL(embedUrlRaw);
+			const host = parsed.hostname.toLowerCase();
+			if (
+				(host === 'www.youtube-nocookie.com' ||
+					host === 'youtube-nocookie.com' ||
+					host === 'www.youtube.com' ||
+					host === 'youtube.com') &&
+				parsed.pathname.startsWith('/embed/')
+			) {
+				embedSrc = parsed.toString();
+			}
+		} catch {
+			embedSrc = '';
+		}
+	}
+	if (!embedSrc && videoId && /^[a-zA-Z0-9_-]{6,}$/.test(videoId)) {
+		embedSrc = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?rel=0`;
+	}
+	if (!embedSrc) return;
+
+	imageWrapper.classList.add('hero-audio-pending', 'hero-youtube-pending');
+
+	const playBtn = document.createElement('button');
+	playBtn.type = 'button';
+	playBtn.className = 'creation-detail-suno-play';
+	playBtn.setAttribute('data-youtube-play', '');
+	playBtn.setAttribute('aria-label', `Play ${title}`);
+	playBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg><span>Play video</span>`;
+	playBtn.addEventListener('click', (e) => {
+		e.preventDefault();
+		e.stopPropagation();
+		if (imageWrapper.querySelector('[data-youtube-embed]')) return;
+		const embedWrap = document.createElement('div');
+		embedWrap.className = 'creation-detail-youtube-embed';
+		embedWrap.setAttribute('data-youtube-embed', '');
+		const iframe = document.createElement('iframe');
+		iframe.className = 'creation-detail-youtube-embed-iframe';
+		try {
+			const playUrl = new URL(embedSrc);
+			playUrl.searchParams.set('autoplay', '1');
+			iframe.src = playUrl.toString();
+		} catch {
+			iframe.src = embedSrc;
+		}
+		iframe.title = title;
+		iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen');
+		iframe.setAttribute('allowfullscreen', '');
+		iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+		embedWrap.appendChild(iframe);
+		imageWrapper.appendChild(embedWrap);
+		imageWrapper.classList.remove('hero-audio-pending', 'hero-youtube-pending');
+		imageWrapper.classList.add('hero-audio-playing', 'hero-youtube-playing');
+	});
+	imageWrapper.appendChild(playBtn);
+}
 
 function resetCreationDetailHeroVideoElement() {
 	const videoEl = document.querySelector('[data-video]');
@@ -2978,6 +3203,9 @@ async function loadCreation() {
 			}
 		}
 
+		// Tear down any prior click-to-play Suno embed before choosing the new hero branch.
+		clearCreationDetailSunoPlayer(imageWrapper);
+
 		if (status === 'completed' && mediaType === 'image' && creation.url) {
 			const groupPayloadEarly =
 				meta?.group && typeof meta.group === 'object' ? meta.group : null;
@@ -3029,6 +3257,37 @@ async function loadCreation() {
 			} else if (pendingGroupVideoPlaylist) {
 				resetHeroVideo();
 			}
+		} else if (status === 'completed' && mediaType === 'audio' && creation.url) {
+			const modIcon = imageWrapper?.querySelector('.creation-detail-error-icon-moderated');
+			if (modIcon) modIcon.remove();
+			imageWrapper?.classList.remove(
+				'image-error-moderated',
+				'hero-video-revealed',
+				'hero-video-pending',
+				'hero-audio-playing'
+			);
+			showHeroImage(creation.url);
+			mountCreationDetailSunoPlayer(imageWrapper, meta);
+			markHeroReady({ state: 'audio' });
+		} else if (
+			status === 'completed' &&
+			mediaType === 'video' &&
+			getCreationImportProvider(meta) === 'youtube' &&
+			creation.url
+		) {
+			const modIcon = imageWrapper?.querySelector('.creation-detail-error-icon-moderated');
+			if (modIcon) modIcon.remove();
+			imageWrapper?.classList.remove(
+				'image-error-moderated',
+				'hero-video-revealed',
+				'hero-video-pending',
+				'hero-audio-playing',
+				'hero-youtube-playing'
+			);
+			applyYoutubeImportHeroAspect(creation, meta);
+			showHeroImage(creation.url);
+			mountCreationDetailYoutubePlayer(imageWrapper, meta);
+			markHeroReady({ state: 'youtube' });
 		} else if (status === 'creating' && !isTimedOut) {
 			const modIcon = imageWrapper?.querySelector('.creation-detail-error-icon-moderated');
 			if (modIcon) modIcon.remove();
@@ -3147,7 +3406,12 @@ async function loadCreation() {
 		// When admin is viewing a user-deleted creation, hide Publish and Edit (admin only gets e.g. Permanently delete).
 		const userDeleted = Boolean(creation.user_deleted);
 		const adminViewingUserDeleted = isAdmin && userDeleted;
-		const showQueueForLater = !isAdmin && status === 'completed' && !isFailed && Boolean(creation.url);
+		const showQueueForLater =
+			!isAdmin &&
+			status === 'completed' &&
+			!isFailed &&
+			mediaType === 'image' &&
+			Boolean(creation.url);
 		const showQueueFromFrame =
 			!isAdmin &&
 			status === 'completed' &&
@@ -3169,7 +3433,12 @@ async function loadCreation() {
 			!isFailed &&
 			mediaType === 'image' &&
 			Boolean(creation.url);
-		const showAdminVideoTools = isAdmin && !adminViewingUserDeleted && (status === 'completed' || status === 'failed' || status === 'creating');
+		const isImportEmbedCreation = isExternalImportCreation(mediaType, meta);
+		const showAdminVideoTools =
+			isAdmin &&
+			!adminViewingUserDeleted &&
+			!isImportEmbedCreation &&
+			(status === 'completed' || status === 'failed' || status === 'creating');
 		const normalizedImageUrlForQueue = showQueueForLater ? normalizeImageUrlForQueue(creation.url) : '';
 		let isQueuedForLater = false;
 		if (showQueueForLater && normalizedImageUrlForQueue) {
@@ -3199,17 +3468,32 @@ async function loadCreation() {
 				(!hasChallengeSubmission || challengeAllEnded),
 			showEdit: canEdit && status === 'completed' && !isFailed && !adminViewingUserDeleted,
 			showUnpublish: canEdit && isPublished && !isFailed && !adminViewingUserDeleted,
-			showMutate: !isAdmin && status === 'completed' && !isFailed && Boolean(creation.url),
-			showShare: !shareMountedPrivate && status === 'completed' && !isFailed,
+			// Mutate / image-export are image(video) flows — not for imported embeds.
+			showMutate:
+				!isAdmin &&
+				!isImportEmbedCreation &&
+				status === 'completed' &&
+				!isFailed &&
+				Boolean(creation.url),
+			showShare:
+				!isImportEmbedCreation &&
+				!shareMountedPrivate &&
+				status === 'completed' &&
+				!isFailed,
 			imageExportEligible:
-				status === 'completed' && !isFailed && (isOwner || isPublished || isAdmin),
-			showRetry: canEdit && isFailed && !adminViewingUserDeleted,
+				!isImportEmbedCreation &&
+				status === 'completed' &&
+				!isFailed &&
+				(isOwner || isPublished || isAdmin),
+			showRetry: canEdit && isFailed && !adminViewingUserDeleted && !isImportEmbedCreation,
 			showMoreInfoPill: hasDetailsForFailed,
 			showDelete: canEdit && !isAdmin,
 			showQueueForLater,
 			showQueueFromFrame,
 			showSetVideoPoster,
 			showAdjustImage,
+			showSetAvatar: isOwner && !isImportEmbedCreation && status === 'completed' && !isFailed,
+			showCopyLink: !isImportEmbedCreation,
 			showRecreate: false,
 			queueForLaterLabel,
 			isFailed,
@@ -3730,7 +4014,7 @@ async function loadCreation() {
 		`;
 
 		const hasEngagementActions = !!(isPublished && !isFailed);
-		const copyLinkButtonHtml = `
+		const copyLinkButtonHtml = actionsContext.showCopyLink ? `
 			<button class="feed-card-action" type="button" data-copy-link-button aria-label="Copy link">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -3738,8 +4022,8 @@ async function loadCreation() {
 				</svg>
 				<span data-copy-link-label>Copy link</span>
 			</button>
-		`;
-		const setAvatarButtonHtml = isOwner ? `
+		` : '';
+		const setAvatarButtonHtml = actionsContext.showSetAvatar ? `
 			<button class="feed-card-action" type="button" data-set-avatar-button aria-label="Set as profile picture">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -3759,6 +4043,7 @@ async function loadCreation() {
 			!isAdmin &&
 			status === 'completed' &&
 			!isFailed &&
+			mediaType === 'image' &&
 			landscapeEligibility.eligible;
 		const argsForLibraryClip =
 			meta?.args && typeof meta.args === 'object' && !Array.isArray(meta.args) ? meta.args : null;
@@ -3845,7 +4130,9 @@ async function loadCreation() {
 			: '';
 
 		const showChallengeSubmitCta =
-			Boolean(creation.challenge_submit?.eligible) && mediaType !== 'video';
+			Boolean(creation.challenge_submit?.eligible) &&
+			mediaType !== 'video' &&
+			mediaType !== 'audio';
 		const challengeSubmitCtaHtml = showChallengeSubmitCta
 			? html`
 			<div class="creation-detail-challenge-submit-cta">
@@ -6063,15 +6350,17 @@ function isCurrentCreationVideoForVynly() {
 		}
 	}
 	if (meta && typeof meta === 'object') {
+		if (meta.import && typeof meta.import === 'object') return false;
 		if (meta.video && typeof meta.video === 'object') return true;
 		const fp = typeof meta.file_path === 'string' ? meta.file_path.trim() : '';
 		if (fp.startsWith('/api/videos/created/')) return true;
 		const vf = typeof meta.video_filename === 'string' ? meta.video_filename : '';
 		if (vf.startsWith('video/')) return true;
 		if (typeof meta.media_type === 'string' && meta.media_type === 'video') return true;
+		if (typeof meta.media_type === 'string' && meta.media_type === 'audio') return true;
 	}
 	const mediaType = typeof c.media_type === 'string' ? c.media_type : 'image';
-	return mediaType === 'video';
+	return mediaType === 'video' || mediaType === 'audio';
 }
 
 async function checkAndLoadCreation() {

@@ -481,6 +481,22 @@ function navigateToCreations({ mode, creationId, forceFreshFirstPage = true }) {
 	});
 }
 
+/**
+ * Same post-create navigation used by generate/submit — also for Suno import.
+ * @param {{ mode?: 'spa' | 'full' | 'creations' | 'none', creationId?: number, forceFreshFirstPage?: boolean }} [options]
+ */
+export function navigateAfterCreateSubmit({
+	mode = 'spa',
+	creationId = 0,
+	forceFreshFirstPage = true,
+} = {}) {
+	navigateToCreations({
+		mode,
+		creationId,
+		forceFreshFirstPage,
+	});
+}
+
 /** Backend accepted the job — row exists with status `creating`. */
 function isAcceptedCreationResponse(data) {
 	const id = Number(data?.id);
@@ -775,6 +791,79 @@ export async function submitCreationWithPending({
 		if (typeof onError === 'function') {
 			try {
 				await onError(err);
+			} catch {
+				// ignore
+			}
+		}
+		throw err;
+	}
+}
+
+/**
+ * Same session pending → promote → list-wait → navigate path as `submitCreationWithPending`,
+ * for sync imports (e.g. Suno) that return a completed creation id.
+ *
+ * @param {{
+ *   runImport: (ctx: { creationToken: string }) => Promise<{ id: number, warning?: object|null, title?: string }>,
+ *   navigate?: 'spa' | 'full' | 'creations' | 'none',
+ *   onError?: (err: Error) => void | Promise<void>,
+ * }} options
+ * @returns {Promise<{ id: number, creationToken: string, warning?: object|null, title?: string }>}
+ */
+export async function importCreationWithPending({
+	runImport,
+	navigate = 'spa',
+	onError,
+}) {
+	if (typeof runImport !== 'function') {
+		throw new Error('Import function required');
+	}
+
+	const creationToken = generateCreationToken();
+	const { pendingKey, pendingId } = addPendingCreation({ creationToken });
+
+	try {
+		const result = await runImport({ creationToken });
+		const serverId = Number(result?.id);
+		if (!Number.isFinite(serverId) || serverId <= 0) {
+			throw new Error('Import succeeded but no creation id was returned.');
+		}
+
+		// Keep `creating` until poll sees terminal status — same grid UX as generate.
+		promotePendingCreation({
+			pendingKey,
+			pendingId,
+			serverId,
+			creationToken,
+			status: 'creating',
+		});
+
+		await waitUntilCreationListed({ id: serverId, creationToken });
+		invalidateRelatedDataCaches();
+		clearComposerPromptDraftStorage();
+
+		if (navigate !== 'none') {
+			navigateToCreations({
+				mode: navigate,
+				creationId: serverId,
+				forceFreshFirstPage: !isOnChatCreationsPath() && !isOnCreationsPath(),
+			});
+		} else {
+			refreshCreationsRoute();
+			document.dispatchEvent(new CustomEvent('creations-pending-updated'));
+		}
+
+		return {
+			id: serverId,
+			creationToken,
+			title: typeof result?.title === 'string' ? result.title : '',
+			warning: result?.warning || null,
+		};
+	} catch (err) {
+		removePendingCreation({ pendingKey, pendingId });
+		if (typeof onError === 'function') {
+			try {
+				await onError(err instanceof Error ? err : new Error(String(err)));
 			} catch {
 				// ignore
 			}

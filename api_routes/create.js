@@ -46,6 +46,8 @@ import {
 import { normalizeEditedUploadBuffer } from "./utils/editedImageUpload.js";
 import { ACTIVE_SHARE_VERSION, mintShareToken, verifyShareToken } from "./utils/shareLink.js";
 import { getStyleInfo } from "./utils/createStyles.js";
+import { importSunoCreation, previewSunoImport } from "./utils/importSunoCreation.js";
+import { importYoutubeCreation, previewYoutubeImport } from "./utils/importYoutubeCreation.js";
 import {
 	applyPickerStyleModifiersToPrompt,
 	expandStyleSigilsForProvider,
@@ -6248,6 +6250,126 @@ export default function createCreateRoutes({ queries, storage }) {
 			return res.json({ success: true, message: "Image deleted successfully" });
 		} catch (error) {
 			return res.status(500).json({ error: "Failed to delete image" });
+		}
+	});
+
+	// GET /api/create/import-suno/preview — resolve + duplicate check (no create).
+	router.get("/api/create/import-suno/preview", async (req, res) => {
+		const user = await requireUser(req, res);
+		if (!user) return;
+
+		const url = typeof req.query?.url === "string" ? req.query.url.trim() : "";
+		if (!url) {
+			return res.status(400).json({ error: "Missing url" });
+		}
+
+		try {
+			const result = await previewSunoImport({ userId: user.id, url });
+			return res.json(result);
+		} catch (err) {
+			const status = Number(err?.status) || 500;
+			const message =
+				typeof err?.message === "string" && err.message.trim()
+					? err.message.trim()
+					: "Failed to preview song";
+			if (status >= 500) {
+				console.error("[create] import-suno preview failed:", err?.message || err);
+			}
+			return res.status(status).json({ error: message });
+		}
+	});
+
+	// POST /api/create/import-suno — paste a Suno song URL → completed audio creation (no credits).
+	router.post("/api/create/import-suno", async (req, res) => {
+		const user = await requireUser(req, res);
+		if (!user) return;
+
+		const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+		if (!url) {
+			return res.status(400).json({ error: "Missing url" });
+		}
+
+		try {
+			const creationToken =
+				typeof req.body?.creation_token === "string" ? req.body.creation_token.trim() : "";
+			const result = await importSunoCreation({
+				userId: user.id,
+				url,
+				...(creationToken ? { creationToken } : {}),
+				queries,
+				storage,
+			});
+			return res.status(201).json(result);
+		} catch (err) {
+			const status = Number(err?.status) || 500;
+			const message =
+				typeof err?.message === "string" && err.message.trim()
+					? err.message.trim()
+					: "Failed to import song";
+			if (status >= 500) {
+				console.error("[create] import-suno failed:", err?.message || err);
+			}
+			return res.status(status).json({ error: message });
+		}
+	});
+
+	// GET /api/create/import-youtube/preview — resolve + duplicate check (no create).
+	router.get("/api/create/import-youtube/preview", async (req, res) => {
+		const user = await requireUser(req, res);
+		if (!user) return;
+
+		const url = typeof req.query?.url === "string" ? req.query.url.trim() : "";
+		if (!url) {
+			return res.status(400).json({ error: "Missing url" });
+		}
+
+		try {
+			const result = await previewYoutubeImport({ userId: user.id, url });
+			return res.json(result);
+		} catch (err) {
+			const status = Number(err?.status) || 500;
+			const message =
+				typeof err?.message === "string" && err.message.trim()
+					? err.message.trim()
+					: "Failed to preview video";
+			if (status >= 500) {
+				console.error("[create] import-youtube preview failed:", err?.message || err);
+			}
+			return res.status(status).json({ error: message });
+		}
+	});
+
+	// POST /api/create/import-youtube — paste a YouTube URL → completed video creation (cover + embed).
+	router.post("/api/create/import-youtube", async (req, res) => {
+		const user = await requireUser(req, res);
+		if (!user) return;
+
+		const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+		if (!url) {
+			return res.status(400).json({ error: "Missing url" });
+		}
+
+		try {
+			const creationToken =
+				typeof req.body?.creation_token === "string" ? req.body.creation_token.trim() : "";
+			const result = await importYoutubeCreation({
+				userId: user.id,
+				url,
+				...(creationToken ? { creationToken } : {}),
+				queries,
+				storage,
+			});
+			return res.status(201).json(result);
+		} catch (err) {
+			const status = Number(err?.status) || 500;
+			const message =
+				typeof err?.message === "string" && err.message.trim()
+					? err.message.trim()
+					: "Failed to import video";
+			if (status >= 500) {
+				console.error("[create] import-youtube failed:", err?.message || err);
+			}
+			return res.status(status).json({ error: message });
 		}
 	});
 

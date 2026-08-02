@@ -41,10 +41,11 @@ describe("suno resolve", () => {
 		});
 	});
 
-	test("parseSunoPageMeta reads song id and title tag artist", () => {
+	test("parseSunoPageMeta reads song id, title tag artist, and og:image", () => {
 		const html =
 			'<title>Slime Jail by Ocean Man | Suno</title>' +
 			'<meta property="og:title" content="Slime Jail" />' +
+			'<meta property="og:image" content="https://cdn1.suno.ai/cover.png" />' +
 			'https://suno.com/song/a793f774-75fc-48b0-93ea-6089c6804506';
 		expect(extractSunoSongIdFromHtml(html)).toBe(
 			"a793f774-75fc-48b0-93ea-6089c6804506"
@@ -53,6 +54,7 @@ describe("suno resolve", () => {
 			songId: "a793f774-75fc-48b0-93ea-6089c6804506",
 			title: "Slime Jail",
 			creator: "Ocean Man",
+			ogImage: "https://cdn1.suno.ai/cover.png",
 		});
 	});
 });

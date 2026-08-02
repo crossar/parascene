@@ -20,6 +20,7 @@ import {
 } from '/shared/generationDefaults.js';
 import {
 	formatMentionsFailureForDialog,
+	importCreationWithPending,
 	readImageUrlDimensions,
 	readRasterFileDimensions,
 	submitCreationWithPending,
@@ -28,6 +29,9 @@ import {
 import { isTriggeredSuggestPopupOpen } from '/shared/triggeredSuggest.js';
 import { composerEnterKeySubmits } from '/shared/autogrow.js';
 import { bindCreateComposerCreationDropTargets } from '/shared/creationComposerDrag.js';
+import { extractSoloMediaImport, importMediaFromUrl } from '/shared/importMedia.js';
+import { openImportMediaConfirmModal } from '/shared/importSunoModal.js';
+import { showToast } from '/shared/toast.js';
 import { addToMutateQueue, loadMutateQueue, removeFromMutateQueueByImageUrl } from '/shared/mutateQueue.js';
 import {
 	MUTATE_QUEUE_UPDATED_EVENT,
@@ -2000,11 +2004,18 @@ export function mountCreateComposer(host, opts = {}) {
 			submitBtn.disabled = true;
 			return;
 		}
-		if (!isComposerCreditCostReady()) {
+		if (isAttachmentUploading()) {
 			submitBtn.disabled = true;
 			return;
 		}
-		if (isAttachmentUploading()) {
+		const promptText = (promptInput?.value || '').trim();
+		const soloMedia = !hasAttachment() && Boolean(extractSoloMediaImport(promptText));
+		// Media import is free — don't wait on credit-cost readiness.
+		if (soloMedia) {
+			submitBtn.disabled = false;
+			return;
+		}
+		if (!isComposerCreditCostReady()) {
 			submitBtn.disabled = true;
 			return;
 		}
@@ -2012,7 +2023,7 @@ export function mountCreateComposer(host, opts = {}) {
 			submitBtn.disabled = !hasAttachment();
 			return;
 		}
-		const hasPrompt = (promptInput?.value || '').trim().length > 0;
+		const hasPrompt = promptText.length > 0;
 		if (hasAttachment()) {
 			const hasMutate = Boolean(mutateOptions.serverId && mutateOptions.methodKey);
 			submitBtn.disabled = !hasPrompt || !hasMutate;
@@ -2159,9 +2170,61 @@ export function mountCreateComposer(host, opts = {}) {
 		return imageUrls;
 	}
 
+	function handleMediaImportSubmit(detected) {
+		openImportMediaConfirmModal({
+			url: detected.url,
+			provider: detected.provider,
+			onConfirm: async ({ provider, url: importUrl, existing_id: existingId }) => {
+				const alreadyNoted =
+					Number.isFinite(Number(existingId)) && Number(existingId) > 0;
+				setComposerSubmitting(true);
+				try {
+					const result = await importCreationWithPending({
+						runImport: ({ creationToken }) =>
+							importMediaFromUrl(provider, importUrl, { creationToken }),
+						navigate,
+					});
+					clearComposerState();
+					if (
+						alreadyNoted ||
+						result?.warning?.code === 'duplicate_import'
+					) {
+						showToast(
+							result?.warning?.message ||
+								(provider === 'youtube'
+									? 'You already imported this video'
+									: 'You already imported this song'),
+							{ durationMs: 4000 }
+						);
+					}
+				} catch (err) {
+					const message =
+						err instanceof Error && err.message
+							? err.message
+							: 'Could not import that media.';
+					alert(message);
+				} finally {
+					setComposerSubmitting(false);
+				}
+			},
+			onError: (message) => {
+				if (message) alert(message);
+			},
+		});
+	}
+
 	async function handleSubmit() {
 		if (submitInFlight) return;
 		const userPrompt = (promptInput?.value || '').trim();
+
+		// Solo Suno/YouTube URL → confirm + import. Don't hijack when attachments are present.
+		if (!hasAttachment()) {
+			const soloMedia = extractSoloMediaImport(userPrompt);
+			if (soloMedia) {
+				handleMediaImportSubmit(soloMedia);
+				return;
+			}
+		}
 
 		if (isVideoMode()) {
 			if (!hasAttachment()) return;

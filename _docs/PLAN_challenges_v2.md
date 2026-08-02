@@ -30,7 +30,7 @@ Within 3–6 and 7–9, per-phase "done when" = engineer checkpoint; team valida
 
 Note to the implementer: this is a big plan — progress MUST be visible in this doc. When you finish a phase, edit this checklist: mark `[x] built` with the date. Do NOT mark `validated` yourself — that box belongs to the user/team after they walk the phase's validation checklist (and the matching User flows). A phase is only done-done when both boxes are checked. If a phase ships partially, note what's missing next to it instead of checking the box.
 
-- Phase 1 — Song creations (Suno posts): [ ] built · [ ] validated
+- Phase 1 — Song creations (Suno posts): [x] built (2026-08-02) · [x] validated (2026-08-02)
 - Phase 2 — Foundations (debt + snapshot freshness): [ ] built · [ ] validated
 - Phase 3 — Prize structures + inheritance: [ ] built · [ ] validated
 - Phase 4 — Results + publish + payouts: [ ] built · [ ] validated

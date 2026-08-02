@@ -1425,11 +1425,16 @@ class AppRouteCreations extends HTMLElement {
 				typeof item.media_type === 'string'
 					? item.media_type
 					: (itemMeta && typeof itemMeta.media_type === 'string' ? itemMeta.media_type : 'image');
+			const isImportEmbed =
+				itemMeta?.import &&
+				typeof itemMeta.import === 'object' &&
+				typeof itemMeta.import.provider === 'string';
+			const isNativeVideo = mediaType === 'video' && !isImportEmbed;
 			const mediaAttrs = {
 				'data-image-id': String(item.id),
 				'data-status': 'completed'
 			};
-			if (mediaType === 'video') {
+			if (isNativeVideo) {
 				mediaAttrs['data-media-type'] = 'video';
 			}
 			card.innerHTML = buildCreationCardShell({
@@ -1442,7 +1447,7 @@ class AppRouteCreations extends HTMLElement {
 			const mediaEl = card.querySelector('.route-media');
 			if (mediaEl && typeof hydrateRouteCardMedia === 'function') {
 				const mediaOpts = {
-					preferThumbnail: mediaType !== 'video',
+					preferThumbnail: !isNativeVideo,
 					lowPriority: !this.isRouteActive()
 				};
 				if (index < this.eagerImageCount) {

@@ -371,6 +371,19 @@ app.use(
 		failOpen: true
 	})
 );
+// Media import fetches remote URLs + uploads cover — per-user limit for session traffic too.
+app.use(
+	createRateLimitMiddleware({
+		bucket: "import-media",
+		windowSec: 3600,
+		limit: (req) => (req.auth?.userId ? 10 : null),
+		methods: ["POST"],
+		shouldApply: (req) =>
+			req.path === "/api/create/import-suno" || req.path === "/api/create/import-youtube",
+		apiOnly: true,
+		failOpen: true
+	})
+);
 app.use(createWelcomeGate(queries));
 
 app.use(createSupabaseSessionRoutes({ queries }));
