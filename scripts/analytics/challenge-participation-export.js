@@ -28,9 +28,9 @@ import { extractChallengeEvents } from '../../src/chat/challenges/model/extractE
 import { summarizeLatestChallengeConfigs } from '../../src/chat/challenges/model/organizerSummaries.js';
 import {
 	mergeFullChallengeConfigForChallenge,
-	pickChallengeConfigTimestamp,
-	challengeRewardPrefillsForOrganizerForm
+	pickChallengeConfigTimestamp
 } from '../../src/chat/challenges/challengeAdmin.js';
+import { resolveChallengePrizes } from '../../src/chat/challenges/model/prizes.js';
 import { deriveChallengePhase } from '../../src/chat/challenges/model/phases.js';
 import {
 	buildReactionsByMessageId
@@ -610,7 +610,11 @@ function buildChallengeRecord({
 	const submittersWithVotes = submissionRows.filter((s) => s.vote_count > 0).length;
 	const scores = submissionRows.map((s) => s.score);
 
-	const rewards = challengeRewardPrefillsForOrganizerForm(merged);
+	const rewards = {
+		prizes: resolveChallengePrizes(merged),
+		reward_custom:
+			merged.reward_custom != null ? String(merged.reward_custom).trim() : ''
+	};
 	const activity = buildChallengeActivity(submissionRows, schedule, {
 		total_votes: allVotes.length,
 		unique_voters: uniqueVoters.size

@@ -9905,6 +9905,35 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	line-height: 1.45;
 }
 
+.challenge-pane-admin-prize-structure {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-top: 4px;
+	padding-top: 10px;
+	border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.challenge-pane-admin-prize-category {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.challenge-pane-admin-prize-amounts {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.challenge-pane-admin-prize-amounts[hidden] {
+	display: none;
+}
+
+.challenge-pane-admin-prize-amount {
+	min-width: 0;
+}
+
 .challenge-pane-admin-datetimes {
 	display: flex;
 	flex-direction: column;

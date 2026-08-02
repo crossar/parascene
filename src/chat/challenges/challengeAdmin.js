@@ -395,60 +395,6 @@ export function mergeFullChallengeConfigForChallenge(configEntries, challengeId)
 	return out;
 }
 
-const REWARD_FIELD_KEYS = /** @type {const} */ ([
-	'reward_first',
-	'reward_second',
-	'reward_third',
-	'reward_participation',
-	'reward_custom'
-]);
-
-/**
- * Organizer form prefills: maps legacy single `reward` into `reward_custom` when no structured fields exist.
- * @param {object | null | undefined} cfg challenge_config
- */
-export function challengeRewardPrefillsForOrganizerForm(cfg) {
-	const o = cfg && typeof cfg === 'object' ? cfg : {};
-	const pick = (k) => {
-		const v = o[k];
-		return v == null ? '' : String(v).trim();
-	};
-	let reward_first = pick('reward_first');
-	let reward_second = pick('reward_second');
-	let reward_third = pick('reward_third');
-	let reward_participation = pick('reward_participation');
-	let reward_custom = pick('reward_custom');
-	const legacy = pick('reward');
-	const anyStructured =
-		reward_first ||
-		reward_second ||
-		reward_third ||
-		reward_participation ||
-		reward_custom;
-	if (!anyStructured && legacy) {
-		reward_custom = legacy;
-	}
-	return {
-		reward_first,
-		reward_second,
-		reward_third,
-		reward_participation,
-		reward_custom
-	};
-}
-
-/**
- * @param {object | null | undefined} cfg challenge_config
- */
-export function challengeConfigHasStructuredRewardFields(cfg) {
-	if (!cfg || typeof cfg !== 'object') return false;
-	for (const k of REWARD_FIELD_KEYS) {
-		const v = cfg[k];
-		if (v != null && String(v).trim()) return true;
-	}
-	return false;
-}
-
 /**
  * Whether a pre_submit challenge should appear on the public Challenges page.
  * Explicit `listed: false` / null `listed_at` → draft (Organize only).
@@ -490,5 +436,3 @@ export function applyChallengeListed(payload, iso) {
 	payload.listed_at = iso || new Date().toISOString();
 	return payload;
 }
-
-export { REWARD_FIELD_KEYS };

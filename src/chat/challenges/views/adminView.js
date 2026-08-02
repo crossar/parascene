@@ -1,7 +1,6 @@
 import { esc } from '../constants.js';
 import { MODAL_DISMISS_ICON_SVG } from '../../../shared/modalDismiss.js';
 import {
-	challengeRewardPrefillsForOrganizerForm,
 	pickChallengeConfigTimestamp,
 	pickChallengeHeroImageUrl,
 	pickChallengeResultsCreationUrl,
@@ -11,6 +10,10 @@ import {
 import { deriveChallengePhase } from '../model/phases.js';
 import { isoToLocalYmd } from '../model/dayBounds.js';
 import { pickChallengeTrack, CHALLENGE_TRACK_LABELS, normalizeChallengeTrack } from '../model/tracks.js';
+import {
+	resolveChallengePrizes,
+	formatCreditsLabel
+} from '../model/prizes.js';
 import { renderOrganizeTemplatePickerHtml, renderOrganizeBoardHtml } from './organizeBoardView.js';
 import { clock3Icon, pencilIcon, trophyIcon } from '/icons/svg-strings.js';
 
@@ -125,6 +128,31 @@ export function bindChallengeListingToggle(root) {
 	sync();
 }
 
+/**
+ * Show/hide participation amount rows when category checkboxes toggle.
+ * @param {ParentNode} root
+ */
+export function bindChallengePrizeCategoryToggles(root) {
+	const cats = root.querySelectorAll('[data-prize-category]');
+	for (const cat of cats) {
+		if (!(cat instanceof HTMLElement)) continue;
+		const checkbox = cat.querySelector('input[type="checkbox"]');
+		const amounts = cat.querySelector('.challenge-pane-admin-prize-amounts');
+		if (!(checkbox instanceof HTMLInputElement) || !(amounts instanceof HTMLElement)) continue;
+		const sync = () => {
+			amounts.hidden = !checkbox.checked;
+		};
+		checkbox.addEventListener('change', sync);
+		sync();
+	}
+}
+
+/** Custom free-text prize prefill (the only surviving free-text reward field). */
+function customRewardPrefill(cfg) {
+	const v = cfg && typeof cfg === 'object' ? cfg.reward_custom : null;
+	return { reward_custom: v == null ? '' : String(v).trim() };
+}
+
 /** @param {object} latest */
 function pickChallengeResultsPublishedAtFromCfg(latest) {
 	if (latest.results_published_at != null) return String(latest.results_published_at).trim();
@@ -222,62 +250,58 @@ export function renderChallengeOrganizerGlobalConfigFormHtml(organizersByTrack, 
 }
 
 /**
- * @param {object} prefills — reward_* strings from {@link challengeRewardPrefillsForOrganizerForm}
- * @param {{ variant?: 'full' | 'credits' }} [opts]
+ * Numeric prizes form: main credit amounts + participation categories + free-text Custom.
+ * @param {{ reward_custom?: string }} prefills
+ * @param {{ prizes?: object | null, track?: string }} [opts]
  */
 function renderOrganizerRewardsSection(prefills, opts = {}) {
 	const p = prefills || {};
-	const variant = opts.variant === 'credits' ? 'credits' : 'full';
-	const creditNum = (raw) => {
-		const s = String(raw ?? '').trim();
-		const m = s.match(/(\d+)/);
-		return m ? m[1] : s;
-	};
-	if (variant === 'credits') {
-		const rf = esc(creditNum(p.reward_first));
-		const rs = esc(creditNum(p.reward_second));
-		const rt = esc(creditNum(p.reward_third));
-		return `<div class="challenge-pane-admin-rewards-group" role="group" aria-label="Rewards">
-			<p class="challenge-pane-admin-rewards-legend">Prizes (credits)</p>
-			<label class="challenge-pane-label">1st place
-				<input type="number" name="reward_first" class="challenge-pane-input" min="0" step="1" inputmode="numeric"
-					placeholder="1200" value="${rf}" autocomplete="off" />
-			</label>
-			<label class="challenge-pane-label">2nd place
-				<input type="number" name="reward_second" class="challenge-pane-input" min="0" step="1" inputmode="numeric"
-					placeholder="700" value="${rs}" autocomplete="off" />
-			</label>
-			<label class="challenge-pane-label">3rd place
-				<input type="number" name="reward_third" class="challenge-pane-input" min="0" step="1" inputmode="numeric"
-					placeholder="500" value="${rt}" autocomplete="off" />
-			</label>
-		</div>`;
-	}
-
-	const rf = esc(String(p.reward_first ?? ''));
-	const rs = esc(String(p.reward_second ?? ''));
-	const rt = esc(String(p.reward_third ?? ''));
-	const rp = esc(String(p.reward_participation ?? ''));
 	const rc = esc(String(p.reward_custom ?? ''));
-	return `<div class="challenge-pane-admin-rewards-group" role="group" aria-label="Rewards">
-			<p class="challenge-pane-admin-rewards-legend">Rewards</p>
-			<p class="challenge-pane-muted challenge-pane-admin-rewards-lead">Optional placement prizes. Each filled row appears on the challenge card with a medal-style graphic. Leave blank to hide.</p>
+	const prizes = resolveChallengePrizes(
+		opts.prizes ? { prizes: opts.prizes } : {},
+		{ track: opts.track }
+	);
+	const amountInputs = (prefix, amounts) =>
+		[0, 1, 2]
+			.map(
+				(i) =>
+					`<label class="challenge-pane-label challenge-pane-admin-prize-amount">Place ${i + 1}
+						<input type="number" name="${esc(prefix)}_${i}" class="challenge-pane-input" min="0" step="1" inputmode="numeric"
+							value="${esc(String(amounts[i] ?? 0))}" autocomplete="off" />
+					</label>`
+			)
+			.join('');
+	const participationBlock = (key, label, cat) => {
+		const enabled = cat?.enabled !== false;
+		const amounts = cat?.amounts || [0, 0, 0];
+		return `<div class="challenge-pane-admin-prize-category" data-prize-category="${esc(key)}">
+			<label class="challenge-pane-admin-checkbox-inline">
+				<input type="checkbox" name="prize_${esc(key)}_enabled" value="1"${enabled ? ' checked' : ''} />
+				${esc(label)}
+			</label>
+			<div class="challenge-pane-admin-prize-amounts" ${enabled ? '' : 'hidden'}>
+				${amountInputs(`prize_${key}`, amounts)}
+			</div>
+		</div>`;
+	};
+
+	return `<div class="challenge-pane-admin-rewards-group" role="group" aria-label="Prizes">
+			<p class="challenge-pane-admin-rewards-legend">Prizes (credits)</p>
+			<p class="challenge-pane-muted challenge-pane-admin-rewards-lead">Placement amounts appear on the challenge card. Participation amounts stay hidden until results.</p>
 			<label class="challenge-pane-label">1st place
-				<input type="text" name="reward_first" class="challenge-pane-input" maxlength="400"
-					placeholder="2000 credits" value="${rf}" autocomplete="off" />
+				<input type="number" name="prize_main_first" class="challenge-pane-input" min="0" step="1" inputmode="numeric"
+					value="${esc(String(prizes.main.first))}" autocomplete="off" />
 			</label>
 			<label class="challenge-pane-label">2nd place
-				<input type="text" name="reward_second" class="challenge-pane-input" maxlength="400"
-					placeholder="1250 credits" value="${rs}" autocomplete="off" />
+				<input type="number" name="prize_main_second" class="challenge-pane-input" min="0" step="1" inputmode="numeric"
+					value="${esc(String(prizes.main.second))}" autocomplete="off" />
 			</label>
 			<label class="challenge-pane-label">3rd place
-				<input type="text" name="reward_third" class="challenge-pane-input" maxlength="400"
-					placeholder="750 credits" value="${rt}" autocomplete="off" />
+				<input type="number" name="prize_main_third" class="challenge-pane-input" min="0" step="1" inputmode="numeric"
+					value="${esc(String(prizes.main.third))}" autocomplete="off" />
 			</label>
-			<label class="challenge-pane-label">Participation
-				<input type="text" name="reward_participation" class="challenge-pane-input" maxlength="400"
-					placeholder="Prizes for voting and submitting" value="${rp}" autocomplete="off" />
-			</label>
+			${participationBlock('top_submitters', 'Top submitters (by entry count)', prizes.top_submitters)}
+			${participationBlock('top_voters', 'Top voters (by votes cast)', prizes.top_voters)}
 			<label class="challenge-pane-label">Custom
 				<input type="text" name="reward_custom" class="challenge-pane-input" maxlength="400"
 					placeholder="Anything else — sponsor perk, raffle, honorable mention..." value="${rc}" autocomplete="off" />
@@ -419,9 +443,10 @@ export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 			: typeof cfg.details === 'string'
 				? cfg.details.trim()
 				: String(cfg.details).trim();
-	const rewardPrefills = challengeRewardPrefillsForOrganizerForm(cfg);
+	const rewardPrefills = customRewardPrefill(cfg);
 	const dt = challengeConfigDatetimeLocals(cfg);
 	const track = normalizeChallengeTrack(dt.track || cfg.track);
+	const prizesResolved = resolveChallengePrizes(cfg, { track });
 	const trackLabel = CHALLENGE_TRACK_LABELS[track] || track;
 	const startYmd = dt.submission_start_ymd || '';
 	const endYmd = dt.submission_end_ymd || startYmd;
@@ -442,10 +467,21 @@ export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 	};
 
 	const prizeRows = [
-		['1st place', rewardPrefills.reward_first],
-		['2nd place', rewardPrefills.reward_second],
-		['3rd place', rewardPrefills.reward_third],
-		['Participation', rewardPrefills.reward_participation],
+		['1st place', formatCreditsLabel(prizesResolved.main.first)],
+		['2nd place', formatCreditsLabel(prizesResolved.main.second)],
+		['3rd place', formatCreditsLabel(prizesResolved.main.third)],
+		[
+			'Top submitters',
+			prizesResolved.top_submitters.enabled
+				? prizesResolved.top_submitters.amounts.map(formatCreditsLabel).join(' / ')
+				: 'Off'
+		],
+		[
+			'Top voters',
+			prizesResolved.top_voters.enabled
+				? prizesResolved.top_voters.amounts.map(formatCreditsLabel).join(' / ')
+				: 'Off'
+		],
 		['Custom', rewardPrefills.reward_custom]
 	]
 		.map(([label, val]) => renderOrganizeViewField(label, val))
@@ -478,8 +514,8 @@ export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 		)}
 		${panel(
 			'prizes',
-			`<div class="challenge-pane-admin-rewards-group" role="group" aria-label="Rewards">
-				<p class="challenge-pane-admin-rewards-legend">Rewards</p>
+			`<div class="challenge-pane-admin-rewards-group" role="group" aria-label="Prizes">
+				<p class="challenge-pane-admin-rewards-legend">Prizes (credits)</p>
 				${prizeRows}
 			</div>`
 		)}
@@ -526,7 +562,7 @@ function renderChallengeOrganizerTabbedFormHtml(opts = {}) {
 			: typeof cfg.details === 'string'
 				? cfg.details
 				: String(cfg.details);
-	const rewardPrefills = challengeRewardPrefillsForOrganizerForm(cfg);
+	const rewardPrefills = customRewardPrefill(cfg);
 	const dtFromCfg = challengeConfigDatetimeLocals(cfg);
 	const dt = {
 		...dtFromCfg,
@@ -542,6 +578,11 @@ function renderChallengeOrganizerTabbedFormHtml(opts = {}) {
 	};
 	const cid =
 		cfg.challenge_id != null ? String(cfg.challenge_id).trim() : '';
+	const trackForPrizes = normalizeChallengeTrack(dt.track || cfg.track);
+	const prizeStructure =
+		cfg.prizes && typeof cfg.prizes === 'object'
+			? cfg.prizes
+			: resolveChallengePrizes(cfg, { track: trackForPrizes });
 
 	const tabBtn = (id, label, iconSvg) => {
 		const on = id === activeTab;
@@ -605,7 +646,13 @@ function renderChallengeOrganizerTabbedFormHtml(opts = {}) {
 				${renderOrganizerMediaSectionHtml(cfg)}`
 			)}
 			${panel('schedule', renderDatetimeFieldsHtml(dt))}
-			${panel('prizes', renderOrganizerRewardsSection(rewardPrefills, { variant: 'full' }))}
+			${panel(
+				'prizes',
+				renderOrganizerRewardsSection(rewardPrefills, {
+					prizes: prizeStructure,
+					track: trackForPrizes
+				})
+			)}
 		</div>
 		${editFormFooter(submitLabel, { showSoftDelete })}
 	</form>`;
@@ -649,9 +696,13 @@ export function renderChallengeOrganizerEditSectionHtml(section, latest, configM
 			${ids}`;
 
 	if (sectionKey === 'prizes') {
-		const rewardPrefills = challengeRewardPrefillsForOrganizerForm(cfg);
+		const rewardPrefills = customRewardPrefill(cfg);
+		const track = pickChallengeTrack(cfg);
 		return `${formOpen}
-			${renderOrganizerRewardsSection(rewardPrefills, { variant: 'full' })}
+			${renderOrganizerRewardsSection(rewardPrefills, {
+				prizes: cfg.prizes,
+				track
+			})}
 			${editFormFooter('Save rewards')}
 		</form>`;
 	}
@@ -706,6 +757,10 @@ export function renderChallengeOrganizerCreateFormHtml(
 	const startYmd = typeof opts.startYmd === 'string' ? opts.startYmd : '';
 	const endYmd = typeof opts.endYmd === 'string' ? opts.endYmd : '';
 	const prizes = opts.prizes && typeof opts.prizes === 'object' ? opts.prizes : {};
+	const prizeStructure =
+		opts.prizeStructure && typeof opts.prizeStructure === 'object'
+			? opts.prizeStructure
+			: null;
 	const activeTab = typeof opts.activeTab === 'string' ? opts.activeTab : 'details';
 	const allowedTracks = Array.isArray(opts.allowedTracks) ? opts.allowedTracks : null;
 	const cfg = {
@@ -716,6 +771,7 @@ export function renderChallengeOrganizerCreateFormHtml(
 		submission_end_ymd: endYmd,
 		...prizes
 	};
+	if (prizeStructure) cfg.prizes = prizeStructure;
 	return `${renderChallengeOrganizerTabbedFormHtml({
 			formRole: 'create',
 			cfg,

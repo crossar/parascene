@@ -9,12 +9,12 @@ Phases below are numbered in **ship order**. Phase 1 is song creations (Suno pos
 ## Direction, agreed
 
 - Clock drives phases (unchanged). Pins + feed freshness fire automatically. Humans get one-click card actions: Announce, Close voting, Review results (swap winners before confirm; confirm pays out). Organizer promo/winners creations used as editorial pins stay unpublished (feed can still show them while the pin is active).
-- Prizes: main 1st/2nd/3rd advertised. Participation prizes: top 3 submitters (entry count) + top 3 voters (votes cast), details revealed only at results.
-- Prize structures are per-challenge config, inherited from the most recent same-track challenge. Only the first challenge of a track needs full definition.
+- Prizes: structured numeric `prizes` on config (main 1st/2nd/3rd + optional top submitters/voters) is the single source of truth. Card copy is generated from the numbers ("400 credits"). Free-text `reward_first/second/third/participation` are RETIRED — existing configs were migrated in place (`db/maintenance/migrate-challenge-prizes.js`, 2026-08-02; backup jsonl beside it) and all legacy read paths removed. Only `reward_custom` stays free text. Participation prize *details* revealed only at results.
+- Prize structures are per-challenge config, inherited from the most recent same-track challenge by **submission start date**. Only the first challenge of a track needs full definition (track presets).
 - Feed keeps one engagement card. Focus = soonest deadline among active. "+N more open" chip when concurrent. `/challenges` lane is the canonical multi-track surface.
-- Submit: context carries intent, confirm always names the target, picker when ambiguous, server rejects ambiguous submits. Media eligibility per track.
+- Submit: context carries intent, confirm always names the target, picker when ambiguous, server rejects ambiguous submits. Media eligibility per track (`accepted_media`, phase 8).
 - Minimal song creations: paste Suno link → completed playable creation (cover + embed). Music track rides on this later (phase 9).
-- Music challenges are sometimes remix contests (listen to a source Suno track on the challenge) and sometimes theme contests (like image challenges today). Remix source is optional on the challenge config — never required.
+- Music remix source (optional Suno URL on config + Listen on the card) is deferred with phase 9 — not required for theme-only Music challenges.
 
 ## Ship order at a glance
 
@@ -32,7 +32,7 @@ Note to the implementer: this is a big plan — progress MUST be visible in this
 
 - Phase 1 — Song creations (Suno posts): [x] built (2026-08-02) · [x] validated (2026-08-02)
 - Phase 2 — Foundations (debt + snapshot freshness): [x] built (2026-08-02) · [x] validated (2026-08-02)
-- Phase 3 — Prize structures + inheritance: [ ] built · [ ] validated
+- Phase 3 — Prize structures + inheritance: [x] built (2026-08-02) · [x] validated (2026-08-02)
 - Phase 4 — Results + publish + payouts: [ ] built · [ ] validated
 - Phase 5 — Board actions + review modal: [ ] built · [ ] validated
 - Phase 6 — Auto open-pins: [ ] built · [ ] validated
@@ -108,23 +108,24 @@ Team validate: Draft → Public shows on the feed card on next load; organizer s
 
 → User flow F3 (create / edit challenge prizes).
 
-Extend `challenge_config`:
+Extend `challenge_config` with a structured numeric block — the single source of truth for display, payouts, inheritance, and the review modal. Free-text placement/participation fields are deprecated; card copy is generated from the numbers.
 
 ```js
 prizes: {
-	main: { first, second, third },                      // credits, advertised
-	top_submitters: { enabled: true, amounts: [n,n,n] }, // by entry count, revealed at results
-	top_voters:     { enabled: true, amounts: [n,n,n] }  // by votes cast, revealed at results
+	main: { first, second, third },                      // credit amounts
+	top_submitters: { enabled: true, amounts: [n,n,n] }, // by entry count, details at results
+	top_voters:     { enabled: true, amounts: [n,n,n] }  // by votes cast, details at results
 }
 ```
 
-- Read legacy `reward_first/second/third` as fallback for `prizes.main`; write new block going forward.
-- On create (`src/chat/challenges/mountOrganizerSidebar.js`): prefill `prizes` (and `accepted_media`, phase 8) from most recent non-deleted config of same track; fall back to presets in `model/tracks.js`.
-- Edit modal (`views/adminView.js`): prizes tab = main amounts + enable/amounts for both participation categories.
-- Participant/feed copy advertises main prizes only, plus "participation prizes revealed at results" line when enabled.
-- Optional Music remix source (see phase 9 / User flow F9): config field for a Suno URL when the challenge is "remix this track"; leave empty for theme-only Music challenges. Edit modal: optional "Remix source" URL on the suno track (hidden/irrelevant for monthly/weekly).
+- Cutover done (2026-08-02): `db/maintenance/migrate-challenge-prizes.js exec` converted all existing `challenge_config` messages (20 rows) — `prizes.main` parsed from legacy digits, participation off for historical challenges, `reward_participation`/`reward` text folded into `reward_custom`, legacy keys deleted. Backup jsonl in `db/maintenance/backups/`. No legacy read fallback remains in code; a config without a `prizes` block renders no reward cards.
+- On create (`src/chat/challenges/mountOrganizerSidebar.js`): prefill `prizes` (+ `reward_custom`) from the most recent non-deleted same-track config by **submission start date** (`submission_start_at`); fall back to presets in `model/tracks.js`. (`accepted_media` waits for phase 8.)
+- Track presets: default `prizes` (main + participation categories enabled with starter amounts — customizable in the form). Participation defaults: `[50, 30, 20]` credits each category (tune in `tracks.js`).
+- Edit modal (`views/adminView.js`): prizes tab = numeric main amounts, enable/amounts for top submitters and top voters, and the Custom text field.
+- Participant cards render medal rows procedurally ("400 credits") from `prizes.main` (>0 only); a Participation card ("Prizes for top 3 voters and top 3 submitters" — spot counts from funded tiers, no amounts) when a category is enabled; Custom card from `reward_custom`. Configs without a `prizes` block render no reward cards. Feed topPrize/totalRewardCredits derive from `prizes.main` only (participation amounts stay hidden until results).
+- Remix source: out of scope this phase (phase 9 / later).
 
-Done when: new Weekly pre-fills last Weekly's structure; participation prizes configurable but not advertised in detail.
+Done when: new Weekly pre-fills last Weekly's `prizes` (by start date); first-of-track gets preset defaults; participation prizes editable but amounts hidden until results; card copy generated from numbers.
 
 ---
 
@@ -218,7 +219,7 @@ Done when: two open tracks independently viewable/votable/submittable; finished 
 
 → User flow F8 (submit a creation to a named challenge).
 
-- `accepted_media` on config: `['image','video']` monthly/weekly, `['audio']` suno; defaulted by track template, inherited like prizes.
+- `accepted_media` on config: `['image','video']` monthly/weekly, `['audio']` suno; defaulted by track template; on create, inherit from most recent same-track config by submission start date (same rule as `prizes` in phase 3), else template default.
 - Server (`api_routes/utils/challengeSubmitShared.js`, eligibility in `create.js` ~609): eligibility returns full accepting list `{ challenge_id, title, track, ends_at }` filtered by creation `meta.media_type` vs `accepted_media`. POST requires explicit `challenge_id` when more than one accepting; delete newest-created fallback (`pickChallengeConfigAcceptingSubmissions` ~458–473) except sole-option shortcut. Validate media eligibility server-side.
 - Deploy compat (bundles rebuild externally, not atomically with server): the new strictness only bites when multiple challenges accept at once — which can't occur before the multi-track lane exists. Ship phase 8 client + server together; server rejection message must be human-readable as the fallback for stale clients.
 - Client (`public/pages/creation-detail.js` confirm modal): always display target challenge name; radio list in same modal when multiple eligible and no context; context pre-selects. Picker/eligibility rendering goes in a small shared module (beside `public/shared/challengeSubmitContext.js`), not more inline code in creation-detail.js (6.9k lines).
@@ -234,21 +235,21 @@ Done when: a submission can never land in a challenge the user did not see named
 
 Depends on phases 1, 3, and 8. Songs already exist from phase 1; this makes them first-class Music challenge entries.
 
-- `accepted_media: ['audio']` on suno track template (and inheritance).
-- Optional remix source on config (phase 3 field), e.g.:
+- `accepted_media: ['audio']` on suno track template (and inheritance from phase 8).
+- Optional remix source on config (ship here if still wanted — deferred from phase 3), e.g.:
 
 ```js
 remix_source: null | { provider: 'suno', url, song_id, title?, creator? }
 ```
 
-  Set when the challenge is "remix this track"; omit/null for theme-only Music challenges (same shape as today's image theme challenges — brief + prizes, no listen target).
+  Set when the challenge is "remix this track"; omit/null for theme-only Music challenges (same shape as today's image theme challenges — brief + prizes, no listen target). Can slip to a later addendum if Music theme-only is enough for first ship.
 - Participant Music card: when `remix_source` is set, show a Listen / play control for that source track (click-to-play Suno embed, same rules as song creations — no eager iframe). Theme-only Music cards skip this control.
 - Organize edit: paste Suno URL → resolve (reuse `/api/suno/resolve`) → store `remix_source`. Clearable.
 - Vote modal `injectVoteMediaFromCreation`: cover + click-to-play embed; at most one iframe mounted at a time, unmount on advance to next entry.
 - Entry point: "Import a song" on Music challenge card → paste-link modal → on success, open standard submit confirm with context targeting that challenge.
 - Update Music-track how-to copy in `detailsRewardView.js` (says image/video); mention remix source when present vs theme-only.
 
-Done when: paste Suno link → playable creation → submit to Music challenge → votable in modal; remix challenges expose Listen on the source track; theme-only Music challenges work without it.
+Done when: paste Suno link → playable creation → submit to Music challenge → votable in modal; theme-only Music works; remix Listen only if `remix_source` shipped.
 
 Team validate after phases 7–9: two concurrent open challenges (one Music); both cards visible with track pills + deadlines; voting on each targets the right challenge; submit from a card targets that challenge by name; submit from creation detail with both open shows the picker; song submits only offered to Music; stale submit context recovers to picker; finished challenge shows winners + top submitters + top voters in-app.
 
@@ -361,10 +362,9 @@ F2 — Draft → Public shows on feed promptly (phase 2)
 F3 — Create / edit challenge with prizes (phase 3)
 
 1. Organizer creates a challenge of a track (e.g. Weekly).
-2. Prizes tab is pre-filled from the most recent same-track challenge (or track presets if first).
-3. Adjusts main 1st/2nd/3rd and optionally enables top-submitter / top-voter participation amounts.
-4. If Music track: optionally pastes a Suno URL as remix source (resolve → stored). Leaves empty for theme-only Music challenges.
-5. Saves. Participants later see main prizes advertised; participation prizes only noted as "revealed at results."
+2. Prizes tab is pre-filled from the most recent same-track challenge by submission start date (or track presets if first) — numeric `prizes` plus Custom text when inheriting.
+3. Adjusts numeric main amounts, top-submitter / top-voter enable + amounts (defaults on, editable), and optional Custom text.
+4. Saves. Participants see generated main prize cards ("400 credits"); when participation is enabled, a Participation card says "revealed at results" (no amounts until results).
 
 F4 — Announce and close voting from the board (phase 5)
 

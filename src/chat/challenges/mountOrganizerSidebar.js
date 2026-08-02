@@ -1,7 +1,6 @@
 import {
 	mergeFullChallengeConfigForChallenge,
 	normalizeChallengeHeroRefForSave,
-	REWARD_FIELD_KEYS,
 	normalizeChallengeOrganizerUserNames,
 	organizersWithoutImplied,
 	pickLatestChallengesGlobalConfig,
@@ -20,7 +19,8 @@ import {
 	renderChallengeOrganizerStatsModalInnerHtml,
 	renderOrganizeSoftDeleteConfirmHtml,
 	bindChallengeResultsToggle,
-	bindChallengeListingToggle
+	bindChallengeListingToggle,
+	bindChallengePrizeCategoryToggles
 } from './views/adminView.js';
 import {
 	renderOrganizeCalendarHtml,
@@ -41,6 +41,10 @@ import {
 	rangeConflictsWithOccupied,
 	timelineIsoFromDayRange
 } from './model/tracks.js';
+import {
+	readPrizesFromFormData,
+	resolveCreatePrizePrefills
+} from './model/prizes.js';
 import { summarizeLatestChallengeConfigs } from './model/organizerSummaries.js';
 import { buildChallengesChannelModel } from './model/buildChannelModel.js';
 import {
@@ -284,12 +288,88 @@ export function mountChallengesOrganizerTools(host, opts) {
 		}));
 	};
 
-	const formatPrizeCredits = (raw) => {
-		const s = String(raw || '').trim();
-		if (!s) return '';
-		if (/credits/i.test(s)) return s;
-		const n = s.match(/^\d+$/) ? s : (s.match(/(\d+)/) || [])[1];
-		return n ? `${n} credits` : s;
+	/**
+	 * Apply structured prizes + free-text Custom from the form onto payload.
+	 * Legacy reward_first/second/third/participation are deprecated: scrubbed on save
+	 * so the config converges on the `prizes` block.
+	 * @param {object} payload
+	 * @param {FormData} fd
+	 * @param {HTMLFormElement} adminForm
+	 */
+	const applyRewardsAndPrizesFromForm = (payload, fd, adminForm) => {
+		if (adminForm.querySelector('[name="reward_custom"]')) {
+			const raw = String(fd.get('reward_custom') || '').trim();
+			if (raw) payload.reward_custom = raw;
+			else delete payload.reward_custom;
+		}
+		if (adminForm.querySelector('[name="prize_main_first"]')) {
+			payload.prizes = readPrizesFromFormData(fd);
+			delete payload.reward_first;
+			delete payload.reward_second;
+			delete payload.reward_third;
+			delete payload.reward_participation;
+		}
+	};
+
+	const syncCreatePrefills = (modalBody, track) => {
+		const tpl = getChallengeTrackTemplate(track);
+		const occupied = occupiedRangesForTrack(boardSummaries(), track);
+		const range = findNextFreeRange(dateToLocalYmd(), tpl.defaultLengthDays, occupied);
+		const titleEl = modalBody.querySelector('[data-organize-title]');
+		const idEl = modalBody.querySelector('[data-organize-challenge-id]');
+		const startEl = modalBody.querySelector('[data-organize-start-ymd]');
+		const endEl = modalBody.querySelector('[data-organize-end-ymd]');
+		const trackEl = modalBody.querySelector('[data-organize-track-field]');
+		const title =
+			titleEl instanceof HTMLInputElement && titleEl.value.trim()
+				? titleEl.value.trim()
+				: tpl.suggestTitle(range.start);
+		if (titleEl instanceof HTMLInputElement) titleEl.value = title;
+		if (idEl instanceof HTMLInputElement) idEl.value = tpl.suggestId(range.start);
+		if (startEl instanceof HTMLInputElement) startEl.value = range.start;
+		if (endEl instanceof HTMLInputElement) endEl.value = range.end;
+		if (trackEl instanceof HTMLInputElement) trackEl.value = track;
+
+		const prefills = resolveCreatePrizePrefills(track, boardSummaries());
+		for (const [key, val] of Object.entries(prefills.rewardFields)) {
+			const input = modalBody.querySelector(`[name="${key}"]`);
+			if (input instanceof HTMLInputElement) {
+				input.value = String(val || '');
+			}
+		}
+		const setPrizeNum = (name, value) => {
+			const input = modalBody.querySelector(`[name="${name}"]`);
+			if (input instanceof HTMLInputElement) {
+				input.value = String(value);
+			}
+		};
+		const ps = prefills.prizeStructure;
+		setPrizeNum('prize_main_first', ps.main.first);
+		setPrizeNum('prize_main_second', ps.main.second);
+		setPrizeNum('prize_main_third', ps.main.third);
+		for (const [catKey, cat] of [
+			['top_submitters', ps.top_submitters],
+			['top_voters', ps.top_voters]
+		]) {
+			const checkbox = modalBody.querySelector(`[name="prize_${catKey}_enabled"]`);
+			if (checkbox instanceof HTMLInputElement) {
+				checkbox.checked = cat.enabled !== false;
+			}
+			for (let i = 0; i < 3; i += 1) {
+				setPrizeNum(`prize_${catKey}_${i}`, cat.amounts[i] ?? 0);
+			}
+			const amountsEl = modalBody.querySelector(
+				`[data-prize-category="${catKey}"] .challenge-pane-admin-prize-amounts`
+			);
+			if (amountsEl instanceof HTMLElement) {
+				amountsEl.hidden = cat.enabled === false;
+			}
+		}
+
+		calendarPendingStart = null;
+		calendarMonthYmd =
+			majorityMonthYmdFromRange(range.start, range.end) || range.start || dateToLocalYmd();
+		mountCalendarInModal(modalBody, track, '', range.start, range.end);
 	};
 
 	const mountCalendarInModal = (
@@ -341,36 +421,6 @@ export function mountChallengesOrganizerTools(host, opts) {
 			exclude,
 			readOnly
 		};
-	};
-
-	const syncCreatePrefills = (modalBody, track) => {
-		const tpl = getChallengeTrackTemplate(track);
-		const occupied = occupiedRangesForTrack(boardSummaries(), track);
-		const range = findNextFreeRange(dateToLocalYmd(), tpl.defaultLengthDays, occupied);
-		const titleEl = modalBody.querySelector('[data-organize-title]');
-		const idEl = modalBody.querySelector('[data-organize-challenge-id]');
-		const startEl = modalBody.querySelector('[data-organize-start-ymd]');
-		const endEl = modalBody.querySelector('[data-organize-end-ymd]');
-		const trackEl = modalBody.querySelector('[data-organize-track-field]');
-		const title =
-			titleEl instanceof HTMLInputElement && titleEl.value.trim()
-				? titleEl.value.trim()
-				: tpl.suggestTitle(range.start);
-		if (titleEl instanceof HTMLInputElement) titleEl.value = title;
-		if (idEl instanceof HTMLInputElement) idEl.value = tpl.suggestId(range.start);
-		if (startEl instanceof HTMLInputElement) startEl.value = range.start;
-		if (endEl instanceof HTMLInputElement) endEl.value = range.end;
-		if (trackEl instanceof HTMLInputElement) trackEl.value = track;
-		for (const [key, val] of Object.entries(tpl.defaultPrizes)) {
-			const input = modalBody.querySelector(`[name="${key}"]`);
-			if (input instanceof HTMLInputElement && !String(input.value || '').trim()) {
-				input.value = String(val || '');
-			}
-		}
-		calendarPendingStart = null;
-		calendarMonthYmd =
-			majorityMonthYmdFromRange(range.start, range.end) || range.start || dateToLocalYmd();
-		mountCalendarInModal(modalBody, track, '', range.start, range.end);
 	};
 
 	const closeModal = () => {
@@ -452,6 +502,7 @@ export function mountChallengesOrganizerTools(host, opts) {
 		);
 		bindChallengeResultsToggle(modalBody);
 		bindChallengeListingToggle(modalBody);
+		bindChallengePrizeCategoryToggles(modalBody);
 		if (mode === 'create') {
 			syncCreatePrefills(modalBody, track);
 		} else if (mode === 'edit' && editPayload) {
@@ -798,23 +849,7 @@ export function mountChallengesOrganizerTools(host, opts) {
 						if (resultsRef) payload.results_creation_url = resultsRef;
 						else delete payload.results_creation_url;
 					}
-					for (const key of REWARD_FIELD_KEYS) {
-						if (!adminForm.querySelector(`[name="${key}"]`)) continue;
-						const raw = String(fd.get(key) || '').trim();
-						if (!raw) {
-							delete payload[key];
-							continue;
-						}
-						if (
-							key === 'reward_first' ||
-							key === 'reward_second' ||
-							key === 'reward_third'
-						) {
-							payload[key] = formatPrizeCredits(raw);
-						} else {
-							payload[key] = raw;
-						}
-					}
+					applyRewardsAndPrizesFromForm(payload, fd, adminForm);
 				} else if (isEditForm && editSection && editSection !== 'schedule') {
 					payload = {
 						...base,
@@ -836,22 +871,7 @@ export function mountChallengesOrganizerTools(host, opts) {
 						if (resultsRef) payload.results_creation_url = resultsRef;
 						else delete payload.results_creation_url;
 					} else if (editSection === 'prizes') {
-						for (const key of REWARD_FIELD_KEYS) {
-							const raw = String(fd.get(key) || '').trim();
-							if (!raw) {
-								delete payload[key];
-								continue;
-							}
-							if (
-								key === 'reward_first' ||
-								key === 'reward_second' ||
-								key === 'reward_third'
-							) {
-								payload[key] = formatPrizeCredits(raw);
-							} else {
-								payload[key] = raw;
-							}
-						}
+						applyRewardsAndPrizesFromForm(payload, fd, adminForm);
 					}
 				} else {
 					const track = normalizeChallengeTrack(String(fd.get('track') || base.track || 'monthly'));
@@ -937,23 +957,7 @@ export function mountChallengesOrganizerTools(host, opts) {
 						} else {
 							delete payload.results_creation_url;
 						}
-						for (const key of REWARD_FIELD_KEYS) {
-							if (!adminForm.querySelector(`[name="${key}"]`)) continue;
-							const raw = String(fd.get(key) || '').trim();
-							if (!raw) {
-								delete payload[key];
-								continue;
-							}
-							if (
-								key === 'reward_first' ||
-								key === 'reward_second' ||
-								key === 'reward_third'
-							) {
-								payload[key] = formatPrizeCredits(raw);
-							} else {
-								payload[key] = raw;
-							}
-						}
+						applyRewardsAndPrizesFromForm(payload, fd, adminForm);
 					}
 				}
 			}
@@ -1224,13 +1228,15 @@ export function mountChallengesOrganizerTools(host, opts) {
 			const tpl = getChallengeTrackTemplate(track);
 			const occupied = occupiedRangesForTrack(boardSummaries(), track);
 			const range = findNextFreeRange(dateToLocalYmd(), tpl.defaultLengthDays, occupied);
+			const prefills = resolveCreatePrizePrefills(track, boardSummaries());
 			openModal('create', null, null, {
 				track,
 				title: tpl.suggestTitle(range.start),
 				challenge_id: tpl.suggestId(range.start),
 				startYmd: range.start,
 				endYmd: range.end,
-				prizes: tpl.defaultPrizes
+				prizes: prefills.rewardFields,
+				prizeStructure: prefills.prizeStructure
 			});
 			return;
 		}
@@ -1286,6 +1292,9 @@ export function mountChallengesOrganizerTools(host, opts) {
 				null,
 				{ track, allowedTracks: allowedTracksForViewer() }
 			);
+			bindChallengeResultsToggle(modalBody);
+			bindChallengeListingToggle(modalBody);
+			bindChallengePrizeCategoryToggles(modalBody);
 			syncCreatePrefills(modalBody, track);
 			return;
 		}

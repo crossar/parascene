@@ -24,9 +24,20 @@ export const CHALLENGE_TRACK_LABELS = {
  * @property {string} label
  * @property {number} defaultLengthDays
  * @property {{ reward_first: string, reward_second: string, reward_third: string }} defaultPrizes
+ * @property {{
+ *   main: { first: number, second: number, third: number },
+ *   top_submitters: { enabled: boolean, amounts: [number, number, number] },
+ *   top_voters: { enabled: boolean, amounts: [number, number, number] }
+ * }} defaultPrizeStructure
  * @property {(anchorYmd: string) => string} suggestTitle
  * @property {(anchorYmd: string, title?: string) => string} suggestId
  */
+
+/** Shared starter participation prizes (credits); editable per challenge. */
+const DEFAULT_PARTICIPATION = /** @type {const} */ ({
+	enabled: true,
+	amounts: /** @type {[number, number, number]} */ ([50, 30, 20])
+});
 
 /**
  * @param {unknown} raw
@@ -85,6 +96,11 @@ export const CHALLENGE_TRACK_TEMPLATES = [
 			reward_second: '700 credits',
 			reward_third: '500 credits'
 		},
+		defaultPrizeStructure: {
+			main: { first: 1200, second: 700, third: 500 },
+			top_submitters: { ...DEFAULT_PARTICIPATION, amounts: [...DEFAULT_PARTICIPATION.amounts] },
+			top_voters: { ...DEFAULT_PARTICIPATION, amounts: [...DEFAULT_PARTICIPATION.amounts] }
+		},
 		suggestTitle: (anchorYmd) => {
 			const d = new Date(`${anchorYmd || dateToLocalYmd()}T12:00:00`);
 			if (!Number.isFinite(d.getTime())) return 'Monthly challenge';
@@ -101,6 +117,11 @@ export const CHALLENGE_TRACK_TEMPLATES = [
 			reward_second: '200 credits',
 			reward_third: '100 credits'
 		},
+		defaultPrizeStructure: {
+			main: { first: 400, second: 200, third: 100 },
+			top_submitters: { ...DEFAULT_PARTICIPATION, amounts: [...DEFAULT_PARTICIPATION.amounts] },
+			top_voters: { ...DEFAULT_PARTICIPATION, amounts: [...DEFAULT_PARTICIPATION.amounts] }
+		},
 		suggestTitle: (anchorYmd) => `Week of ${anchorYmd || dateToLocalYmd()}`,
 		suggestId: (anchorYmd) => suggestChallengeId('weekly', anchorYmd)
 	},
@@ -112,6 +133,11 @@ export const CHALLENGE_TRACK_TEMPLATES = [
 			reward_first: '400 credits',
 			reward_second: '200 credits',
 			reward_third: '100 credits'
+		},
+		defaultPrizeStructure: {
+			main: { first: 400, second: 200, third: 100 },
+			top_submitters: { ...DEFAULT_PARTICIPATION, amounts: [...DEFAULT_PARTICIPATION.amounts] },
+			top_voters: { ...DEFAULT_PARTICIPATION, amounts: [...DEFAULT_PARTICIPATION.amounts] }
 		},
 		suggestTitle: () => 'Suno challenge',
 		suggestId: (anchorYmd) => suggestChallengeId('suno', anchorYmd)

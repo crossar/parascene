@@ -1,7 +1,10 @@
+import { pickChallengeHeroImageUrl } from '../challengeAdmin.js';
 import {
-	challengeConfigHasStructuredRewardFields,
-	pickChallengeHeroImageUrl
-} from '../challengeAdmin.js';
+	challengeConfigHasPrizesBlock,
+	challengePrizesParticipationEnabled,
+	formatCreditsLabel,
+	resolveChallengePrizes
+} from '../model/prizes.js';
 import { esc } from '../constants.js';
 
 /**
@@ -186,94 +189,75 @@ function rewardCardHtml(opts) {
 }
 
 /**
- * Rich rewards strip: placements use metallic coins; participation / custom use accent glyphs.
- * Legacy configs with only `reward` show one trophy card until organizers migrate.
+ * Rich rewards strip rendered from the structured `prizes` block: placements use
+ * metallic coins; participation / custom use accent glyphs. Free-text reward_*
+ * fields are retired (migrated via db/maintenance/migrate-challenge-prizes.js).
  * @param {object} cfg challenge_config
  */
 export function renderRewardsSection(cfg) {
-	const structured = challengeConfigHasStructuredRewardFields(cfg);
-	const legacyOnly =
-		!structured &&
-		cfg &&
-		typeof cfg === 'object' &&
-		cfg.reward != null &&
-		String(cfg.reward).trim();
+	const hasPrizesBlock = challengeConfigHasPrizesBlock(cfg);
+	const rc = trimReward(cfg, 'reward_custom');
 
-	if (!structured && !legacyOnly) return '';
+	if (!hasPrizesBlock && !rc) return '';
 
 	const cards = [];
 	let coinSeq = 0;
 	const nextCoinUid = () => `cr-${++coinSeq}-${Date.now().toString(36)}`;
 
-	if (structured) {
-		const r1 = trimReward(cfg, 'reward_first');
-		const r2 = trimReward(cfg, 'reward_second');
-		const r3 = trimReward(cfg, 'reward_third');
-		const rp = trimReward(cfg, 'reward_participation');
-		const rc = trimReward(cfg, 'reward_custom');
-
-		if (r1) {
+	if (hasPrizesBlock) {
+		const prizes = resolveChallengePrizes(cfg);
+		const places = [
+			['gold', '1st place', prizes.main.first],
+			['silver', '2nd place', prizes.main.second],
+			['bronze', '3rd place', prizes.main.third]
+		];
+		for (const [variant, title, amount] of places) {
+			if (!(amount > 0)) continue;
 			cards.push(
 				rewardCardHtml({
-					variant: 'gold',
-					title: '1st place',
-					bodyHtml: `<p>${esc(r1)}</p>`,
+					variant,
+					title,
+					bodyHtml: `<p>${esc(formatCreditsLabel(amount))}</p>`,
 					coinUid: nextCoinUid()
 				})
 			);
 		}
-		if (r2) {
-			cards.push(
-				rewardCardHtml({
-					variant: 'silver',
-					title: '2nd place',
-					bodyHtml: `<p>${esc(r2)}</p>`,
-					coinUid: nextCoinUid()
-				})
-			);
+		if (challengePrizesParticipationEnabled(prizes)) {
+			const countPositive = (cat) =>
+				cat && cat.enabled !== false && Array.isArray(cat.amounts)
+					? cat.amounts.filter((a) => a > 0).length
+					: 0;
+			const voterSpots = countPositive(prizes.top_voters);
+			const submitterSpots = countPositive(prizes.top_submitters);
+			const spotsLabel = (n, noun) =>
+				n === 1 ? `the top ${noun}` : `top ${n} ${noun}s`;
+			const parts = [];
+			if (voterSpots > 0) parts.push(spotsLabel(voterSpots, 'voter'));
+			if (submitterSpots > 0) parts.push(spotsLabel(submitterSpots, 'submitter'));
+			if (parts.length) {
+				cards.push(
+					rewardCardHtml({
+						variant: 'participation',
+						title: 'Participation',
+						bodyHtml: `<p>Prizes for ${parts.join(' and ')}</p>`,
+						coinUid: nextCoinUid()
+					})
+				);
+			}
 		}
-		if (r3) {
-			cards.push(
-				rewardCardHtml({
-					variant: 'bronze',
-					title: '3rd place',
-					bodyHtml: `<p>${esc(r3)}</p>`,
-					coinUid: nextCoinUid()
-				})
-			);
-		}
-		if (rp) {
-			cards.push(
-				rewardCardHtml({
-					variant: 'participation',
-					title: 'Participation',
-					bodyHtml: `<p>${esc(rp)}</p>`,
-					coinUid: nextCoinUid()
-				})
-			);
-		}
-		if (rc) {
-			cards.push(
-				rewardCardHtml({
-					variant: 'custom',
-					title: 'Custom',
-					bodyHtml: `<p>${esc(rc)}</p>`,
-					coinUid: nextCoinUid()
-				})
-			);
-		}
-
-		if (!cards.length) return '';
-	} else if (legacyOnly) {
+	}
+	if (rc) {
 		cards.push(
 			rewardCardHtml({
-				variant: 'legacy',
-				title: 'Reward',
-				bodyHtml: `<p>${esc(String(cfg.reward).trim())}</p>`,
+				variant: 'custom',
+				title: 'Custom',
+				bodyHtml: `<p>${esc(rc)}</p>`,
 				coinUid: nextCoinUid()
 			})
 		);
 	}
+
+	if (!cards.length) return '';
 
 	return `<section id="challenge-details" class="challenge-pane-section challenge-pane-rewards-section">
 			<h3 class="challenge-pane-section-label">Rewards</h3>

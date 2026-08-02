@@ -14,6 +14,12 @@ import {
 	isChallengeListedForUpcoming
 } from '../../src/chat/challenges/challengeAdmin.js';
 import { summarizeLatestChallengeConfigs } from '../../src/chat/challenges/model/organizerSummaries.js';
+import {
+	challengeConfigHasPrizesBlock,
+	formatCreditsLabel,
+	resolveChallengePrizes,
+	totalPrizeCredits
+} from '../../src/chat/challenges/model/prizes.js';
 import { CHALLENGE_SCORE_REACTION_KEYS } from '../../src/chat/challenges/constants.js';
 import { appendCreationIdToMediaUrl, getThumbnailUrl } from '../utils/url.js';
 import { verifyShareToken } from '../utils/shareLink.js';
@@ -152,25 +158,19 @@ async function resolveChallengeHeroImageUrl({ queries, cfg, latestSubmissionImag
 	return '';
 }
 
-function sumCreditsAcrossTierRewards(cfg) {
-	if (!cfg || typeof cfg !== 'object') return null;
-	const keys = ['reward_first', 'reward_second', 'reward_third', 'reward_participation'];
-	let sum = 0;
-	let found = false;
-	for (const key of keys) {
-		const s = cfg[key];
-		if (typeof s !== 'string' || !s.trim()) continue;
-		const re = /(\d[\d,]*)\s*credits?\b/gi;
-		let m;
-		while ((m = re.exec(s)) !== null) {
-			const n = Number.parseInt(String(m[1]).replace(/,/g, ''), 10);
-			if (Number.isFinite(n) && n >= 0) {
-				sum += n;
-				found = true;
-			}
-		}
+/**
+ * Top prize copy + total credit pool from the structured `prizes` block.
+ * Legacy free-text reward_* was migrated (db/maintenance/migrate-challenge-prizes.js).
+ */
+function prizeSummaryFromCfg(cfg) {
+	if (!challengeConfigHasPrizesBlock(cfg)) {
+		return { topPrize: null, totalRewardCredits: null };
 	}
-	return found ? sum : null;
+	const prizes = resolveChallengePrizes(cfg);
+	return {
+		topPrize: prizes.main.first > 0 ? formatCreditsLabel(prizes.main.first) : null,
+		totalRewardCredits: totalPrizeCredits(prizes)
+	};
 }
 
 function phaseSubtitle(phase) {
@@ -488,11 +488,7 @@ export async function buildChallengeFeedSnapshotShared(opts = {}) {
 			});
 		}
 
-		const topPrize =
-			typeof effectiveCfg.reward_first === 'string' && effectiveCfg.reward_first.trim()
-				? effectiveCfg.reward_first.trim()
-				: null;
-		const totalRewardCredits = sumCreditsAcrossTierRewards(effectiveCfg);
+		const { topPrize, totalRewardCredits } = prizeSummaryFromCfg(effectiveCfg);
 		const title =
 			typeof effectiveCfg.title === 'string' && effectiveCfg.title.trim()
 				? effectiveCfg.title.trim()

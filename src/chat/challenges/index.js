@@ -65,6 +65,17 @@ export {
 	getChallengeTrackTemplate
 } from './model/tracks.js';
 export {
+	resolveChallengePrizes,
+	defaultPrizeStructureForTrack,
+	findLatestSameTrackConfigByStart,
+	resolveCreatePrizePrefills,
+	challengePrizesParticipationEnabled,
+	challengeConfigHasPrizesBlock,
+	formatCreditsLabel,
+	totalPrizeCredits,
+	parseCreditsAmount
+} from './model/prizes.js';
+export {
 	localStartOfDayToIso,
 	localEndOfDayToIso,
 	isoToLocalYmd,
