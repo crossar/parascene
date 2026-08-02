@@ -6062,6 +6062,8 @@ export function openDb() {
 						summary: row.description ?? "",
 						created_at: row.created_at,
 						user_id: row.user_id,
+						published: row.published === true || row.published === 1,
+						unavailable_at: row.unavailable_at ?? null,
 						nsfw,
 						meta,
 						media_type: mediaType,

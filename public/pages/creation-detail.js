@@ -61,6 +61,11 @@ let videoHeroDimensionsFromCreation;
 let captureVideoFirstFrameFile;
 let openShareAudioModal;
 let openAdjustImageModal;
+let creationMetaHasActiveChallengeFeedPin;
+let creationMetaHasChallengeOrganizerRef;
+let creationMetaHasChallengeAnnotation;
+let challengeOrganizerRefRoleLabel;
+let listChallengeOrganizerRefsFromMeta;
 
 /** Set true locally when debugging creation-detail page load timing in the console. */
 const CREATION_DETAIL_LOG_PAGE_LOAD_TIMING = false;
@@ -355,6 +360,15 @@ async function loadDeps() {
 
 		const creationCardMod = await import(`/shared/creationCard.js${qs}`);
 		buildCreationCardShell = creationCardMod.buildCreationCardShell;
+
+		const challengeMetaMod = await import(`/shared/challengeSubmitMeta.js${qs}`);
+		creationMetaHasActiveChallengeFeedPin = challengeMetaMod.creationMetaHasActiveChallengeFeedPin;
+		creationMetaHasChallengeAnnotation = challengeMetaMod.creationMetaHasChallengeAnnotation;
+
+		const organizerRefMod = await import(`/shared/challengeOrganizerRefMeta.js${qs}`);
+		creationMetaHasChallengeOrganizerRef = organizerRefMod.creationMetaHasChallengeOrganizerRef;
+		challengeOrganizerRefRoleLabel = organizerRefMod.challengeOrganizerRefRoleLabel;
+		listChallengeOrganizerRefsFromMeta = organizerRefMod.listChallengeOrganizerRefsFromMeta;
 
 		const routeCardGroupMod = await import(`/shared/routeCardGroupMedia.js${qs}`);
 		hydrateRouteCardMedia = routeCardGroupMod.hydrateRouteCardMedia;
@@ -2208,6 +2222,206 @@ function bindCreationDetailEmbedStopPlaybackFromParent() {
 	});
 }
 
+const ORGANIZER_ASSIGN_ROLES = [
+	{ role: 'hero', label: 'Hero image' },
+	{ role: 'results', label: 'Results highlight' },
+	{ role: 'topic_vote', label: 'Theme vote' }
+];
+
+function organizerAssignEscape(value) {
+	return String(value ?? '')
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+}
+
+function organizerAssignPhaseLabel(phase) {
+	const p = String(phase || '').trim().toLowerCase();
+	if (!p) return '';
+	if (p === 'submit_and_vote') return 'submit + vote';
+	return p.replace(/_/g, ' ');
+}
+
+/**
+ * Challenge-organizer panel on creation detail: assign this creation as one of the
+ * three organizer media slots (hero / results / theme vote) on a challenge the viewer
+ * organizes, with current assignments shown so overrides are deliberate.
+ *
+ * Renders nothing for non-organizers (endpoint answers is_organizer: false).
+ */
+async function mountChallengeOrganizerAssignPanel(detailContent, creationId, { isChallengeEntry = false } = {}) {
+	const host = detailContent?.querySelector?.('[data-organizer-assign]');
+	if (!(host instanceof HTMLElement)) return;
+
+	let data = null;
+	try {
+		const res = await fetch(
+			`/api/chat/challenges/organize/assignable?creation_id=${encodeURIComponent(String(creationId))}`,
+			{ credentials: 'include' }
+		);
+		data = res.ok ? await res.json().catch(() => null) : null;
+	} catch {
+		return;
+	}
+	if (!data || data.ok !== true || data.is_organizer !== true) return;
+	const challenges = Array.isArray(data.challenges) ? data.challenges : [];
+	if (challenges.length === 0) return;
+	// Render can lose the race with a page re-render; bail if the host left the DOM.
+	if (!host.isConnected) return;
+
+	const esc = organizerAssignEscape;
+	const cid = Number(creationId);
+	let selectedChallengeId = String(challenges[0].challenge_id);
+
+	const trophySvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8"></path><path d="M12 17v4"></path><path d="M7 4h10v5a5 5 0 0 1-10 0V4z"></path><path d="M7 8H5a2 2 0 0 1-2-2V5h4"></path><path d="M17 8h2a2 2 0 0 0 2-2V5h-4"></path></svg>`;
+
+	function selectedChallenge() {
+		return (
+			challenges.find((c) => String(c.challenge_id) === selectedChallengeId) || challenges[0]
+		);
+	}
+
+	function renderRows() {
+		const rowsHost = host.querySelector('[data-organizer-assign-rows]');
+		if (!(rowsHost instanceof HTMLElement)) return;
+		const ch = selectedChallenge();
+		const slots = ch?.slots && typeof ch.slots === 'object' ? ch.slots : {};
+		rowsHost.innerHTML = ORGANIZER_ASSIGN_ROLES.map(({ role, label }) => {
+			const slot = slots[role] && typeof slots[role] === 'object' ? slots[role] : {};
+			const assignedId = Number(slot.creation_id);
+			const hasAssigned = Number.isFinite(assignedId) && assignedId > 0;
+			const isThis = hasAssigned && assignedId === cid;
+			let currentHtml;
+			if (isThis) {
+				currentHtml = `<span class="creation-detail-organizer-assign-current creation-detail-organizer-assign-current-this">This creation</span>`;
+			} else if (hasAssigned) {
+				currentHtml = `<span class="creation-detail-organizer-assign-current">Currently <a href="/creations/${assignedId}" target="_blank" rel="noopener">#${assignedId}</a></span>`;
+			} else if (slot.url) {
+				currentHtml = `<span class="creation-detail-organizer-assign-current" title="${esc(slot.url)}">Currently an external link</span>`;
+			} else {
+				currentHtml = `<span class="creation-detail-organizer-assign-current creation-detail-organizer-assign-current-empty">Not set</span>`;
+			}
+			const btnLabel = isThis ? 'Remove' : hasAssigned || slot.url ? 'Replace with this creation' : 'Use this creation';
+			const btnAction = isThis ? 'remove' : 'assign';
+			const disabledAttr = isChallengeEntry && !isThis ? ' disabled' : '';
+			return `
+			<div class="creation-detail-organizer-assign-row">
+				<div class="creation-detail-organizer-assign-row-main">
+					<span class="creation-detail-organizer-assign-role">${esc(label)}</span>
+					${currentHtml}
+				</div>
+				<button type="button" class="btn-outlined creation-detail-organizer-assign-btn${isThis ? ' creation-detail-organizer-assign-btn-remove' : ''}"
+					data-organizer-assign-action="${btnAction}" data-organizer-assign-role="${esc(role)}"${disabledAttr}>${esc(btnLabel)}</button>
+			</div>`;
+		}).join('');
+	}
+
+	function setStatus(message, isError) {
+		const statusEl = host.querySelector('[data-organizer-assign-status]');
+		if (!(statusEl instanceof HTMLElement)) return;
+		statusEl.textContent = message || '';
+		statusEl.hidden = !message;
+		statusEl.classList.toggle('creation-detail-organizer-assign-status-error', Boolean(isError));
+	}
+
+	const optionsHtml = challenges
+		.map((c) => {
+			const phase = organizerAssignPhaseLabel(c.phase);
+			const label = `${c.title}${phase ? ` — ${phase}` : ''}`;
+			return `<option value="${esc(String(c.challenge_id))}">${esc(label)}</option>`;
+		})
+		.join('');
+
+	host.innerHTML = `
+		<div class="creation-detail-organizer-assign-header">
+			<span class="creation-detail-organizer-assign-icon" aria-hidden="true">${trophySvg}</span>
+			<div class="creation-detail-organizer-assign-header-text">
+				<p class="creation-detail-organizer-assign-title">Challenge organizer</p>
+				<p class="creation-detail-organizer-assign-hint">Attach this creation to one of your challenges. Assigning locks it (no publishing or entries) until removed.</p>
+			</div>
+		</div>
+		${isChallengeEntry ? `<p class="creation-detail-organizer-assign-blocked">This creation is a challenge entry, so it can't double as organizer media.</p>` : ''}
+		<label class="creation-detail-organizer-assign-select-label">
+			<span>Challenge</span>
+			<select class="creation-detail-organizer-assign-select" data-organizer-assign-challenge>${optionsHtml}</select>
+		</label>
+		<div class="creation-detail-organizer-assign-rows" data-organizer-assign-rows></div>
+		<p class="creation-detail-organizer-assign-status" data-organizer-assign-status role="status" hidden></p>
+	`;
+	host.hidden = false;
+	renderRows();
+
+	const select = host.querySelector('[data-organizer-assign-challenge]');
+	if (select instanceof HTMLSelectElement) {
+		select.addEventListener('change', () => {
+			selectedChallengeId = select.value;
+			setStatus('');
+			renderRows();
+		});
+	}
+
+	host.addEventListener('click', async (e) => {
+		const btn = e.target instanceof Element ? e.target.closest('[data-organizer-assign-action]') : null;
+		if (!(btn instanceof HTMLButtonElement) || btn.disabled) return;
+		const action = btn.getAttribute('data-organizer-assign-action');
+		const role = btn.getAttribute('data-organizer-assign-role');
+		const ch = selectedChallenge();
+		if (!ch || !role) return;
+		const roleLabel =
+			ORGANIZER_ASSIGN_ROLES.find((r) => r.role === role)?.label?.toLowerCase() || 'media';
+		const slot = ch.slots?.[role] || {};
+		const replacingId = Number(slot.creation_id);
+		if (
+			action === 'assign' &&
+			Number.isFinite(replacingId) &&
+			replacingId > 0 &&
+			replacingId !== cid &&
+			!window.confirm(
+				`"${ch.title}" already uses creation #${replacingId} as its ${roleLabel}. Replace it with this creation?`
+			)
+		) {
+			return;
+		}
+		if (
+			action === 'remove' &&
+			!window.confirm(`Remove this creation as the ${roleLabel} for "${ch.title}"?`)
+		) {
+			return;
+		}
+		btn.disabled = true;
+		setStatus('');
+		try {
+			const res = await fetch('/api/chat/challenges/organize/assign-creation', {
+				method: 'POST',
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					challenge_id: ch.challenge_id,
+					role,
+					created_image_id: cid,
+					remove: action === 'remove'
+				})
+			});
+			const out = await res.json().catch(() => ({}));
+			if (!res.ok || out?.ok !== true) {
+				setStatus(out?.message || out?.error || 'Could not update the challenge.', true);
+				btn.disabled = false;
+				return;
+			}
+			if (typeof showToast === 'function') {
+				showToast(action === 'remove' ? `Removed as ${roleLabel}` : `Assigned as ${roleLabel}`);
+			}
+			// Reload so lock banner / badge / publish state reflect the new organizer ref.
+			refreshAfterMutation('challenge-organizer-assign', { creationId: cid });
+		} catch (err) {
+			setStatus(err?.message || 'Could not update the challenge.', true);
+			btn.disabled = false;
+		}
+	});
+}
+
 async function loadCreation() {
 	stopCreationDetailHeroPlayback();
 
@@ -3154,6 +3368,87 @@ async function loadCreation() {
 		// withdrawal disabled. Defaults to "still active" when status is unknown.
 		const challengeAllEnded = hasChallengeSubmission && challengeEntry?.all_ended === true;
 		const challengeAnyActive = hasChallengeSubmission && !challengeAllEnded;
+		const feedPin = creation.feed_pin && typeof creation.feed_pin === 'object' ? creation.feed_pin : null;
+		const hasActiveFeedPin =
+			feedPin?.active === true ||
+			(typeof creationMetaHasActiveChallengeFeedPin === 'function' &&
+				creationMetaHasActiveChallengeFeedPin(meta));
+		const organizerApi =
+			creation.challenge_organizer && typeof creation.challenge_organizer === 'object'
+				? creation.challenge_organizer
+				: null;
+		const organizerRefsFromMeta =
+			typeof listChallengeOrganizerRefsFromMeta === 'function'
+				? listChallengeOrganizerRefsFromMeta(meta)
+				: Array.isArray(meta?.challenge_organizer_refs)
+					? meta.challenge_organizer_refs.filter(
+							(r) => r && typeof r === 'object' && String(r.challenge_id || '').trim()
+						)
+					: [];
+		const hasOrganizerRef =
+			organizerApi?.active === true ||
+			organizerRefsFromMeta.length > 0 ||
+			(Array.isArray(meta?.challenge_organizer_refs) &&
+				meta.challenge_organizer_refs.length > 0) ||
+			(typeof creationMetaHasChallengeOrganizerRef === 'function' &&
+				creationMetaHasChallengeOrganizerRef(meta));
+		const organizerRefLabels = Array.isArray(organizerApi?.refs)
+			? organizerApi.refs.map((r) =>
+					typeof r?.label === 'string' && r.label.trim()
+						? r.label.trim()
+						: typeof challengeOrganizerRefRoleLabel === 'function'
+							? challengeOrganizerRefRoleLabel(r?.role)
+							: 'Challenge media'
+				)
+			: organizerRefsFromMeta.map((r) =>
+					typeof challengeOrganizerRefRoleLabel === 'function'
+						? challengeOrganizerRefRoleLabel(r.role)
+						: 'Challenge media'
+				);
+		const organizerRefLabel =
+			organizerRefLabels.length > 0 ? [...new Set(organizerRefLabels)].join(' · ') : 'Challenge media';
+		const challengeMediaLocked = hasActiveFeedPin || hasOrganizerRef;
+		const feedPinUntilRaw = typeof feedPin?.until === 'string' ? feedPin.until.trim() : '';
+		const feedPinKinds = Array.isArray(feedPin?.pins)
+			? feedPin.pins.map((p) => (p && typeof p.kind === 'string' ? p.kind : 'other'))
+			: [];
+		if (!feedPinKinds.length && Array.isArray(meta?.challenge_feed_pins)) {
+			for (const row of meta.challenge_feed_pins) {
+				if (row && typeof row.kind === 'string') feedPinKinds.push(row.kind);
+			}
+		}
+		const feedPinIsWinners = feedPinKinds.includes('winners');
+		const feedPinIsOpen = feedPinKinds.includes('open');
+		let feedPinUntilLabel = '';
+		if (feedPinUntilRaw) {
+			const untilMs = Date.parse(feedPinUntilRaw);
+			if (Number.isFinite(untilMs)) {
+				try {
+					feedPinUntilLabel = new Date(untilMs).toLocaleString(undefined, {
+						dateStyle: 'medium',
+						timeStyle: 'short'
+					});
+				} catch {
+					feedPinUntilLabel = feedPinUntilRaw;
+				}
+			}
+		} else if (Array.isArray(meta?.challenge_feed_pins)) {
+			for (const row of meta.challenge_feed_pins) {
+				const u = typeof row?.until === 'string' ? row.until.trim() : '';
+				if (!u) continue;
+				const untilMs = Date.parse(u);
+				if (!Number.isFinite(untilMs)) continue;
+				try {
+					feedPinUntilLabel = new Date(untilMs).toLocaleString(undefined, {
+						dateStyle: 'medium',
+						timeStyle: 'short'
+					});
+				} catch {
+					feedPinUntilLabel = u;
+				}
+				break;
+			}
+		}
 		const mediaType = typeof creation.media_type === 'string'
 			? creation.media_type
 			: (meta && typeof meta.media_type === 'string' ? meta.media_type : 'image');
@@ -3195,7 +3490,39 @@ async function loadCreation() {
 		// Set image and blurred background depending on status
 		imageWrapper?.classList.remove('image-error');
 		imageWrapper?.classList.toggle('nsfw', !!(creation.nsfw ?? creation.meta?.nsfw));
+		// Corner trophy on the hero (no full-hero blur — keep the image visible; banner/chip carry the copy).
+		const creationIsPublished = creation.published === true || creation.published === 1;
+		const showChallengeHeroLock =
+			!creationIsPublished &&
+			(hasChallengeSubmission || hasActiveFeedPin || hasOrganizerRef) &&
+			!(creation.nsfw ?? creation.meta?.nsfw);
+		imageWrapper?.classList.toggle('creation-detail-hero--challenge-locked', showChallengeHeroLock);
 		if (imageWrapper) {
+			let lockBadge = imageWrapper.querySelector('[data-creation-challenge-lock-badge]');
+			if (showChallengeHeroLock) {
+				if (!lockBadge) {
+					lockBadge = document.createElement('div');
+					lockBadge.className = 'creation-challenge-locked-badge creation-detail-hero-challenge-lock';
+					lockBadge.setAttribute('data-creation-challenge-lock-badge', '');
+					lockBadge.setAttribute('role', 'img');
+					lockBadge.setAttribute('aria-label', 'Locked to a challenge');
+					lockBadge.title = hasOrganizerRef
+						? organizerRefLabel
+						: hasActiveFeedPin
+							? 'Challenge pin'
+							: 'Challenge entry';
+					lockBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8"></path><path d="M12 17v4"></path><path d="M7 4h10v5a5 5 0 0 1-10 0V4z"></path><path d="M7 8H5a2 2 0 0 1-2-2V5h4"></path><path d="M17 8h2a2 2 0 0 0 2-2V5h-4"></path></svg>`;
+					imageWrapper.appendChild(lockBadge);
+				} else {
+					lockBadge.title = hasOrganizerRef
+						? organizerRefLabel
+						: hasActiveFeedPin
+							? 'Challenge pin'
+							: 'Challenge entry';
+				}
+			} else if (lockBadge) {
+				lockBadge.remove();
+			}
 			if (creation.nsfw ?? creation.meta?.nsfw) {
 				imageWrapper.setAttribute('data-creation-id', String(creationId));
 			} else {
@@ -3466,7 +3793,8 @@ async function loadCreation() {
 				status === 'completed' &&
 				!isFailed &&
 				!adminViewingUserDeleted &&
-				(!hasChallengeSubmission || challengeAllEnded),
+				(!hasChallengeSubmission || challengeAllEnded) &&
+				!challengeMediaLocked,
 			showEdit: canEdit && status === 'completed' && !isFailed && !adminViewingUserDeleted,
 			showUnpublish: canEdit && isPublished && !isFailed && !adminViewingUserDeleted,
 			// Mutate / image-export are image(video) flows — not for imported embeds.
@@ -3498,9 +3826,17 @@ async function loadCreation() {
 			showRecreate: false,
 			queueForLaterLabel,
 			isFailed,
-			deleteDisabled: (userDeleted && isAdmin) ? false : !(!isPublished && (status === 'failed' || (status === 'creating' && isTimedOut) || status === 'completed')),
+			deleteDisabled: challengeMediaLocked
+				? true
+				: (userDeleted && isAdmin)
+					? false
+					: !(!isPublished && (status === 'failed' || (status === 'creating' && isTimedOut) || status === 'completed')),
 			deletePermanent: false,
-			deleteLabel: userDeleted && isAdmin ? ' Permanently delete' : ' Delete'
+			deleteLabel: challengeMediaLocked
+				? ' Delete (in challenge)'
+				: userDeleted && isAdmin
+					? ' Permanently delete'
+					: ' Delete'
 		};
 		const groupMeta = meta?.group && typeof meta.group === 'object' ? meta.group : null;
 		const isGroupCreation = groupMeta?.kind === 'group_creations';
@@ -4130,6 +4466,50 @@ async function loadCreation() {
 			</div>`
 			: '';
 
+		const feedPinBannerTitle = feedPinIsWinners
+			? 'Challenge winners'
+			: feedPinIsOpen
+				? 'Challenge promo'
+				: 'Challenge pin';
+		const feedPinBannerDetail = isOwner
+			? `This creation is featured for a challenge${feedPinUntilLabel ? ` until ${feedPinUntilLabel}` : ''}. You can’t publish or delete it while it’s pinned — same as a challenge entry.`
+			: `This creation is featured for a community challenge${feedPinUntilLabel ? ` until ${feedPinUntilLabel}` : ''}.`;
+		const feedPinBannerHtml = hasActiveFeedPin
+			? html`
+			<div class="creation-detail-challenge-banner" role="status">
+				<div class="creation-detail-challenge-banner-main">
+					<div class="creation-detail-challenge-banner-icon">${challengeTrophyIconSvg}</div>
+					<div class="creation-detail-challenge-banner-body">
+						<p class="creation-detail-challenge-banner-title">${feedPinBannerTitle}</p>
+						<p class="creation-detail-challenge-banner-detail">${feedPinBannerDetail}</p>
+					</div>
+				</div>
+				<div class="creation-detail-challenge-banner-actions">
+					<a class="creation-detail-challenge-banner-link btn-outlined" href="${challengesChannelHref}">Open Challenges</a>
+				</div>
+			</div>`
+			: '';
+
+		const organizerBannerDetail = isOwner
+			? `This creation is attached to a challenge as ${organizerRefLabel.toLowerCase()}. It can’t be published, deleted, or submitted as an entry while that use remains.`
+			: `This creation is used as challenge media (${organizerRefLabel.toLowerCase()}).`;
+		const organizerBannerHtml =
+			hasOrganizerRef && !hasActiveFeedPin
+				? html`
+			<div class="creation-detail-challenge-banner" role="status">
+				<div class="creation-detail-challenge-banner-main">
+					<div class="creation-detail-challenge-banner-icon">${challengeTrophyIconSvg}</div>
+					<div class="creation-detail-challenge-banner-body">
+						<p class="creation-detail-challenge-banner-title">${organizerRefLabel}</p>
+						<p class="creation-detail-challenge-banner-detail">${organizerBannerDetail}</p>
+					</div>
+				</div>
+				<div class="creation-detail-challenge-banner-actions">
+					<a class="creation-detail-challenge-banner-link btn-outlined" href="${challengesChannelHref}">Open Challenges</a>
+				</div>
+			</div>`
+				: '';
+
 		const showChallengeSubmitCta =
 			Boolean(creation.challenge_submit?.eligible) &&
 			mediaType !== 'video' &&
@@ -4179,7 +4559,13 @@ async function loadCreation() {
 
 		const hasNsfwTag = Boolean(creation.nsfw ?? creation.meta?.nsfw);
 		const needsTitleSlot = Boolean(displayTitle || (isGroupCreation && groupSources.length > 0));
-		const showTitleRow = needsTitleSlot || hasNsfwTag || hasChallengeSubmission;
+		const showTitleRow =
+			needsTitleSlot || hasNsfwTag || hasChallengeSubmission || hasActiveFeedPin || hasOrganizerRef;
+		const feedPinChipLabel = feedPinIsWinners
+			? 'Challenge winners'
+			: feedPinIsOpen
+				? 'Challenge promo'
+				: 'Challenge pin';
 
 		const detailRenderStart = performance.now();
 		detailContent.innerHTML = html`
@@ -4187,10 +4573,15 @@ async function loadCreation() {
 				${hasNsfwTag ? html`<span class="creation-detail-nsfw-tag">NSFW</span>` : ''}
 				${hasChallengeSubmission ? html`<span class="creation-detail-challenge-chip${challengeAllEnded ? ' creation-detail-challenge-chip-ended' : ''}" title="${challengeAllEnded ? 'Entered in a community challenge that has ended' : 'Entered in a community challenge'}">${challengeTrophyIconSvg}<span class="creation-detail-challenge-chip-label">${challengeAllEnded ? 'Challenge ended' : 'Challenge entry'}</span></span>` :
 				''}
+				${hasActiveFeedPin ? html`<span class="creation-detail-challenge-chip" title="${feedPinBannerTitle}">${challengeTrophyIconSvg}<span class="creation-detail-challenge-chip-label">${feedPinChipLabel}</span></span>` : ''}
+				${hasOrganizerRef && !hasActiveFeedPin ? html`<span class="creation-detail-challenge-chip" title="${organizerRefLabel}">${challengeTrophyIconSvg}<span class="creation-detail-challenge-chip-label">${organizerRefLabel}</span></span>` : ''}
 				${needsTitleSlot ? html`<div class="creation-detail-title${isUntitled ? ' creation-detail-title-untitled' : ''}"${displayTitle ? '' : ' hidden'}>${displayTitle ? escapeHtml(displayTitle) : ''}</div>` : ''}
 			</div>` : ''}
-			${!(hasChallengeSubmission && isOwner) && !isPublished ? html`<div class="creation-detail-title-byline creation-detail-title-byline-mobile">${escapeHtml(creatorHandle)} Not Published</div>` : ''}
+			${!(hasChallengeSubmission && isOwner) && !challengeMediaLocked && !isPublished ? html`<div class="creation-detail-title-byline creation-detail-title-byline-mobile">${escapeHtml(creatorHandle)} Not Published</div>` : ''}
+			${organizerBannerHtml}
+			${feedPinBannerHtml}
 			${challengeDetailBannerHtml}
+			<section class="creation-detail-organizer-assign" data-organizer-assign hidden></section>
 			${renderCreationDetailActionStrip(stripData, escapeHtml)}
 			${renderCreationDetailMoreMenu(menuData, escapeHtml)}
 			${groupLeadDescriptionHtml}
@@ -5599,6 +5990,10 @@ async function loadCreation() {
 				openChallengeSubmitModal();
 			});
 		}
+
+		void mountChallengeOrganizerAssignPanel(detailContent, creationId, {
+			isChallengeEntry: hasChallengeSubmission
+		});
 
 		const challengeWithdrawBtn = detailContent.querySelector('[data-challenge-withdraw-btn]');
 		if (challengeWithdrawBtn instanceof HTMLButtonElement) {

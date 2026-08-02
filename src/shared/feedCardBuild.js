@@ -52,8 +52,8 @@ const { initLikeButton } = likesMod;
 const { getAvatarColor } = avatarMod;
 const { buildProfilePath } = profileLinksMod;
 const { getHelpHref } = helpUrlMod;
-const { creationMetaHasChallengeSubmission } = challengeSubmitMetaMod;
-const { challengeEnteredBadgeHtml, publishedBadgeHtml, musicBadgeHtml, videoImportBadgeHtml } = creationBadgesMod;
+const { creationMetaHasChallengeSubmission, creationMetaHasChallengeAnnotation } = challengeSubmitMetaMod;
+const { challengeEnteredBadgeHtml, challengeLockedBadgeHtml, publishedBadgeHtml, musicBadgeHtml, videoImportBadgeHtml } = creationBadgesMod;
 
 const html = String.raw;
 
@@ -1227,7 +1227,12 @@ function buildFeedCreationCard(
 
 	const parsedMeta = parseFeedItemMeta(item);
 	const isChallengeEntry = creationMetaHasChallengeSubmission(parsedMeta);
-	card.dataset.inChallenge = isChallengeEntry ? '1' : '0';
+	// Any challenge annotation (entry, active feed pin, organizer hero/results/vote media) locks the creation.
+	const isChallengeLocked =
+		typeof creationMetaHasChallengeAnnotation === 'function'
+			? creationMetaHasChallengeAnnotation(parsedMeta)
+			: isChallengeEntry;
+	card.dataset.inChallenge = isChallengeLocked ? '1' : '0';
 	// The challenge "entry pending" blur/badge only applies to unpublished entries whose challenge
 	// is still active. Published items (e.g. anything in the main feed) never show it; NSFW blur is separate.
 	const isPublishedEntry = item.published === true || item.published === 1;
@@ -1278,6 +1283,8 @@ function buildFeedCreationCard(
 				? videoImportBadgeHtml()
 				: '';
 		const mediaTypeOverlay = musicOverlay || videoImportOverlay;
+		const challengeLockedOverlay =
+			isChallengeLocked && !challengeThumbnailBlur ? challengeLockedBadgeHtml() : '';
 		const bulkOverlayBlock =
 			creationsBulkChrome
 				? html`
@@ -1291,6 +1298,7 @@ function buildFeedCreationCard(
         ${publishedOverlay}
         ${groupOverlay}
         ${mediaTypeOverlay}
+        ${challengeLockedOverlay}
         ${isVideo ? html`<video class="feed-card-video" playsinline muted></video>` : ''}
         ${challengeBlurOverlay}
         ${bulkOverlayBlock}

@@ -8,7 +8,7 @@ Phases below are numbered in **ship order**. Phase 1 is song creations (Suno pos
 
 ## Direction, agreed
 
-- Clock drives phases (unchanged). Pins + feed freshness fire automatically. Humans get one-click card actions: Announce, Close voting, Review results (swap winners before confirm; confirm pays out).
+- Clock drives phases (unchanged). Pins + feed freshness fire automatically. Humans get one-click card actions: Announce, Close voting, Review results (swap winners before confirm; confirm pays out). Organizer promo/winners creations used as editorial pins stay unpublished (feed can still show them while the pin is active).
 - Prizes: main 1st/2nd/3rd advertised. Participation prizes: top 3 submitters (entry count) + top 3 voters (votes cast), details revealed only at results.
 - Prize structures are per-challenge config, inherited from the most recent same-track challenge. Only the first challenge of a track needs full definition.
 - Feed keeps one engagement card. Focus = soonest deadline among active. "+N more open" chip when concurrent. `/challenges` lane is the canonical multi-track surface.
@@ -31,7 +31,7 @@ Within 3–6 and 7–9, per-phase "done when" = engineer checkpoint; team valida
 Note to the implementer: this is a big plan — progress MUST be visible in this doc. When you finish a phase, edit this checklist: mark `[x] built` with the date. Do NOT mark `validated` yourself — that box belongs to the user/team after they walk the phase's validation checklist (and the matching User flows). A phase is only done-done when both boxes are checked. If a phase ships partially, note what's missing next to it instead of checking the box.
 
 - Phase 1 — Song creations (Suno posts): [x] built (2026-08-02) · [x] validated (2026-08-02)
-- Phase 2 — Foundations (debt + snapshot freshness): [ ] built · [ ] validated
+- Phase 2 — Foundations (debt + snapshot freshness): [x] built (2026-08-02) · [x] validated (2026-08-02)
 - Phase 3 — Prize structures + inheritance: [ ] built · [ ] validated
 - Phase 4 — Results + publish + payouts: [ ] built · [ ] validated
 - Phase 5 — Board actions + review modal: [ ] built · [ ] validated
@@ -91,7 +91,16 @@ Snapshot invalidation (organizer saves must show immediately; the 20-min TTL was
 - Single-flight the rebuild: in-process lock + Redis SETNX so concurrent feed requests after an invalidation don't all rebuild at once. While one rebuild runs, serve stale snapshot if present rather than blocking.
 - Verify inactive card copy in `api_routes/feed/engagementAndNewbie.js` (~221–304) after rebuild.
 
-Team validate: Draft → Public shows on the feed card on next load; organizer stats modal opens fast; feed card correct with a >500-message thread (seed a test thread); feed latency unchanged after invalidation storm (rapid saves).
+Unpublished editorial pin targets (addendum — settles pin model before phase 6):
+
+- Organizer promo / winners creations used as `created_image_id` on challenge editorial pins must **not** need to be published. Publishing those is the wrong model (and conflicts with challenge-entry publish rules elsewhere).
+- Saving challenge_config with hero / results / topic_vote creation URLs stamps `meta.challenge_organizer_refs` on those creations (same trophy annotation + publish/delete/submit locks as entries). Soft-delete clears the stamps.
+- Creation detail / library use the same trophy annotation as challenge entries (`meta.challenge_feed_pins` stamped on pin upsert; publish + delete locked while active).
+- Feed pin inject + media/detail reads: if a creation id is an active editorial pin (`feed.editorial_pins` policy), non-owners may load its feed card media the same way published feed items do. Inactive / expired pins do not grant access.
+- Pins route and Announce / auto-open (phase 6) keep pointing at unpublished creations; do not add a publish step to the pin flow.
+- Challenge *entries* stay unpublished for blind judging — unchanged. This addendum is only for organizer pin/promo creations.
+
+Team validate: Draft → Public shows on the feed card on next load; organizer stats modal opens fast; feed card correct with a >500-message thread (seed a test thread); feed latency unchanged after invalidation storm (rapid saves); pin an unpublished promo creation → it appears on the feed with working media for a non-owner; removing/expiring the pin revokes that access.
 
 ---
 
@@ -347,6 +356,7 @@ F2 — Draft → Public shows on feed promptly (phase 2)
 1. Organizer opens Organize, edits a challenge, switches Draft → Public (or changes schedule), saves.
 2. Reloads feed (or next feed load): engagement card / Next teaser reflects the change without waiting out a long TTL.
 3. Opening Organize stats stays snappy even on a large thread.
+4. Organizer promo / winners creation used for an editorial pin stays unpublished; after pin upsert it appears on the feed with working media for other signed-in users. Expiring or removing the pin revokes that access.
 
 F3 — Create / edit challenge with prizes (phase 3)
 

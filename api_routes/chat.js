@@ -15,7 +15,9 @@ import {
 	pickLatestChallengesGlobalConfigPayload,
 	viewerOrganizesTrack,
 	fetchThreadMessagesChronological,
-	findChallengesChannelThreadId
+	findChallengesChannelThreadId,
+	parseCreationIdFromChallengeHeroRef,
+	CHALLENGE_ENDED_PHASES
 } from "./utils/challengeSubmitShared.js";
 import {
 	loadEditorialPinPolicyDocument,
@@ -25,12 +27,25 @@ import {
 	FEED_EDITORIAL_PINS_POLICY_KEY
 } from "./feed/editorialPinPolicy.js";
 import { bumpFeedVersionCounter } from "./feed/feedVersion.js";
+import { invalidateAndRebuildChallengeFeedSnapshotCache } from "./feed/challengeFeedSnapshotCache.js";
+import { upsertChallengeFeedPinInMeta } from "../src/shared/challengeSubmitMeta.js";
+import { syncChallengeOrganizerCreationRefsOnConfigWrite } from "./utils/challengeOrganizerRefSync.js";
 import { collectChatMiscGenericKeysFromMessageBody,
 	isChatMiscGenericKeyOwnedByUser
 } from "./utils/chatMiscGenericKeys.js";
 import { canvasBodyMarkdownToSafeHtml } from "./utils/canvasBodyHtml.js";
 import { CHALLENGE_SCORE_REACTION_KEYS } from "../src/chat/challenges/constants.js";
 import { composeChatStampedReply, sanitizeClientReplyPreview } from "./utils/chatReplyStamp.js";
+import {
+	mergeFullChallengeConfigForChallenge,
+	isChallengeConfigSoftDeleted,
+	isChallengeConfigPurged,
+	pickChallengeHeroImageUrl,
+	pickChallengeResultsCreationUrl,
+	pickChallengeTopicVoteCreationUrl,
+	tracksViewerCanOrganize
+} from "../src/chat/challenges/challengeAdmin.js";
+import { deriveChallengePhase } from "../src/chat/challenges/model/phases.js";
 
 function normalizeChatReactionsBucket(raw) {
 	const out = {};
@@ -106,6 +121,53 @@ function tryParseChallengeJsonBody(body) {
 	} catch {
 		return null;
 	}
+}
+
+/** Bayesian prior for challenge stats — scoped to one thread, short mem cache. */
+const CHALLENGE_STATS_GLOBAL_AVG_TTL_MS = 60_000;
+/** @type {Map<number, { at: number, value: number }>} */
+const challengeThreadGlobalAverageCache = new Map();
+
+/**
+ * Mean score across all challenge_submission votes in the thread (not site-wide).
+ * @param {number} threadId
+ * @param {{ body?: unknown, reactions?: unknown }[]} rows
+ */
+function getCachedChallengeThreadGlobalAverage(threadId, rows) {
+	const tid = Number(threadId);
+	const now = Date.now();
+	if (Number.isFinite(tid) && tid > 0) {
+		const hit = challengeThreadGlobalAverageCache.get(tid);
+		if (hit && now - hit.at < CHALLENGE_STATS_GLOBAL_AVG_TTL_MS) {
+			return hit.value;
+		}
+	}
+	let globalVoteValue = 0;
+	let globalVoteCount = 0;
+	for (const msg of Array.isArray(rows) ? rows : []) {
+		const payload = tryParseChallengeJsonBody(msg?.body);
+		if (!payload || String(payload.kind || "").trim() !== "challenge_submission") continue;
+		const reactions =
+			msg?.reactions && typeof msg.reactions === "object" && !Array.isArray(msg.reactions)
+				? msg.reactions
+				: {};
+		for (let i = 0; i < CHALLENGE_SCORE_REACTION_KEYS.length; i += 1) {
+			const key = CHALLENGE_SCORE_REACTION_KEYS[i];
+			const weight = i + 1;
+			const ids = Array.isArray(reactions[key]) ? reactions[key] : [];
+			for (const rawUid of ids) {
+				const uid = Number(rawUid);
+				if (!Number.isFinite(uid) || uid <= 0) continue;
+				globalVoteCount += 1;
+				globalVoteValue += weight;
+			}
+		}
+	}
+	const value = globalVoteCount > 0 ? globalVoteValue / globalVoteCount : 0;
+	if (Number.isFinite(tid) && tid > 0) {
+		challengeThreadGlobalAverageCache.set(tid, { at: now, value });
+	}
+	return value;
 }
 
 function normalizeUsernameForChallengeOrganizer(input) {
@@ -288,6 +350,13 @@ async function mintShareUrlForOwnerUnpublishedCreation(id, senderUserId, queries
 /** Replace in-app creation detail URLs with share URLs when the sender owns the creation and it is not published (so recipients can load previews via share token headers). */
 async function normalizeUnpublishedCreationUrlsInChatBody(body, senderUserId, queries) {
 	if (!queries?.selectCreatedImageById?.get) return body;
+	// Challenge configs store organizer media refs — keep stable /creations/:id (or parseable share)
+	// instead of rewriting to ephemeral share URLs meant for chat recipients.
+	const challengePayload = tryParseChallengeJsonBody(body);
+	const challengeKind = String(challengePayload?.kind || "").trim();
+	if (challengeKind === "challenge_config" || challengeKind === "challenges_global_config") {
+		return body;
+	}
 	const spans = collectCreationDetailUrlSpansInChatBody(body);
 	if (spans.length === 0) return body;
 
@@ -309,6 +378,54 @@ async function normalizeUnpublishedCreationUrlsInChatBody(body, senderUserId, qu
 		out = out.slice(0, s.start) + shareUrlById.get(s.id) + out.slice(s.end);
 	}
 	return out;
+}
+
+const CHALLENGE_CONFIG_CREATION_REF_FIELDS = [
+	"hero_image_url",
+	"cover_image_url",
+	"image_url",
+	"hero_image",
+	"hero_media_url",
+	"hero_media",
+	"hero_ref",
+	"hero_url",
+	"results_creation_url",
+	"results_url",
+	"results_highlights_url",
+	"topic_vote_creation_url",
+	"theme_vote_creation_url",
+	"topic_vote_url",
+	"next_theme_creation_url",
+	"creation_url"
+];
+
+/**
+ * Prefer durable `/creations/:id` on challenge_config media fields (share links still parse, but churn).
+ * @param {string} body
+ * @returns {string}
+ */
+function stabilizeChallengeConfigCreationRefsInBody(body) {
+	const parsed = tryParseChallengeJsonBody(body);
+	if (!parsed || String(parsed.kind || "").trim() !== "challenge_config") return body;
+	let changed = false;
+	for (const field of CHALLENGE_CONFIG_CREATION_REF_FIELDS) {
+		if (typeof parsed[field] !== "string") continue;
+		const raw = parsed[field].trim();
+		if (!raw) continue;
+		const id = parseCreationIdFromChallengeHeroRef(raw);
+		if (!Number.isFinite(id) || id <= 0) continue;
+		const stable = `/creations/${id}`;
+		if (raw !== stable) {
+			parsed[field] = stable;
+			changed = true;
+		}
+	}
+	if (!changed) return body;
+	try {
+		return JSON.stringify(parsed);
+	} catch {
+		return body;
+	}
 }
 
 function dmPairKey(a, b) {
@@ -597,7 +714,8 @@ export default function createChatRoutes({ queries, storage }) {
 			threadRow?.type === "channel" &&
 			threadVisibilityFromMeta(threadRow?.meta) === PRIVATE_CHANNEL_VISIBILITY;
 		if (!isPrivateChannel) {
-			return normalizeUnpublishedCreationUrlsInChatBody(body, userId, queries);
+			const withShares = await normalizeUnpublishedCreationUrlsInChatBody(body, userId, queries);
+			return stabilizeChallengeConfigCreationRefsInBody(withShares);
 		}
 		if (!body.startsWith(CHAT_PRIVATE_BODY_PREFIX)) {
 			return body;
@@ -627,10 +745,11 @@ export default function createChatRoutes({ queries, storage }) {
 			throw new Error("Could not decrypt private channel message");
 		}
 		const normalizedPlain = await normalizeUnpublishedCreationUrlsInChatBody(plain, userId, queries);
-		if (normalizedPlain === plain) {
+		const stabilizedPlain = stabilizeChallengeConfigCreationRefsInBody(normalizedPlain);
+		if (stabilizedPlain === plain) {
 			return body;
 		}
-		const nextCipher = encryptPrivateTextWithSecret(normalizedPlain, secretK);
+		const nextCipher = encryptPrivateTextWithSecret(stabilizedPlain, secretK);
 		if (!nextCipher) {
 			throw new Error("Could not encrypt private channel message");
 		}
@@ -1069,7 +1188,9 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 		}
 		try {
 			const normalized = await normalizeUnpublishedCreationUrlsInChatBody(body, userId, queries);
-			return res.status(200).json({ body: normalized });
+			return res.status(200).json({
+				body: stabilizeChallengeConfigCreationRefsInBody(normalized)
+			});
 		} catch (err) {
 			console.error("[POST /api/chat/normalize-body]", err);
 			return res.status(500).json({ error: "Server error", message: err?.message || "Failed" });
@@ -2455,9 +2576,317 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				"Sitewide editorial feed pins: inject creations on page 1 with placement and display knobs."
 			);
 			await bumpFeedVersionCounter(queries);
+
+			// Stamp creation meta so library/detail annotate like challenge submissions (trophy + locks).
+			try {
+				const row =
+					typeof queries?.selectCreatedImageByIdAnyUser?.get === "function"
+						? await queries.selectCreatedImageByIdAnyUser.get(createdImageId)
+						: null;
+				if (row) {
+					let prevMeta = row.meta;
+					if (typeof prevMeta === "string") {
+						try {
+							prevMeta = JSON.parse(prevMeta);
+						} catch {
+							prevMeta = {};
+						}
+					}
+					if (!prevMeta || typeof prevMeta !== "object" || Array.isArray(prevMeta)) {
+						prevMeta = {};
+					}
+					const nextMeta = upsertChallengeFeedPinInMeta(prevMeta, {
+						pin_id: pinId,
+						challenge_id: challengeId,
+						kind: kind === "winners" ? "winners" : "open",
+						until,
+						starts_at: startsAt
+					});
+					if (typeof queries?.updateCreatedImageMetaAnyUser?.run === "function") {
+						await queries.updateCreatedImageMetaAnyUser.run(createdImageId, nextMeta);
+					}
+				}
+			} catch (stampErr) {
+				console.warn(
+					"[POST /api/chat/challenges/organize/pins] meta stamp",
+					stampErr?.message || stampErr
+				);
+			}
+
+			invalidateAndRebuildChallengeFeedSnapshotCache();
 			return res.status(200).json({ ok: true, pin: nextPin, document: validated.document });
 		} catch (err) {
 			console.error("[POST /api/chat/challenges/organize/pins]", err);
+			return res.status(500).json({ error: "Server error", message: err?.message || "Failed" });
+		}
+	});
+
+	/** Config fields written per organizer media role (assign writes the first; clear blanks all aliases the merge respects). */
+	const ORGANIZER_ASSIGN_ROLE_FIELDS = {
+		hero: [
+			"hero_image_url",
+			"cover_image_url",
+			"image_url",
+			"hero_image",
+			"hero_media_url",
+			"hero_media",
+			"hero_ref",
+			"hero_url",
+			"cover",
+			"cover_url",
+			"cover_image",
+			"image",
+			"image_ref",
+			"image_path",
+			"thumbnail_url",
+			"creation_url"
+		],
+		results: ["results_creation_url", "results_url", "results_highlights_url"],
+		topic_vote: [
+			"topic_vote_creation_url",
+			"theme_vote_creation_url",
+			"topic_vote_url",
+			"next_theme_creation_url"
+		]
+	};
+
+	const ORGANIZER_ASSIGN_ROLE_PICKERS = {
+		hero: pickChallengeHeroImageUrl,
+		results: pickChallengeResultsCreationUrl,
+		topic_vote: pickChallengeTopicVoteCreationUrl
+	};
+
+	/**
+	 * Viewer's organizer context for the challenges channel: tracks they organize plus
+	 * per-challenge merged configs (chronological message rows already grouped).
+	 */
+	async function loadOrganizerAssignContext(sb, queries, userId) {
+		const profile =
+			typeof queries?.selectUserProfileByUserId?.get === "function"
+				? await queries.selectUserProfileByUserId.get(userId)
+				: null;
+		const viewerUserName =
+			typeof profile?.user_name === "string" ? profile.user_name.trim().toLowerCase() : "";
+		if (!viewerUserName) return { ok: false, status: 403, message: "Username required" };
+
+		const challengesTid = await findChallengesChannelThreadId(sb);
+		if (!Number.isFinite(Number(challengesTid)) || Number(challengesTid) <= 0) {
+			return { ok: false, status: 404, message: "Challenges channel missing" };
+		}
+		const messages = await fetchThreadMessagesChronological(sb, Number(challengesTid));
+		const globalCfg = pickLatestChallengesGlobalConfigPayload(messages);
+		const byTrack = resolveOrganizersByTrackFromGlobalPayload(globalCfg?.payload);
+		const tracks = tracksViewerCanOrganize(viewerUserName, byTrack);
+
+		/** @type {Map<string, { entries: { msg: object, payload: object }[], newestMessageId: number }>} */
+		const byChallenge = new Map();
+		for (const m of messages) {
+			const p = tryParseChallengeJsonBody(m?.body);
+			if (!p || String(p.kind || "").trim() !== "challenge_config") continue;
+			const cid = String(p.challenge_id || "").trim();
+			if (!cid) continue;
+			const row = byChallenge.get(cid) || { entries: [], newestMessageId: 0 };
+			row.entries.push({ msg: m, payload: p });
+			const mid = Number(m?.id);
+			if (Number.isFinite(mid) && mid > row.newestMessageId) row.newestMessageId = mid;
+			byChallenge.set(cid, row);
+		}
+		return {
+			ok: true,
+			viewerUserName,
+			threadId: Number(challengesTid),
+			byTrack,
+			tracks,
+			byChallenge
+		};
+	}
+
+	/**
+	 * GET /api/chat/challenges/organize/assignable?creation_id=NNN
+	 * Challenges the viewer organizes, with current hero / results / topic_vote assignments,
+	 * for the creation-detail organizer panel.
+	 */
+	router.get("/api/chat/challenges/organize/assignable", async (req, res) => {
+		const userId = requireUser(req, res);
+		if (userId == null) return;
+		const sb = getSb(res);
+		if (!sb) return;
+
+		try {
+			const ctx = await loadOrganizerAssignContext(sb, queries, userId);
+			if (!ctx.ok) {
+				if (ctx.status === 403) return res.status(200).json({ ok: true, is_organizer: false, challenges: [] });
+				return res.status(ctx.status).json({ error: "Not found", message: ctx.message });
+			}
+			if (!ctx.tracks.length) {
+				return res.status(200).json({ ok: true, is_organizer: false, challenges: [] });
+			}
+
+			const creationId = Number(req.query?.creation_id);
+			const now = Date.now();
+			const challenges = [];
+			for (const [challengeId, row] of ctx.byChallenge.entries()) {
+				const merged = mergeFullChallengeConfigForChallenge(row.entries, challengeId);
+				if (isChallengeConfigSoftDeleted(merged) || isChallengeConfigPurged(merged)) continue;
+				const track = String(merged.track || "monthly").trim().toLowerCase();
+				const normalizedTrack = track === "weekly" || track === "suno" ? track : "monthly";
+				if (!ctx.tracks.includes(normalizedTrack)) continue;
+				const phase = deriveChallengePhase(merged, now);
+				// Completed challenges (voting closed) can't take new organizer media assignments.
+				if (CHALLENGE_ENDED_PHASES.has(phase)) continue;
+				const slots = {};
+				for (const role of ["hero", "results", "topic_vote"]) {
+					const url = ORGANIZER_ASSIGN_ROLE_PICKERS[role](merged);
+					const assignedId = parseCreationIdFromChallengeHeroRef(url);
+					slots[role] = {
+						url: url || null,
+						creation_id: Number.isFinite(assignedId) && assignedId > 0 ? assignedId : null
+					};
+				}
+				challenges.push({
+					challenge_id: challengeId,
+					title: String(merged.title || "").trim() || challengeId,
+					track: normalizedTrack,
+					phase,
+					newest_message_id: row.newestMessageId,
+					slots
+				});
+			}
+			challenges.sort((a, b) => b.newest_message_id - a.newest_message_id);
+			return res.status(200).json({
+				ok: true,
+				is_organizer: true,
+				creation_id: Number.isFinite(creationId) && creationId > 0 ? creationId : null,
+				challenges: challenges.slice(0, 12)
+			});
+		} catch (err) {
+			console.error("[GET /api/chat/challenges/organize/assignable]", err);
+			return res.status(500).json({ error: "Server error", message: err?.message || "Failed" });
+		}
+	});
+
+	/**
+	 * POST /api/chat/challenges/organize/assign-creation
+	 * Body: { challenge_id, role: 'hero'|'results'|'topic_vote', created_image_id, remove? }
+	 * Posts a partial challenge_config message; existing sync stamps/unstamps creation meta.
+	 */
+	router.post("/api/chat/challenges/organize/assign-creation", async (req, res) => {
+		const userId = requireUser(req, res);
+		if (userId == null) return;
+		const sb = getSb(res);
+		if (!sb) return;
+
+		try {
+			const body = req.body && typeof req.body === "object" ? req.body : {};
+			const challengeId = String(body.challenge_id || "").trim();
+			const role = String(body.role || "").trim().toLowerCase();
+			const createdImageId = Number(body.created_image_id ?? body.createdImageId);
+			const remove = body.remove === true;
+			if (!challengeId) {
+				return res.status(400).json({ error: "Bad request", message: "challenge_id required" });
+			}
+			if (!ORGANIZER_ASSIGN_ROLE_FIELDS[role]) {
+				return res.status(400).json({ error: "Bad request", message: "role must be hero, results, or topic_vote" });
+			}
+			if (!remove && (!Number.isFinite(createdImageId) || createdImageId <= 0)) {
+				return res.status(400).json({ error: "Bad request", message: "created_image_id required" });
+			}
+
+			const ctx = await loadOrganizerAssignContext(sb, queries, userId);
+			if (!ctx.ok) {
+				return res.status(ctx.status).json({ error: "Forbidden", message: ctx.message });
+			}
+			const row = ctx.byChallenge.get(challengeId);
+			if (!row) {
+				return res.status(404).json({ error: "Not found", message: "Unknown challenge" });
+			}
+			const merged = mergeFullChallengeConfigForChallenge(row.entries, challengeId);
+			if (isChallengeConfigSoftDeleted(merged) || isChallengeConfigPurged(merged)) {
+				return res.status(400).json({ error: "Bad request", message: "Challenge is deleted" });
+			}
+			const track = String(merged.track || "monthly").trim().toLowerCase();
+			const normalizedTrack = track === "weekly" || track === "suno" ? track : "monthly";
+			if (!ctx.tracks.includes(normalizedTrack)) {
+				return res.status(403).json({ error: "Forbidden", message: "Not an organizer for this challenge type" });
+			}
+			const phase = deriveChallengePhase(merged, Date.now());
+			if (CHALLENGE_ENDED_PHASES.has(phase)) {
+				return res.status(400).json({
+					error: "Bad request",
+					message: "This challenge is complete — organizer media can no longer be changed."
+				});
+			}
+
+			if (!remove) {
+				const creation =
+					typeof queries?.selectCreatedImageByIdAnyUser?.get === "function"
+						? await queries.selectCreatedImageByIdAnyUser.get(createdImageId)
+						: null;
+				if (!creation) {
+					return res.status(404).json({ error: "Not found", message: "Creation not found" });
+				}
+				let creationMeta = creation.meta;
+				if (typeof creationMeta === "string") {
+					try {
+						creationMeta = JSON.parse(creationMeta);
+					} catch {
+						creationMeta = null;
+					}
+				}
+				const isEntry =
+					Array.isArray(creationMeta?.challenge_submissions) &&
+					creationMeta.challenge_submissions.length > 0;
+				if (isEntry) {
+					return res.status(400).json({
+						error: "Bad request",
+						message: "This creation is a challenge entry and can't double as organizer media."
+					});
+				}
+			}
+
+			// Assign writes the canonical field; remove blanks every alias the merged picker reads.
+			const fields = ORGANIZER_ASSIGN_ROLE_FIELDS[role];
+			const payload = { kind: "challenge_config", challenge_id: challengeId };
+			if (remove) {
+				for (const f of fields) payload[f] = "";
+			} else {
+				payload[fields[0]] = `/creations/${createdImageId}`;
+				for (const f of fields.slice(1)) payload[f] = "";
+			}
+
+			const ins = await sb
+				.from("prsn_chat_messages")
+				.insert({
+					thread_id: ctx.threadId,
+					sender_id: userId,
+					body: JSON.stringify(payload),
+					meta: {}
+				})
+				.select("id")
+				.single();
+			if (ins.error) throw ins.error;
+			if (ins.data?.id != null) void broadcastRoomDirty(ctx.threadId, ins.data.id);
+
+			invalidateAndRebuildChallengeFeedSnapshotCache();
+			try {
+				await syncChallengeOrganizerCreationRefsOnConfigWrite({
+					queries,
+					sb,
+					prevPayload: null,
+					nextPayload: payload
+				});
+			} catch (syncErr) {
+				console.warn("[assign-creation] organizer ref sync", syncErr?.message || syncErr);
+			}
+
+			return res.status(200).json({
+				ok: true,
+				challenge_id: challengeId,
+				role,
+				created_image_id: remove ? null : createdImageId
+			});
+		} catch (err) {
+			console.error("[POST /api/chat/challenges/organize/assign-creation]", err);
 			return res.status(500).json({ error: "Server error", message: err?.message || "Failed" });
 		}
 	});
@@ -2483,35 +2912,6 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				return res.status(403).json({ error: "Forbidden", message: "Not a member of this thread" });
 			}
 
-			const { data: siteWideVoteRows, error: siteWideVoteRowsError } = await sb
-				.from("prsn_chat_messages")
-				.select("body, reactions");
-			if (siteWideVoteRowsError) throw siteWideVoteRowsError;
-			let globalVoteValue = 0;
-			let globalVoteCount = 0;
-			for (const msg of Array.isArray(siteWideVoteRows) ? siteWideVoteRows : []) {
-				const payload = tryParseChallengeJsonBody(msg?.body);
-				if (!payload || String(payload.kind || "").trim() !== "challenge_submission") {
-					continue;
-				}
-				const reactions =
-					msg?.reactions && typeof msg.reactions === "object" && !Array.isArray(msg.reactions)
-						? msg.reactions
-						: {};
-				for (let i = 0; i < CHALLENGE_SCORE_REACTION_KEYS.length; i += 1) {
-					const key = CHALLENGE_SCORE_REACTION_KEYS[i];
-					const weight = i + 1;
-					const ids = Array.isArray(reactions[key]) ? reactions[key] : [];
-					for (const rawUid of ids) {
-						const uid = Number(rawUid);
-						if (!Number.isFinite(uid) || uid <= 0) continue;
-						globalVoteCount += 1;
-						globalVoteValue += weight;
-					}
-				}
-			}
-			const globalAverage = globalVoteCount > 0 ? globalVoteValue / globalVoteCount : 0;
-
 			const { data: rows, error } = await sb
 				.from("prsn_chat_messages")
 				.select("id, sender_id, body, reactions, created_at")
@@ -2519,6 +2919,8 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				.order("created_at", { ascending: true })
 				.order("id", { ascending: true });
 			if (error) throw error;
+
+			const globalAverage = getCachedChallengeThreadGlobalAverage(threadId, rows);
 
 			const topCandidates = [];
 			const votesPerUserId = new Map();
@@ -2820,6 +3222,31 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			messageOut = enrichChatReactionsFromMessageColumn([messageOut], userId)[0];
 			if (messageOut?.meta?.reply) {
 				messageOut = { ...messageOut, reply_parent_exists: true };
+			}
+
+			const postedKind = String(tryParseChallengeJsonBody(body)?.kind || "").trim();
+			if (
+				threadRow.type === "channel" &&
+				String(threadRow.channel_slug || "").trim().toLowerCase() === "challenges" &&
+				(postedKind === "challenge_config" || postedKind === "challenges_global_config")
+			) {
+				invalidateAndRebuildChallengeFeedSnapshotCache();
+			}
+			if (
+				threadRow.type === "channel" &&
+				String(threadRow.channel_slug || "").trim().toLowerCase() === "challenges" &&
+				postedKind === "challenge_config"
+			) {
+				try {
+					await syncChallengeOrganizerCreationRefsOnConfigWrite({
+						queries,
+						sb,
+						prevPayload: null,
+						nextPayload: tryParseChallengeJsonBody(body)
+					});
+				} catch (err) {
+					console.warn("[POST .../messages] organizer ref sync", err?.message || err);
+				}
 			}
 
 			return res.status(201).json({ message: messageOut });
@@ -3293,14 +3720,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				payloadKind === "challenge_config" || payloadKind === "challenges_global_config";
 			let isChallengeOrganizer = false;
 			if (isChallengesThread && isChallengeConfigMessage) {
-				const { data: challengeRows, error: challengeRowsError } = await sb
-					.from("prsn_chat_messages")
-					.select("id, body")
-					.eq("thread_id", threadId)
-					.order("created_at", { ascending: true })
-					.order("id", { ascending: true })
-					.limit(500);
-				if (challengeRowsError) throw challengeRowsError;
+				const challengeRows = await fetchThreadMessagesChronological(sb, threadId);
 				const allowlist = resolveChallengeOrganizerAllowlistFromMessages(
 					Array.isArray(challengeRows) ? challengeRows : []
 				);
@@ -3442,6 +3862,26 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 
 			const withExist = await enrichMessagesReplyParentExists(sb, threadId, [out]);
 			out = withExist[0] || out;
+
+			const patchedKind = String(tryParseChallengeJsonBody(newBody)?.kind || "").trim();
+			if (
+				isChallengesThread &&
+				(patchedKind === "challenge_config" || patchedKind === "challenges_global_config")
+			) {
+				invalidateAndRebuildChallengeFeedSnapshotCache();
+			}
+			if (isChallengesThread && patchedKind === "challenge_config") {
+				try {
+					await syncChallengeOrganizerCreationRefsOnConfigWrite({
+						queries,
+						sb,
+						prevPayload: tryParseChallengeJsonBody(msg.body),
+						nextPayload: tryParseChallengeJsonBody(newBody)
+					});
+				} catch (err) {
+					console.warn("[PATCH .../messages] organizer ref sync", err?.message || err);
+				}
+			}
 
 			return res.status(200).json({ message: out });
 		} catch (err) {

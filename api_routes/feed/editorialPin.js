@@ -5,6 +5,7 @@ import {
 	loadEditorialPinPolicyDocument,
 	normalizeEditorialPinDefaults
 } from './editorialPinPolicy.js';
+import { listActiveChallengeFeedPinsFromMeta } from '../../src/shared/challengeSubmitMeta.js';
 
 /**
  * @param {object|null|undefined} item
@@ -191,6 +192,7 @@ export async function buildEditorialPinFeedItems(queries, opts) {
 	for (const pin of activePins) {
 		const row = rowById.get(Number(pin.created_image_id));
 		if (!row) continue;
+		if (row.unavailable_at != null && row.unavailable_at !== '') continue;
 		if (!enableNsfw && row.nsfw) continue;
 		items.push({ item: transformEditorialPinFeedItem(row, pin), pin });
 	}
@@ -211,6 +213,97 @@ export async function buildEditorialPinFeedItems(queries, opts) {
 export async function getActiveEditorialPins(queries, nowMs = Date.now(), feedSurface = '') {
 	const doc = await loadEditorialPinPolicyDocument(queries);
 	return (doc.pins ?? []).filter((pin) => isEditorialPinActive(pin, nowMs, feedSurface));
+}
+
+/**
+ * Viewer may load an unpublished creation when it is the target of an active editorial feed pin
+ * (organizer promo / winners — these stay unpublished by design).
+ *
+ * @param {object} queries
+ * @param {{
+ *   ancestorRow: { id?: unknown, unavailable_at?: unknown },
+ *   nowMs?: number,
+ *   feedSurface?: string,
+ * }} args
+ * @returns {Promise<boolean>}
+ */
+export async function canViewUnpublishedCreationViaEditorialPin(queries, args) {
+	const ancestorRow = args?.ancestorRow;
+	const cid = Number(ancestorRow?.id);
+	if (!ancestorRow || !Number.isFinite(cid) || cid <= 0) return false;
+	if (ancestorRow.unavailable_at != null && ancestorRow.unavailable_at !== '') return false;
+	if (!queries) return false;
+	try {
+		const nowMs = Number(args?.nowMs) || Date.now();
+		const feedSurface = typeof args?.feedSurface === 'string' ? args.feedSurface : '';
+		const pins = await getActiveEditorialPins(queries, nowMs, feedSurface);
+		return pins.some((pin) => Number(pin?.created_image_id) === cid);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Active editorial pins that target a creation (for creation-detail lock / banner).
+ *
+ * @param {object} queries
+ * @param {number|string} creationId
+ * @param {{ nowMs?: number }} [opts]
+ * @returns {Promise<{
+ *   active: boolean,
+ *   until: string|null,
+ *   pins: { id: string, kind: 'open'|'winners'|'other', until: string|null }[]
+ * }>}
+ */
+export async function getCreationFeedPinStatus(queries, creationId, opts = {}) {
+	const empty = { active: false, until: null, pins: [] };
+	const cid = Number(creationId);
+	if (!Number.isFinite(cid) || cid <= 0) return empty;
+	const nowMs = Number(opts?.nowMs) || Date.now();
+
+	/** @type {{ id: string, kind: 'open'|'winners'|'other', until: string|null }[]} */
+	let pins = [];
+
+	if (queries) {
+		try {
+			const activePins = await getActiveEditorialPins(queries, nowMs, '');
+			for (const pin of activePins) {
+				if (Number(pin?.created_image_id) !== cid) continue;
+				const id = typeof pin?.id === 'string' ? pin.id : '';
+				let kind = 'other';
+				if (id.startsWith('challenge-open-')) kind = 'open';
+				else if (id.startsWith('challenge-winners-')) kind = 'winners';
+				const until = typeof pin?.until === 'string' && pin.until.trim() ? pin.until.trim() : null;
+				pins.push({ id, kind, until });
+			}
+		} catch {
+			// fall through to meta
+		}
+	}
+
+	// Meta stamp (set on pin upsert) covers cases where policy lookup is unavailable.
+	const metaPins = listActiveChallengeFeedPinsFromMeta(opts?.meta, nowMs);
+	for (const mp of metaPins) {
+		if (pins.some((p) => p.id === mp.pin_id)) continue;
+		pins.push({
+			id: mp.pin_id,
+			kind: /** @type {'open'|'winners'|'other'} */ (mp.kind),
+			until: mp.until
+		});
+	}
+
+	if (pins.length === 0) return empty;
+	let until = null;
+	let untilMs = NaN;
+	for (const p of pins) {
+		const t = p.until ? Date.parse(p.until) : NaN;
+		if (!Number.isFinite(t)) continue;
+		if (!Number.isFinite(untilMs) || t > untilMs) {
+			untilMs = t;
+			until = p.until;
+		}
+	}
+	return { active: true, until, pins };
 }
 
 /** @deprecated Use getActiveEditorialPins — kept for tests migrating off hardcoded promos. */

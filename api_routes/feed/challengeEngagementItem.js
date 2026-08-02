@@ -24,7 +24,8 @@ function challengeSnapshotToFeedItem(snapshot) {
  * @returns {Promise<object|null>}
  */
 export async function buildChallengeEngagementFeedItemForViewer(queries, viewerUserId, opts = {}) {
-	const fresh = opts.fresh !== false;
+	// Default trusts cache; write-triggered invalidation keeps it fresh. Pass fresh:true to force rebuild.
+	const fresh = opts.fresh === true;
 	if (fresh) {
 		invalidateChallengeFeedSnapshotMemCache();
 		const rebuilt = await rebuildChallengeFeedSnapshotCache({ queries });

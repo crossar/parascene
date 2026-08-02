@@ -70,6 +70,20 @@ import {
 	summarizeChallengeSubmissionPhases,
 	computeChallengeEndedByImageId
 } from "./utils/challengeSubmitShared.js";
+import { canViewUnpublishedCreationViaEditorialPin, getCreationFeedPinStatus } from "./feed/editorialPin.js";
+import {
+	creationMetaHasActiveChallengeFeedPin,
+	upsertChallengeFeedPinInMeta
+} from "../src/shared/challengeSubmitMeta.js";
+import {
+	creationMetaHasChallengeOrganizerRef,
+	listChallengeOrganizerRefsFromMeta,
+	challengeOrganizerRefRoleLabel
+} from "../src/shared/challengeOrganizerRefMeta.js";
+import {
+	healChallengeOrganizerRefsForCreation,
+	healChallengeOrganizerRefsForCreationList
+} from "./utils/challengeOrganizerRefSync.js";
 import { resolveCreationImageForExport } from "./utils/resolveCreationImageForExport.js";
 import { applySourceShareUrlToMutateArgsWhenMatching } from "./utils/mutateLineageImageUrl.js";
 import { buildMutateLineageMetaFields } from "./utils/mutateLineageMeta.js";
@@ -339,6 +353,17 @@ export default function createCreateRoutes({ queries, storage }) {
 				}
 			}
 
+			let editorialPinOk = false;
+			if (!isOwner && !isPublished && !isAdmin && !challengeHeroOk) {
+				try {
+					editorialPinOk = await canViewUnpublishedCreationViaEditorialPin(queries, {
+						ancestorRow: image
+					});
+				} catch {
+					editorialPinOk = false;
+				}
+			}
+
 			let shareDelegationOk = false;
 			const shareVersionRaw = req.query?.share_version;
 			const shareTokenRaw = req.query?.share_token;
@@ -367,6 +392,7 @@ export default function createCreateRoutes({ queries, storage }) {
 				!creationDelegationOk &&
 				!challengeMessageOk &&
 				!challengeHeroOk &&
+				!editorialPinOk &&
 				!shareDelegationOk
 			) {
 				return res.status(403).json({ error: "Access denied" });
@@ -526,6 +552,17 @@ export default function createCreateRoutes({ queries, storage }) {
 				}
 			}
 
+			let editorialPinOkVideo = false;
+			if (!isOwner && !isPublished && !isAdmin && !challengeHeroOkVideo) {
+				try {
+					editorialPinOkVideo = await canViewUnpublishedCreationViaEditorialPin(queries, {
+						ancestorRow: image
+					});
+				} catch {
+					editorialPinOkVideo = false;
+				}
+			}
+
 			let shareDelegationOkVideo = false;
 			const shareVersionRawV = req.query?.share_version;
 			const shareTokenRawV = req.query?.share_token;
@@ -554,6 +591,7 @@ export default function createCreateRoutes({ queries, storage }) {
 				!creationDelegationOkVideo &&
 				!challengeMessageOkVideo &&
 				!challengeHeroOkVideo &&
+				!editorialPinOkVideo &&
 				!shareDelegationOkVideo
 			) {
 				return res.status(403).json({ error: "Access denied" });
@@ -626,6 +664,24 @@ export default function createCreateRoutes({ queries, storage }) {
 		}
 		if (group) {
 			response.challenge_submit = { eligible: false, reason: "group" };
+			return;
+		}
+
+		try {
+			const pinStatus = await getCreationFeedPinStatus(queries, image.id);
+			if (pinStatus.active) {
+				response.challenge_submit = { eligible: false, reason: "feed_pin" };
+				return;
+			}
+		} catch {
+			// ignore — fall through to normal eligibility
+		}
+		if (creationMetaHasActiveChallengeFeedPin(meta)) {
+			response.challenge_submit = { eligible: false, reason: "feed_pin" };
+			return;
+		}
+		if (creationMetaHasChallengeOrganizerRef(meta)) {
+			response.challenge_submit = { eligible: false, reason: "organizer_ref" };
 			return;
 		}
 
@@ -3110,6 +3166,20 @@ export default function createCreateRoutes({ queries, storage }) {
 			const filtered = enableNsfw ? imagesWithUrls : imagesWithUrls.filter((img) => !img.nsfw);
 			const has_more = images.length === pageLimit;
 
+			// Stamp organizer media refs (hero/results/theme-vote) so library trophies match detail.
+			try {
+				const sbHeal = getSupabaseServiceClient();
+				if (sbHeal) {
+					await healChallengeOrganizerRefsForCreationList({
+						queries,
+						sb: sbHeal,
+						images: filtered
+					});
+				}
+			} catch {
+				// ignore heal failures
+			}
+
 			// Flag challenge entries whose challenge has ended so the grid can drop the "pending" blur.
 			try {
 				const endedMap = await computeChallengeEndedByImageId({
@@ -3273,6 +3343,20 @@ export default function createCreateRoutes({ queries, storage }) {
 						}
 					}
 
+					// Active editorial feed pins (promo / winners) may stay unpublished.
+					if (!image && !isUnavailable) {
+						try {
+							const pinOk = await canViewUnpublishedCreationViaEditorialPin(queries, {
+								ancestorRow: anyImage
+							});
+							if (pinOk) {
+								image = anyImage;
+							}
+						} catch {
+							// ignore
+						}
+					}
+
 					if (!image && (isPublished || isAdmin) && !isUnavailable) {
 						image = anyImage;
 					} else if (!image && isAdmin && isUnavailable) {
@@ -3353,7 +3437,7 @@ export default function createCreateRoutes({ queries, storage }) {
 			// Always read description from created_image, not from feed_item
 			// (feed_item may be deleted when un-publishing)
 			const description = typeof image.description === "string" ? image.description.trim() : "";
-			const meta = parseMeta(image.meta);
+			let meta = parseMeta(image.meta);
 
 			const status = image.status || 'completed';
 			const creationIdForMedia = Number(image.id);
@@ -3488,7 +3572,66 @@ export default function createCreateRoutes({ queries, storage }) {
 			if (isAdmin && isUnavailable) {
 				response.user_deleted = true;
 			}
+
+			if (isOwner || user.role === "admin") {
+				try {
+					const sbHeal = getSupabaseServiceClient();
+					if (sbHeal) {
+						const healed = await healChallengeOrganizerRefsForCreation({
+							queries,
+							sb: sbHeal,
+							creationId: image.id,
+							meta
+						});
+						if (healed) {
+							meta = healed;
+							response.meta = healed;
+						}
+					}
+				} catch {
+					// ignore heal failures
+				}
+			}
+
 			await appendChallengeSubmitEligibility(req, user, image, meta, response);
+
+			try {
+				response.feed_pin = await getCreationFeedPinStatus(queries, image.id, { meta });
+				// Heal: older pins may exist in policy without meta stamp — write it so library cards annotate.
+				if (
+					response.feed_pin?.active === true &&
+					!creationMetaHasActiveChallengeFeedPin(meta) &&
+					Array.isArray(response.feed_pin.pins) &&
+					response.feed_pin.pins.length > 0 &&
+					typeof queries?.updateCreatedImageMetaAnyUser?.run === "function" &&
+					(isOwner || user.role === "admin")
+				) {
+					let nextMeta = meta && typeof meta === "object" ? { ...meta } : {};
+					for (const p of response.feed_pin.pins) {
+						nextMeta = upsertChallengeFeedPinInMeta(nextMeta, {
+							pin_id: p.id,
+							kind: p.kind,
+							until: p.until
+						});
+					}
+					await queries.updateCreatedImageMetaAnyUser.run(image.id, nextMeta).catch(() => null);
+					meta = nextMeta;
+					response.meta = nextMeta;
+					await appendChallengeSubmitEligibility(req, user, image, meta, response);
+				}
+			} catch {
+				response.feed_pin = { active: false, until: null, pins: [] };
+			}
+
+			const organizerRefs = listChallengeOrganizerRefsFromMeta(meta);
+			response.challenge_organizer = {
+				active: organizerRefs.length > 0,
+				refs: organizerRefs.map((r) => ({
+					challenge_id: r.challenge_id,
+					role: r.role,
+					label: challengeOrganizerRefRoleLabel(r.role)
+				}))
+			};
 
 			if (Array.isArray(meta?.challenge_submissions) && meta.challenge_submissions.length > 0) {
 				try {
@@ -3578,6 +3721,24 @@ export default function createCreateRoutes({ queries, storage }) {
 			}
 			if (meta?.group?.kind === "group_creations") {
 				return res.status(400).json({ error: "Group creations cannot be submitted as one challenge entry." });
+			}
+
+			try {
+				const pinStatus = await getCreationFeedPinStatus(queries, imageId);
+				if (pinStatus.active) {
+					return res.status(400).json({
+						error:
+							"This creation is pinned on the feed for a challenge and cannot be submitted as a challenge entry."
+					});
+				}
+			} catch {
+				// ignore
+			}
+			if (creationMetaHasChallengeOrganizerRef(meta)) {
+				return res.status(400).json({
+					error:
+						"This creation is used as challenge media (hero, results, or theme vote) and cannot be submitted as an entry."
+				});
 			}
 
 			const v = await validateChallengeSubmission({
@@ -5227,6 +5388,28 @@ export default function createCreateRoutes({ queries, storage }) {
 				}
 			}
 
+			try {
+				const pinStatus = await getCreationFeedPinStatus(queries, targetImage.id, {
+					meta: publishMeta
+				});
+				if (pinStatus.active || creationMetaHasChallengeOrganizerRef(publishMeta)) {
+					return res.status(400).json({
+						error:
+							"This creation is used by a challenge (hero, results, theme vote, or feed pin). Clear that use before publishing."
+					});
+				}
+			} catch {
+				if (
+					creationMetaHasActiveChallengeFeedPin(publishMeta) ||
+					creationMetaHasChallengeOrganizerRef(publishMeta)
+				) {
+					return res.status(400).json({
+						error:
+							"This creation is used by a challenge (hero, results, theme vote, or feed pin). Clear that use before publishing."
+					});
+				}
+			}
+
 			if (targetImage.published === 1 || targetImage.published === true) {
 				return res.status(400).json({ error: "Image is already published" });
 			}
@@ -6225,6 +6408,25 @@ export default function createCreateRoutes({ queries, storage }) {
 				return res.status(404).json({ error: "Image not found" });
 			}
 			const meta = parseMeta(image.meta);
+			try {
+				const pinStatus = await getCreationFeedPinStatus(queries, image.id, { meta });
+				if (pinStatus.active || creationMetaHasChallengeOrganizerRef(meta)) {
+					return res.status(400).json({
+						error:
+							"This creation is used by a challenge (hero, results, theme vote, or feed pin). Clear that use before deleting."
+					});
+				}
+			} catch {
+				if (
+					creationMetaHasActiveChallengeFeedPin(meta) ||
+					creationMetaHasChallengeOrganizerRef(meta)
+				) {
+					return res.status(400).json({
+						error:
+							"This creation is used by a challenge (hero, results, theme vote, or feed pin). Clear that use before deleting."
+					});
+				}
+			}
 			const status = image.status || "completed";
 			if (status === "creating") {
 				const timeoutAt = meta?.timeout_at ? new Date(meta.timeout_at).getTime() : NaN;

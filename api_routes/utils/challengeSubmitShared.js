@@ -11,6 +11,7 @@ import {
 	viewerOrganizesTrack,
 	tracksViewerCanOrganize
 } from "../../src/chat/challenges/challengeAdmin.js";
+import { verifyShareToken } from "./shareLink.js";
 
 export {
 	IMPLIED_CHALLENGE_ORGANIZER,
@@ -166,18 +167,16 @@ export async function findChallengesChannelThreadId(sb) {
 }
 
 /**
+ * Newest `limit` messages, returned in chronological order (oldest → newest within the slice).
+ * Fetching newest-first avoids the oldest-slice cliff once the thread exceeds MESSAGE_FETCH_LIMIT.
+ *
  * @param {import("@supabase/supabase-js").SupabaseClient} sb
  * @param {number} threadId
+ * @param {number} [limit]
  */
 export async function fetchThreadMessagesChronological(sb, threadId, limit = MESSAGE_FETCH_LIMIT) {
-	const { data, error } = await sb
-		.from("prsn_chat_messages")
-		.select("id, body, created_at, sender_id, reactions")
-		.eq("thread_id", threadId)
-		.order("created_at", { ascending: true })
-		.limit(limit);
-	if (error) throw error;
-	return Array.isArray(data) ? data : [];
+	const newestFirst = await fetchThreadMessagesNewestFirst(sb, threadId, limit);
+	return newestFirst.slice().reverse();
 }
 
 /**
@@ -242,7 +241,30 @@ export async function canViewUnpublishedCreationViaChallengeMessage(sb, args) {
 }
 
 /**
- * Parse a creation id from challenge hero reference strings (`/creations/:id`, API paths, or full URLs).
+ * Read creation id from share token payload (first segment) without requiring a valid HMAC.
+ * Matches client hero/thumb resolution — production tokens may use a rotated secret.
+ * @param {string} fullToken
+ * @returns {number}
+ */
+function decodeCreationIdFromShareTokenPayload(fullToken) {
+	const raw = String(fullToken || "").trim();
+	if (!raw.includes(".")) return NaN;
+	const p = raw.split(".")[0];
+	if (!p) return NaN;
+	const padded = p.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((p.length + 3) % 4);
+	try {
+		const buf = Buffer.from(padded, "base64");
+		if (!buf || buf.length < 3) return NaN;
+		const id = (buf[0] << 16) | (buf[1] << 8) | buf[2];
+		return Number.isFinite(id) && id > 0 ? id : NaN;
+	} catch {
+		return NaN;
+	}
+}
+
+/**
+ * Parse a creation id from challenge hero / results / topic-vote reference strings
+ * (`/creations/:id`, API paths, full creation URLs, or `sh.parascene.com/s/...` share links).
  * @param {unknown} raw
  * @returns {number}
  */
@@ -266,6 +288,18 @@ export function parseCreationIdFromChallengeHeroRef(raw) {
 		const path = `${u.pathname || ""}${u.search || ""}`;
 		const fromUrlPath = fromPlainPath(path);
 		if (Number.isFinite(fromUrlPath) && fromUrlPath > 0) return fromUrlPath;
+
+		// Share links: /s/{version}/{token}/{slug} — same shape organizers paste into hero fields.
+		const shareMatch = (u.pathname || "").match(/^\/s\/([^/]+)\/([^/]+)(?:\/[^/]*)?\/?$/i);
+		if (shareMatch) {
+			const verified = verifyShareToken({ version: shareMatch[1], token: shareMatch[2] });
+			if (verified?.ok === true) {
+				const imageId = Number(verified.imageId);
+				if (Number.isFinite(imageId) && imageId > 0) return imageId;
+			}
+			const decoded = decodeCreationIdFromShareTokenPayload(shareMatch[2]);
+			if (Number.isFinite(decoded) && decoded > 0) return decoded;
+		}
 	} catch {
 		// ignore
 	}

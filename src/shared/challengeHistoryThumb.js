@@ -6,6 +6,7 @@ import {
 import { mergeFullChallengeConfigForChallenge, pickChallengeHeroImageUrl } from '../chat/challenges/challengeAdmin.js';
 import { extractChallengeEvents } from '../chat/challenges/model/extractEvents.js';
 import { fetchAllChatThreadMessages } from '../chat/challenges/model/buildChannelModel.js';
+import { readChallengesChannelCache } from '../chat/challenges/challengesChannelCache.js';
 import {
 	challengeHistoryThumbCacheKey,
 	isChallengeHistoryThumbCacheStale,
@@ -222,6 +223,17 @@ export async function fetchChallengesChannelConfigEntries(fetchJson) {
 	});
 	const threadId = challengesThread?.id != null ? Number(challengesThread.id) : NaN;
 	if (!Number.isFinite(threadId) || threadId <= 0) return [];
+
+	const cached = readChallengesChannelCache();
+	if (
+		cached &&
+		Number(cached.threadId) === threadId &&
+		Array.isArray(cached.messages) &&
+		cached.messages.length > 0
+	) {
+		return extractChallengeEvents(cached.messages).configs;
+	}
+
 	const messages = await fetchAllChatThreadMessages(threadId);
 	return extractChallengeEvents(messages).configs;
 }

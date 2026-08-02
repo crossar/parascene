@@ -17,10 +17,13 @@ let renderEmptyState;
 let renderEmptyError;
 let renderGridSkeleton;
 let publishedBadgeHtml;
+let challengeLockedBadgeHtml;
 let buildCreationCardShell;
 let hydrateRouteCardMedia;
 let routeCardGroupBadgeHtml;
 let creationMetaHasChallengeSubmission;
+let creationMetaHasActiveChallengeFeedPin;
+let creationMetaHasChallengeAnnotation;
 let eyeHiddenIcon;
 let addToMutateQueue;
 let bindMobileCreationsBulkLongPress;
@@ -69,6 +72,7 @@ async function loadDeps() {
 
 		const badgesMod = await import(`../../shared/creationBadges.js${qs}`);
 		publishedBadgeHtml = badgesMod.publishedBadgeHtml;
+		challengeLockedBadgeHtml = badgesMod.challengeLockedBadgeHtml;
 
 		const creationCardMod = await import(`../../shared/creationCard.js${qs}`);
 		buildCreationCardShell = creationCardMod.buildCreationCardShell;
@@ -79,6 +83,8 @@ async function loadDeps() {
 
 		const challengeMetaMod = await import(`../../shared/challengeSubmitMeta.js${qs}`);
 		creationMetaHasChallengeSubmission = challengeMetaMod.creationMetaHasChallengeSubmission;
+		creationMetaHasActiveChallengeFeedPin = challengeMetaMod.creationMetaHasActiveChallengeFeedPin;
+		creationMetaHasChallengeAnnotation = challengeMetaMod.creationMetaHasChallengeAnnotation;
 
 		const iconsMod = await import(`../../icons/svg-strings.js${qs}`);
 		eyeHiddenIcon = iconsMod.eyeHiddenIcon;
@@ -163,6 +169,23 @@ function parseMeta(raw) {
 	} catch {
 		return null;
 	}
+}
+
+/** Challenge entry, feed pin, or organizer hero/results/theme-vote — works even if helpers fail to load. */
+function creationIsChallengeLocked(meta) {
+	if (typeof creationMetaHasChallengeAnnotation === 'function') {
+		return Boolean(creationMetaHasChallengeAnnotation(meta));
+	}
+	if (Array.isArray(meta?.challenge_organizer_refs) && meta.challenge_organizer_refs.length > 0) {
+		return true;
+	}
+	if (Array.isArray(meta?.challenge_feed_pins) && meta.challenge_feed_pins.length > 0) {
+		return true;
+	}
+	if (typeof creationMetaHasChallengeSubmission === 'function') {
+		return Boolean(creationMetaHasChallengeSubmission(meta));
+	}
+	return Array.isArray(meta?.challenge_submissions) && meta.challenge_submissions.length > 0;
 }
 
 function isTimedOut(status, meta) {
@@ -1418,9 +1441,13 @@ class AppRouteCreations extends HTMLElement {
 				publishedBadge = publishedBadgeHtml();
 			}
 			const itemMeta = parseMeta(item.meta);
-			const inChallenge = creationMetaHasChallengeSubmission(itemMeta);
+			const inChallenge = creationIsChallengeLocked(itemMeta);
 			const challengeEnded = item.challenge_ended === true;
 			card.dataset.inChallenge = inChallenge ? '1' : '0';
+			const challengeLockedBadge =
+				inChallenge && typeof challengeLockedBadgeHtml === 'function'
+					? challengeLockedBadgeHtml('Locked to a challenge')
+					: '';
 			const mediaType =
 				typeof item.media_type === 'string'
 					? item.media_type
@@ -1439,7 +1466,7 @@ class AppRouteCreations extends HTMLElement {
 			}
 			card.innerHTML = buildCreationCardShell({
 				mediaAttrs,
-				badgesHtml: publishedBadge + routeCardGroupBadgeHtml(item),
+				badgesHtml: publishedBadge + challengeLockedBadge + routeCardGroupBadgeHtml(item),
 				bulkOverlayHtml: bulkOverlay(),
 				nsfw: Boolean(item.nsfw),
 				challengeGridBlur: inChallenge && !isPublished && !challengeEnded && !item.nsfw,

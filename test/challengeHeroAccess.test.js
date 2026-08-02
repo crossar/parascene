@@ -4,6 +4,7 @@ import {
 	pickChallengeConfigAcceptingSubmissions,
 	latestChallengeConfigByChallengeId
 } from '../api_routes/utils/challengeSubmitShared.js';
+import { mintShareToken } from '../api_routes/utils/shareLink.js';
 
 describe('parseCreationIdFromChallengeHeroRef', () => {
 	test('parses bare creation paths', () => {
@@ -14,6 +15,18 @@ describe('parseCreationIdFromChallengeHeroRef', () => {
 	test('parses API paths and full URLs', () => {
 		expect(parseCreationIdFromChallengeHeroRef('/api/create/images/99')).toBe(99);
 		expect(parseCreationIdFromChallengeHeroRef('https://www.parascene.com/creations/42')).toBe(42);
+	});
+
+	test('parses share subdomain URLs used in hero fields', () => {
+		const token = mintShareToken({ imageId: 20572, sharedByUserId: 1 });
+		const url = `https://sh.parascene.com/s/v1/${token}/tj5oxx`;
+		expect(parseCreationIdFromChallengeHeroRef(url)).toBe(20572);
+		// Production-shaped token may fail HMAC against the checked-in secret; payload still encodes id.
+		expect(
+			parseCreationIdFromChallengeHeroRef(
+				'https://sh.parascene.com/s/v1/AFBcAAAa.KldOF09qr42Z/tj5oxx'
+			)
+		).toBe(20572);
 	});
 
 	test('returns NaN for non-creation refs', () => {

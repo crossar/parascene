@@ -780,12 +780,24 @@ export function mountChallengesOrganizerTools(host, opts) {
 					};
 					if (details) payload.details = details;
 					else delete payload.details;
-					if (topicVoteRef) payload.topic_vote_creation_url = topicVoteRef;
-					else delete payload.topic_vote_creation_url;
-					if (heroRef) payload.hero_image_url = heroRef;
-					else delete payload.hero_image_url;
-					if (resultsRef) payload.results_creation_url = resultsRef;
-					else delete payload.results_creation_url;
+					// Media fields live on the Details tab. Saving from Schedule/Prizes must not
+					// clear hero/results/theme-vote just because those inputs weren't the focus.
+					const activeEditTab = String(
+						adminForm
+							.querySelector('.challenges-organize-edit-tab.is-active')
+							?.getAttribute('data-organize-edit-tab') || 'details'
+					)
+						.trim()
+						.toLowerCase();
+					const applyMediaFromForm = activeEditTab === 'details';
+					if (applyMediaFromForm) {
+						if (topicVoteRef) payload.topic_vote_creation_url = topicVoteRef;
+						else delete payload.topic_vote_creation_url;
+						if (heroRef) payload.hero_image_url = heroRef;
+						else delete payload.hero_image_url;
+						if (resultsRef) payload.results_creation_url = resultsRef;
+						else delete payload.results_creation_url;
+					}
 					for (const key of REWARD_FIELD_KEYS) {
 						if (!adminForm.querySelector(`[name="${key}"]`)) continue;
 						const raw = String(fd.get(key) || '').trim();

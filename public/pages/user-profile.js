@@ -16,10 +16,13 @@ let renderProfilePageSkeleton;
 let publishedBadgeHtml;
 let userDeletedBadgeHtml;
 let challengeEnteredBadgeHtml;
+let challengeLockedBadgeHtml;
 let buildCreationCardShell;
 let hydrateRouteCardMedia;
 let routeCardGroupBadgeHtml;
 let creationMetaHasChallengeSubmission;
+let creationMetaHasActiveChallengeFeedPin;
+let creationMetaHasChallengeAnnotation;
 let buildUserListRowHtml;
 let REACTION_ORDER;
 let REACTION_ICONS;
@@ -83,6 +86,7 @@ async function loadDeps() {
 		publishedBadgeHtml = creationBadgesMod.publishedBadgeHtml;
 		userDeletedBadgeHtml = creationBadgesMod.userDeletedBadgeHtml;
 		challengeEnteredBadgeHtml = creationBadgesMod.challengeEnteredBadgeHtml;
+		challengeLockedBadgeHtml = creationBadgesMod.challengeLockedBadgeHtml;
 
 		const creationCardMod = await import(`../shared/creationCard.js${qs}`);
 		buildCreationCardShell = creationCardMod.buildCreationCardShell;
@@ -93,6 +97,8 @@ async function loadDeps() {
 
 		const challengeMetaMod = await import(`../shared/challengeSubmitMeta.js${qs}`);
 		creationMetaHasChallengeSubmission = challengeMetaMod.creationMetaHasChallengeSubmission;
+		creationMetaHasActiveChallengeFeedPin = challengeMetaMod.creationMetaHasActiveChallengeFeedPin;
+		creationMetaHasChallengeAnnotation = challengeMetaMod.creationMetaHasChallengeAnnotation;
 
 		const userCardMod = await import(`../shared/userCard.js${qs}`);
 		buildUserListRowHtml = userCardMod.buildUserListRowHtml;
@@ -825,8 +831,17 @@ function renderImageGrid(
 
 		const isVideo = item.media_type === 'video' || (item.meta && item.meta.media_type === 'video');
 		const itemMeta = item.meta && typeof item.meta === 'object' ? item.meta : null;
-		const challengeBlur =
-			Boolean(creationMetaHasChallengeSubmission?.(itemMeta)) && !item.nsfw;
+		const inChallenge =
+			Boolean(creationMetaHasChallengeAnnotation?.(itemMeta)) ||
+			(Array.isArray(itemMeta?.challenge_organizer_refs) &&
+				itemMeta.challenge_organizer_refs.length > 0) ||
+			(Array.isArray(itemMeta?.challenge_submissions) &&
+				itemMeta.challenge_submissions.length > 0);
+		const challengeBlur = inChallenge && !item.nsfw;
+		const challengeLockedBadge =
+			inChallenge && typeof challengeLockedBadgeHtml === 'function'
+				? challengeLockedBadgeHtml('Locked to a challenge')
+				: '';
 		const mediaAttrs = isVideo ? ' data-media-type="video"' : '';
 		const creationId = Number(item.id);
 		const personaAvatarBtn =
@@ -846,6 +861,7 @@ function renderImageGrid(
 			</div>
 			${userDeletedBadge}
 			${publishedBadge}
+			${challengeLockedBadge}
 			${routeCardGroupBadgeHtml(item)}
 		`;
 
@@ -906,15 +922,25 @@ function appendImageGridCards(grid, items, showBadge = false) {
 		}
 		const isVideo = item.media_type === 'video' || (item.meta && item.meta.media_type === 'video');
 		const itemMeta = item.meta && typeof item.meta === 'object' ? item.meta : null;
+		const inChallenge =
+			Boolean(creationMetaHasChallengeAnnotation?.(itemMeta)) ||
+			(Array.isArray(itemMeta?.challenge_organizer_refs) &&
+				itemMeta.challenge_organizer_refs.length > 0) ||
+			(Array.isArray(itemMeta?.challenge_submissions) &&
+				itemMeta.challenge_submissions.length > 0);
 		const mediaAttrs = {};
 		if (isVideo) {
 			mediaAttrs['data-media-type'] = 'video';
 		}
+		const challengeLockedBadge =
+			inChallenge && typeof challengeLockedBadgeHtml === 'function'
+				? challengeLockedBadgeHtml('Locked to a challenge')
+				: '';
 		card.innerHTML = buildCreationCardShell({
 			mediaAttrs,
-			badgesHtml: userDeletedBadge + publishedBadge + routeCardGroupBadgeHtml(item),
+			badgesHtml: userDeletedBadge + publishedBadge + challengeLockedBadge + routeCardGroupBadgeHtml(item),
 			nsfw: Boolean(item.nsfw),
-			challengeGridBlur: Boolean(creationMetaHasChallengeSubmission?.(itemMeta)) && !item.nsfw,
+			challengeGridBlur: inChallenge && !item.nsfw,
 		});
 		const mediaEl = card.querySelector('.route-media');
 		if (mediaEl && typeof hydrateRouteCardMedia === 'function') {
