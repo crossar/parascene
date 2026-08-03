@@ -51,6 +51,7 @@
 	--color-amber-fg: color-mix(in srgb, var(--color-amber) 84%, var(--text));
 	--color-amber-bg-subtle: color-mix(in srgb, var(--color-amber) 18%, var(--surface));
 	--color-purple-fg: color-mix(in srgb, var(--color-purple) 88%, var(--text));
+	--color-purple-bg-subtle: color-mix(in srgb, var(--color-purple) 12%, transparent);
 }
 
 /* Original dark theme (commented out)
@@ -114,6 +115,7 @@
 		--color-amber-fg: color-mix(in srgb, var(--color-amber) 78%, white);
 		--color-amber-bg-subtle: color-mix(in srgb, var(--color-amber) 30%, var(--surface));
 		--color-purple-fg: color-mix(in srgb, var(--color-purple) 82%, white);
+		--color-purple-bg-subtle: color-mix(in srgb, var(--color-purple) 14%, transparent);
 	}
 }
 
@@ -8032,8 +8034,9 @@ body.chat-page .chat-page-canvas-panel-body {
 }
 
 /*
- * Inter `<-` ligature ink sits high in the em box — slight nudge so it
- * optically lines up with adjacent header title text/icons.
+ * Inter `<-` ligature ink sits high in the em box. Nudge so it optically
+ * lines up with adjacent header title text. Mobile needs a larger offset
+ * than desktop (plain-text overlay titles vs icon+label chrome).
  */
 .chat-page-back-icon,
 .blog-edit-back-icon {
@@ -8042,7 +8045,14 @@ body.chat-page .chat-page-canvas-panel-body {
 	letter-spacing: 0;
 	font-variant-ligatures: common-ligatures contextual;
 	font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
-	transform: translateY(5px);
+	transform: translateY(-1px);
+}
+
+@media (max-width: 768px) {
+	.chat-page-back-icon,
+	.blog-edit-back-icon {
+		transform: translateY(5px);
+	}
 }
 
 .chat-page-back-icon-svg {
@@ -8405,8 +8415,8 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	column-gap: 12px;
 	padding: 10px 12px;
 	border-radius: 10px;
-	border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
-	background: color-mix(in srgb, var(--surface-strong) 42%, transparent);
+	border: none;
+	background: var(--color-purple-bg-subtle);
 	min-width: 0;
 }
 
@@ -8605,8 +8615,8 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 }
 
 .challenge-pane-organize-entry {
-	margin-top: -8px;
-	margin-bottom: 16px;
+	margin-top: 0;
+	margin-bottom: 14px;
 }
 
 .challenge-pane-organize-entry-btn {
@@ -10054,8 +10064,14 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 
 	/* Same shell as #feed pseudo-channel: clear fixed app header + status bar (see `.chat-feed-channel-route`). */
 	html.chat-page--use-app-mobile-header body.chat-page .chat-page-messages .challenge-pane-root {
-		padding-top: calc(env(safe-area-inset-top, 0px) + 48px + 12px);
+		padding-top: calc(env(safe-area-inset-top, 0px) + 56px + 16px);
 		padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+	}
+
+	/* Organize sits under app header: more air above, tight to first challenge below. */
+	html.chat-page--use-app-mobile-header body.chat-page .challenge-pane-organize-entry {
+		margin-top: 4px;
+		margin-bottom: 12px;
 	}
 
 	.challenge-pane-setup-grid {

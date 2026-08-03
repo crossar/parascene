@@ -1,7 +1,8 @@
 import { describe, expect, test } from '@jest/globals';
 import {
 	challengePinWindowsOverlap,
-	findOverlappingChallengeEditorialPin
+	findOverlappingChallengeEditorialPin,
+	healChallengeEditorialPinsDisplay
 } from '../api_routes/utils/challengeLifecycle.js';
 
 describe('challengePinWindowsOverlap', () => {
@@ -33,6 +34,21 @@ describe('challengePinWindowsOverlap', () => {
 				'2026-08-10T00:00:00.000Z'
 			)
 		).toBe(false);
+	});
+});
+
+describe('healChallengeEditorialPinsDisplay', () => {
+	test('forces show_metadata false on challenge pins including older true values', () => {
+		const out = healChallengeEditorialPinsDisplay([
+			{ id: 'challenge-open-weekly-1', show_metadata: true, extra_spacing: true },
+			{ id: 'admin-promo', show_metadata: true },
+			{ id: 'challenge-winners-x', show_metadata: false, extra_spacing: false }
+		]);
+		expect(out[0].show_metadata).toBe(false);
+		expect(out[0].extra_spacing).toBe(true);
+		expect(out[1].show_metadata).toBe(true);
+		expect(out[2].show_metadata).toBe(false);
+		expect(out[2].extra_spacing).toBe(true);
 	});
 });
 

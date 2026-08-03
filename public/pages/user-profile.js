@@ -837,7 +837,9 @@ function renderImageGrid(
 				itemMeta.challenge_organizer_refs.length > 0) ||
 			(Array.isArray(itemMeta?.challenge_submissions) &&
 				itemMeta.challenge_submissions.length > 0);
-		const challengeBlur = inChallenge && !item.nsfw;
+		const isAudio =
+			item.media_type === 'audio' || (item.meta && item.meta.media_type === 'audio');
+		const challengeBlur = inChallenge && !item.nsfw && !isAudio;
 		const challengeLockedBadge =
 			inChallenge && typeof challengeLockedBadgeHtml === 'function'
 				? challengeLockedBadgeHtml('Locked to a challenge')
@@ -921,6 +923,7 @@ function appendImageGridCards(grid, items, showBadge = false) {
 			publishedBadge = publishedBadgeHtml();
 		}
 		const isVideo = item.media_type === 'video' || (item.meta && item.meta.media_type === 'video');
+		const isAudio = item.media_type === 'audio' || (item.meta && item.meta.media_type === 'audio');
 		const itemMeta = item.meta && typeof item.meta === 'object' ? item.meta : null;
 		const inChallenge =
 			Boolean(creationMetaHasChallengeAnnotation?.(itemMeta)) ||
@@ -932,6 +935,9 @@ function appendImageGridCards(grid, items, showBadge = false) {
 		if (isVideo) {
 			mediaAttrs['data-media-type'] = 'video';
 		}
+		if (isAudio) {
+			mediaAttrs['data-media-type'] = 'audio';
+		}
 		const challengeLockedBadge =
 			inChallenge && typeof challengeLockedBadgeHtml === 'function'
 				? challengeLockedBadgeHtml('Locked to a challenge')
@@ -940,7 +946,7 @@ function appendImageGridCards(grid, items, showBadge = false) {
 			mediaAttrs,
 			badgesHtml: userDeletedBadge + publishedBadge + challengeLockedBadge + routeCardGroupBadgeHtml(item),
 			nsfw: Boolean(item.nsfw),
-			challengeGridBlur: inChallenge && !item.nsfw,
+			challengeGridBlur: inChallenge && !item.nsfw && !isAudio,
 		});
 		const mediaEl = card.querySelector('.route-media');
 		if (mediaEl && typeof hydrateRouteCardMedia === 'function') {

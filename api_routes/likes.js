@@ -1,4 +1,6 @@
 import express from "express";
+import { canViewUnpublishedCreationViaEditorialPin } from "./feed/editorialPin.js";
+import { canViewUnpublishedChallengeResultsCreation } from "./utils/challengeResultsAccess.js";
 
 async function requireUser(req, res, queries) {
   if (!req.auth?.userId) {
@@ -19,20 +21,42 @@ function isPublishedImage(image) {
   return image?.published === true || image?.published === 1;
 }
 
-async function requireCreatedImageAccess({ queries, imageId, userId, userRole }) {
+/** Exported for tests — owner, published, admin, active editorial pin, or challenge results. */
+export async function requireCreatedImageAccess({ queries, imageId, userId, userRole }) {
   // Owner access
   const owned = await queries.selectCreatedImageById?.get(imageId, userId);
   if (owned) {
     return owned;
   }
 
-  // Published access or admin access
+  // Published, admin, active editorial pin, or lasting challenge results access
   const anyImage = await queries.selectCreatedImageByIdAnyUser?.get(imageId);
   if (anyImage) {
     const isPublished = isPublishedImage(anyImage);
     const isAdmin = userRole === 'admin';
     if (isPublished || isAdmin) {
       return anyImage;
+    }
+    try {
+      const pinOk = await canViewUnpublishedCreationViaEditorialPin(queries, {
+        ancestorRow: anyImage
+      });
+      if (pinOk) {
+        return anyImage;
+      }
+    } catch {
+      // deny
+    }
+    try {
+      const resultsOk = await canViewUnpublishedChallengeResultsCreation({
+        image: anyImage,
+        userId
+      });
+      if (resultsOk) {
+        return anyImage;
+      }
+    } catch {
+      // deny
     }
   }
 

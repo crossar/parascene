@@ -410,9 +410,34 @@ function isChatDoomScrollHref(hrefOrPathname) {
 	return /^\/chat\/c\/feed\/doom\/\d+/.test(String(pathOnly || '').replace(/\/+$/, ''));
 }
 
+/** Challenges organize/details — back-button chrome, not footer-tab chrome. */
+function isChallengesSubPagePath(pathname = typeof window !== 'undefined' ? window.location.pathname : '') {
+	const p = String(pathname || '').replace(/\/+$/, '') || '/';
+	if (p === '/challenges/organize') return true;
+	if (isChallengesDetailsPathname(p)) return true;
+	// Organize HTML shell parks on /challenges with a short-lived boot flag.
+	if (p === '/challenges') {
+		try {
+			if (typeof window !== 'undefined' && window.sessionStorage?.getItem('prsn-chat-organize-boot') === '1') {
+				return true;
+			}
+		} catch {
+			// ignore
+		}
+	}
+	return false;
+}
+
+/**
+ * Mobile footer-tab lanes: Feed, Challenges (main), Creations.
+ * Explore and Challenges sub-pages use back-button chrome instead.
+ */
 function shouldUseAppMobileHeaderForChatPath(pathname) {
 	const p = String(pathname || '').replace(/\/+$/, '') || '/';
-	if (p === '/' || p === '/index.html' || p === '/feed' || p === '/explore' || p === '/creations') return true;
+	if (isChallengesSubPagePath(p)) return false;
+	if (p === '/' || p === '/index.html' || p === '/feed' || p === '/creations' || p === '/challenges') {
+		return true;
+	}
 	if (!p.startsWith('/chat/c/')) return false;
 	const segments = p.slice('/chat/c/'.length).split('/').filter(Boolean);
 	const seg0 = segments[0] ? String(segments[0]).trim().toLowerCase() : '';
@@ -420,7 +445,7 @@ function shouldUseAppMobileHeaderForChatPath(pathname) {
 	if (seg0 === 'feed' && seg1 === 'doom') return false;
 	const slug = seg0;
 	if (!slug || slug === 'feedback') return false;
-	return slug === 'feed' || slug === 'explore' || slug === 'creations';
+	return slug === 'feed' || slug === 'challenges' || slug === 'creations';
 }
 
 function shouldShowMobileSidebarFromLocation() {
@@ -431,8 +456,9 @@ function shouldShowMobileSidebarFromLocation() {
 function shouldShowAppMobileChromeForCurrentChatView(activePseudoSlug) {
 	if (!isChatPageMobileLayout()) return false;
 	if (shouldShowMobileSidebarFromLocation()) return true;
+	if (isChallengesSubPagePath(window.location.pathname)) return false;
 	const slug = String(activePseudoSlug || '').trim().toLowerCase();
-	if (slug) return slug === 'feed' || slug === 'explore' || slug === 'creations';
+	if (slug) return slug === 'feed' || slug === 'challenges' || slug === 'creations';
 	return shouldUseAppMobileHeaderForChatPath(window.location.pathname);
 }
 
@@ -11573,7 +11599,7 @@ export async function initChatPage(root, options = {}) {
 					await loadChallengesChannelMessages();
 				},
 				postMessage: (body) => postChatMessage(tid, body),
-				toggleReaction: (mid, ek) => toggleChatMessageReaction(mid, ek),
+				toggleReaction: (mid, ek, opts) => toggleChatMessageReaction(mid, ek, opts),
 				reactionIconHtml,
 				showOrganizeEntry: chatChallengesOrganizerEligible,
 				onDetailsChrome: (info) => {
@@ -11740,7 +11766,7 @@ export async function initChatPage(root, options = {}) {
 		const opened = challengesChannelModule.openChallengeVoteModalFromMessages?.({
 			messages,
 			viewerId: viewerIdNum,
-			toggleReaction: (mid, ek) => toggleChatMessageReaction(mid, ek),
+			toggleReaction: (mid, ek, opts) => toggleChatMessageReaction(mid, ek, opts),
 			onAfterVote: () => {
 				/* Badge sync only — do not refetch the whole #challenges channel after each score. */
 			}

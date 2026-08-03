@@ -250,7 +250,12 @@ function applyChallengeEntryToMediaEl(mediaEl, entered) {
 	const isFeedImage = mediaEl.classList.contains('feed-card-image');
 	const pendingClass = isFeedImage ? 'feed-card-image--challenge-pending' : 'route-media--challenge-pending';
 	const isNsfw = mediaEl.classList.contains('nsfw');
-	if (entered && !isNsfw) {
+	// Audio/Suno tiles keep their cover visible (music badge); don't apply pending blur.
+	const isAudio =
+		mediaEl.querySelector('.creation-music-badge:not(.creation-video-import-badge)') != null ||
+		mediaEl.getAttribute('data-media-type') === 'audio' ||
+		mediaEl.closest?.('[data-media-type="audio"]') != null;
+	if (entered && !isNsfw && !isAudio) {
 		mediaEl.classList.add(pendingClass);
 		if (!mediaEl.querySelector('.route-media-challenge-blur-overlay')) {
 			mediaEl.insertAdjacentHTML(

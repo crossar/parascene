@@ -71,6 +71,14 @@ export function createConnectCommentRowElement(comment, opts = {}) {
 		? comment.created_image_title.trim()
 		: (Number.isFinite(createdImageId) && createdImageId > 0 ? `Creation ${createdImageId}` : 'Creation');
 
+	const isChallengeMedia =
+		comment?.created_image_is_challenge_media === true ||
+		/^(monthly|weekly|music)\s+challenge\s*:/i.test(createdImageTitle) ||
+		(Array.isArray(comment?.created_image_meta?.challenge_feed_pins) &&
+			comment.created_image_meta.challenge_feed_pins.length > 0) ||
+		(Array.isArray(comment?.created_image_meta?.challenge_organizer_refs) &&
+			comment.created_image_meta.challenge_organizer_refs.length > 0);
+
 	const creatorDisplayName = (typeof comment?.created_image_display_name === 'string' && comment.created_image_display_name.trim())
 		? comment.created_image_display_name.trim()
 		: '';
@@ -83,6 +91,9 @@ export function createConnectCommentRowElement(comment, opts = {}) {
 	if (extraRootClass) {
 		rootClasses.push(extraRootClass);
 	}
+	if (isChallengeMedia) {
+		rootClasses.push('connect-comment--challenge-media');
+	}
 	if (!href) {
 		rootClasses.push('is-disabled');
 	}
@@ -93,7 +104,7 @@ export function createConnectCommentRowElement(comment, opts = {}) {
 		row.dataset.href = href;
 		const previewFull = imageUrl || resolvedThumb;
 		if (previewFull) row.dataset.previewImageUrl = previewFull;
-		row.setAttribute('aria-label', `Open creation ${createdImageTitle}`);
+		row.setAttribute('aria-label', `Open ${createdImageTitle}`);
 		row.addEventListener('click', (e) => {
 			const target = e.target;
 			if (target instanceof HTMLElement && target.closest('a')) return;
@@ -128,27 +139,30 @@ export function createConnectCommentRowElement(comment, opts = {}) {
 	creationTitle.className = 'connect-comment-creation-title';
 	creationTitle.textContent = createdImageTitle;
 
-	const creatorRow = document.createElement('div');
-	creatorRow.className = 'connect-comment-creator';
+	/** @type {HTMLDivElement | null} */
+	let creatorRow = null;
+	if (!isChallengeMedia) {
+		creatorRow = document.createElement('div');
+		creatorRow.className = 'connect-comment-creator';
 
-	const creatorId = Number(comment?.created_image_user_id ?? 0);
-	const creatorProfileHref = buildProfilePath({ userName: creatorUserName, userId: creatorId });
-	const creatorName = creatorDisplayName || (creatorUserName ? creatorUserName : 'User');
-	const creatorHandle = creatorUserName ? `@${creatorUserName}` : '';
-	const creatorSeed = creatorUserName || String(creatorId || '') || creatorName;
-	const creatorColor = getAvatarColor(creatorSeed);
-	const creatorAvatarUrl = typeof comment?.created_image_avatar_url === 'string' ? comment.created_image_avatar_url.trim() : '';
-	const creatorPlan = comment?.created_image_owner_plan === 'founder';
-	const creatorAvatarHtml = renderCommentAvatarHtml({
-		avatarUrl: creatorAvatarUrl,
-		displayName: creatorName,
-		color: creatorColor,
-		href: creatorProfileHref,
-		isFounder: creatorPlan,
-		flairSize: 'xs',
-	});
+		const creatorId = Number(comment?.created_image_user_id ?? 0);
+		const creatorProfileHref = buildProfilePath({ userName: creatorUserName, userId: creatorId });
+		const creatorName = creatorDisplayName || (creatorUserName ? creatorUserName : 'User');
+		const creatorHandle = creatorUserName ? `@${creatorUserName}` : '';
+		const creatorSeed = creatorUserName || String(creatorId || '') || creatorName;
+		const creatorColor = getAvatarColor(creatorSeed);
+		const creatorAvatarUrl = typeof comment?.created_image_avatar_url === 'string' ? comment.created_image_avatar_url.trim() : '';
+		const creatorPlan = comment?.created_image_owner_plan === 'founder';
+		const creatorAvatarHtml = renderCommentAvatarHtml({
+			avatarUrl: creatorAvatarUrl,
+			displayName: creatorName,
+			color: creatorColor,
+			href: creatorProfileHref,
+			isFounder: creatorPlan,
+			flairSize: 'xs',
+		});
 
-	creatorRow.innerHTML = `
+		creatorRow.innerHTML = `
 		<div class="connect-comment-creator-left">
 			${creatorAvatarHtml}
 			<div class="connect-comment-creator-who">
@@ -157,7 +171,7 @@ export function createConnectCommentRowElement(comment, opts = {}) {
 			</div>
 		</div>
 	`;
-
+	}
 	const commenterId = Number(comment?.user_id ?? 0);
 	const profileHref = buildProfilePath({ userName, userId: commenterId });
 	const seed = userName || String(comment?.user_id ?? '') || commenterName;
@@ -255,7 +269,7 @@ export function createConnectCommentRowElement(comment, opts = {}) {
 
 	row.appendChild(thumbWrap);
 	row.appendChild(creationTitle);
-	row.appendChild(creatorRow);
+	if (creatorRow) row.appendChild(creatorRow);
 	row.appendChild(commentText);
 	if (replyIndicatorEl) {
 		row.appendChild(replyIndicatorEl);

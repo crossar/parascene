@@ -75,11 +75,12 @@ function youtubeThumbnailCandidates(videoId) {
 	const id = String(videoId || "").trim();
 	if (!id) return [];
 	const enc = encodeURIComponent(id);
-	// Prefer higher-res frames; hqdefault often includes letterbox bars for vertical videos.
+	// Prefer higher-res frames first. oEmbed usually returns hqdefault (~480×360),
+	// which is too soft after Shorts 9:16 crop — keep it as a last-resort only.
 	return [
 		`https://i.ytimg.com/vi/${enc}/maxresdefault.jpg`,
-		`https://i.ytimg.com/vi/${enc}/sddefault.jpg`,
 		`https://i.ytimg.com/vi/${enc}/hq720.jpg`,
+		`https://i.ytimg.com/vi/${enc}/sddefault.jpg`,
 		`https://i.ytimg.com/vi/${enc}/hqdefault.jpg`,
 	];
 }
@@ -140,18 +141,17 @@ export async function resolveYoutubeVideoFromUrl(rawUrl) {
 		// Fall through to id-based thumbnail; title stays empty.
 	}
 
-	const idCandidates = youtubeThumbnailCandidates(videoId);
-	const thumbnailCandidates = [];
-	if (thumbnailUrl) thumbnailCandidates.push(thumbnailUrl);
-	for (const candidate of idCandidates) {
-		if (!thumbnailCandidates.includes(candidate)) thumbnailCandidates.push(candidate);
+	// High-res id-based frames first; oEmbed thumb (often hqdefault) only as fallback.
+	const thumbnailCandidates = youtubeThumbnailCandidates(videoId);
+	if (thumbnailUrl && !thumbnailCandidates.includes(thumbnailUrl)) {
+		thumbnailCandidates.push(thumbnailUrl);
 	}
 
 	return {
 		videoId,
 		title,
 		creator,
-		thumbnailUrl: thumbnailCandidates[0] || "",
+		thumbnailUrl: thumbnailCandidates[0] || thumbnailUrl || "",
 		thumbnailCandidates,
 		url,
 		embedUrl: youtubeEmbedUrl(videoId),

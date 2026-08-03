@@ -18,7 +18,7 @@ export function creationMetaHasChallengeSubmission(meta) {
 /**
  * @param {unknown} meta
  * @param {number} [nowMs]
- * @returns {{ pin_id: string, challenge_id: string, kind: string, until: string|null, starts_at: string|null }[]}
+ * @returns {{ pin_id: string, challenge_id: string, kind: string, until: string|null, starts_at: string|null, title: string, details: string }[]}
  */
 export function listActiveChallengeFeedPinsFromMeta(meta, nowMs = Date.now()) {
 	const arr = meta?.challenge_feed_pins;
@@ -46,7 +46,13 @@ export function listActiveChallengeFeedPinsFromMeta(meta, nowMs = Date.now()) {
 			challenge_id: challengeId,
 			kind,
 			until,
-			starts_at: startsAt
+			starts_at: startsAt,
+			title: typeof raw.title === 'string' ? raw.title.trim() : '',
+			details: typeof raw.details === 'string' ? raw.details.trim() : '',
+			track:
+				raw.track != null
+					? String(raw.track).trim().toLowerCase()
+					: ''
 		});
 	}
 	return out;
@@ -82,7 +88,9 @@ export function creationMetaHasChallengeAnnotation(meta, nowMs = Date.now()) {
  *   challenge_id?: string,
  *   kind?: string,
  *   until?: string|null,
- *   starts_at?: string|null
+ *   starts_at?: string|null,
+ *   title?: string,
+ *   details?: string
  * }} pin
  * @returns {object}
  */
@@ -96,6 +104,27 @@ export function upsertChallengeFeedPinInMeta(meta, pin) {
 		return String(row.pin_id || '').trim() !== pinId;
 	});
 	const kindRaw = typeof pin.kind === 'string' ? pin.kind.trim().toLowerCase() : '';
+	const prevRow = prev.find((row) => row && typeof row === 'object' && String(row.pin_id || '').trim() === pinId);
+	const title =
+		typeof pin.title === 'string' && pin.title.trim()
+			? pin.title.trim()
+			: typeof prevRow?.title === 'string'
+				? prevRow.title.trim()
+				: '';
+	const details =
+		typeof pin.details === 'string' && pin.details.trim()
+			? pin.details.trim()
+			: typeof prevRow?.details === 'string'
+				? prevRow.details.trim()
+				: '';
+	const trackRaw =
+		pin.track != null
+			? String(pin.track).trim().toLowerCase()
+			: typeof prevRow?.track === 'string'
+				? prevRow.track.trim().toLowerCase()
+				: '';
+	const track =
+		trackRaw === 'weekly' || trackRaw === 'suno' || trackRaw === 'monthly' ? trackRaw : '';
 	filtered.push({
 		pin_id: pinId,
 		challenge_id: pin.challenge_id != null ? String(pin.challenge_id).trim() : '',
@@ -103,6 +132,9 @@ export function upsertChallengeFeedPinInMeta(meta, pin) {
 		until: typeof pin.until === 'string' && pin.until.trim() ? pin.until.trim() : null,
 		starts_at:
 			typeof pin.starts_at === 'string' && pin.starts_at.trim() ? pin.starts_at.trim() : null,
+		title,
+		details,
+		...(track ? { track } : {}),
 		pinned_at: new Date().toISOString()
 	});
 	base.challenge_feed_pins = filtered;

@@ -63,6 +63,7 @@ let openShareAudioModal;
 let openAdjustImageModal;
 let creationMetaHasActiveChallengeFeedPin;
 let creationMetaHasChallengeOrganizerRef;
+let creationMetaHasChallengeResultsOrganizerRef;
 let creationMetaHasChallengeAnnotation;
 let challengeOrganizerRefRoleLabel;
 let listChallengeOrganizerRefsFromMeta;
@@ -367,6 +368,7 @@ async function loadDeps() {
 
 		const organizerRefMod = await import(`/shared/challengeOrganizerRefMeta.js${qs}`);
 		creationMetaHasChallengeOrganizerRef = organizerRefMod.creationMetaHasChallengeOrganizerRef;
+		creationMetaHasChallengeResultsOrganizerRef = organizerRefMod.creationMetaHasChallengeResultsOrganizerRef;
 		challengeOrganizerRefRoleLabel = organizerRefMod.challengeOrganizerRefRoleLabel;
 		listChallengeOrganizerRefsFromMeta = organizerRefMod.listChallengeOrganizerRefsFromMeta;
 
@@ -1943,8 +1945,8 @@ function isExternalImportCreation(mediaType, meta) {
 }
 
 /**
- * Cover + click-to-play Suno iframe (do not mount iframe on page load).
- * Full-bleed over the hero once playing (same idea as YouTube imports).
+ * Mount Suno embed immediately over the hero (no click-to-play gate).
+ * YouTube imports keep click-to-play separately.
  * @param {HTMLElement | null | undefined} imageWrapper
  * @param {object | null | undefined} meta
  */
@@ -1986,34 +1988,20 @@ function mountCreationDetailSunoPlayer(imageWrapper, meta) {
 	}
 	if (!embedSrc) return;
 
-	imageWrapper.classList.add('hero-audio-pending');
+	imageWrapper.classList.add('hero-audio-playing');
 
-	const playBtn = document.createElement('button');
-	playBtn.type = 'button';
-	playBtn.className = 'creation-detail-suno-play';
-	playBtn.setAttribute('data-suno-play', '');
-	playBtn.setAttribute('aria-label', `Play ${title}`);
-	playBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg><span>Play song</span>`;
-	playBtn.addEventListener('click', (e) => {
-		e.preventDefault();
-		e.stopPropagation();
-		if (imageWrapper.querySelector('[data-suno-embed]')) return;
-		const embedWrap = document.createElement('div');
-		embedWrap.className = 'creation-detail-suno-embed';
-		embedWrap.setAttribute('data-suno-embed', '');
-		const iframe = document.createElement('iframe');
-		iframe.className = 'creation-detail-suno-embed-iframe';
-		iframe.src = embedSrc;
-		iframe.title = title;
-		iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
-		iframe.setAttribute('allowfullscreen', '');
-		iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
-		embedWrap.appendChild(iframe);
-		imageWrapper.appendChild(embedWrap);
-		imageWrapper.classList.remove('hero-audio-pending');
-		imageWrapper.classList.add('hero-audio-playing');
-	});
-	imageWrapper.appendChild(playBtn);
+	const embedWrap = document.createElement('div');
+	embedWrap.className = 'creation-detail-suno-embed';
+	embedWrap.setAttribute('data-suno-embed', '');
+	const iframe = document.createElement('iframe');
+	iframe.className = 'creation-detail-suno-embed-iframe';
+	iframe.src = embedSrc;
+	iframe.title = title;
+	iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+	iframe.setAttribute('allowfullscreen', '');
+	iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+	embedWrap.appendChild(iframe);
+	imageWrapper.appendChild(embedWrap);
 }
 
 /**
@@ -3378,28 +3366,61 @@ async function loadCreation() {
 			mediaType: typeof creation.media_type === 'string' ? creation.media_type : (creation.meta?.media_type || 'image')
 		});
 
+		const metaEarly = creation.meta || null;
+		const feedPinEarly =
+			creation.feed_pin && typeof creation.feed_pin === 'object' ? creation.feed_pin : null;
+		const isFeedPinPromo =
+			feedPinEarly?.active === true ||
+			(typeof creationMetaHasActiveChallengeFeedPin === 'function' &&
+				creationMetaHasActiveChallengeFeedPin(metaEarly));
+		// Results stay interactive after the pin window; all active pins use the same chrome.
+		const isChallengeResultsCreation =
+			(typeof creationMetaHasChallengeResultsOrganizerRef === 'function' &&
+				creationMetaHasChallengeResultsOrganizerRef(metaEarly)) ||
+			(Array.isArray(metaEarly?.challenge_organizer_refs) &&
+				metaEarly.challenge_organizer_refs.some(
+					(r) => r && typeof r === 'object' && String(r.role || '').trim().toLowerCase() === 'results'
+				)) ||
+			(Array.isArray(creation?.challenge_organizer?.refs) &&
+				creation.challenge_organizer.refs.some(
+					(r) => r && typeof r === 'object' && String(r.role || '').trim().toLowerCase() === 'results'
+				));
+		const isPinnedInteractiveDetail = isFeedPinPromo || isChallengeResultsCreation;
+
 		perf.expectReady('viewerProfile', 'creatorProfile', 'lineage');
 
-		// Lineage descendants come from the creation payload; /children is a fallback for older APIs.
-		const descendantsPromise = resolveLineageDescendants(creationId, creation);
+		// Lineage is noise on pinned promo/winners pages — keep those light.
+		const descendantsPromise = isFeedPinPromo
+			? Promise.resolve([])
+			: resolveLineageDescendants(creationId, creation);
 
 		const lineageOfQuerySuffix = `?lineage_of=${encodeURIComponent(String(creationId))}`;
 
 		const status = creation.status || 'completed';
-		const meta = creation.meta || null;
+		const meta = metaEarly;
 
 		const creatorIdEarly = Number(creation?.creator?.id ?? creation?.user_id ?? 0);
 
-		const viewerProfilePromise = perf.timeAsync('viewerProfile', 'fetch', async () => {
-			try {
-				return await fetchJsonWithStatusDeduped('/api/profile', { credentials: 'include' }, { windowMs: 2000 });
-			} catch {
-				return { ok: false };
-			}
-		});
+		const viewerProfilePromise = (() => {
+			// Pins + results need the viewer for the comments composer.
+			return perf.timeAsync('viewerProfile', 'fetch', async () => {
+				try {
+					return await fetchJsonWithStatusDeduped('/api/profile', { credentials: 'include' }, { windowMs: 2000 });
+				} catch {
+					return { ok: false };
+				}
+			});
+		})();
 
-		const creatorProfilePromise = (Number.isFinite(creatorIdEarly) && creatorIdEarly > 0)
-			? perf.timeAsync('creatorProfile', 'fetch', async () => {
+		const creatorProfilePromise = (() => {
+			if (isPinnedInteractiveDetail) {
+				perf.skipPart('creatorProfile', isFeedPinPromo ? 'feed-pin' : 'challenge-results');
+				return Promise.resolve({ ok: false });
+			}
+			if (!(Number.isFinite(creatorIdEarly) && creatorIdEarly > 0)) {
+				return Promise.resolve({ ok: false });
+			}
+			return perf.timeAsync('creatorProfile', 'fetch', async () => {
 				try {
 					return await fetchJsonWithStatusDeduped(
 						`/api/users/${creatorIdEarly}/profile`,
@@ -3409,10 +3430,9 @@ async function loadCreation() {
 				} catch {
 					return { ok: false };
 				}
-			})
-			: Promise.resolve({ ok: false });
-
-		const historyRawPrefetch = meta?.history;
+			});
+		})();
+		const historyRawPrefetch = isFeedPinPromo ? [] : meta?.history;
 		const historyIdsPrefetch = Array.isArray(historyRawPrefetch)
 			? historyRawPrefetch.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0)
 			: [];
@@ -3533,6 +3553,8 @@ async function loadCreation() {
 		const organizerRefLabel =
 			organizerRefLabels.length > 0 ? [...new Set(organizerRefLabels)].join(' · ') : 'Challenge media';
 		const challengeMediaLocked = hasActiveFeedPin || hasOrganizerRef;
+		const hideIdentifyActionChrome = hasActiveFeedPin || isChallengeResultsCreation;
+		const showCommentsWithoutPublish = hasActiveFeedPin || isChallengeResultsCreation;
 		const feedPinUntilRaw = typeof feedPin?.until === 'string' ? feedPin.until.trim() : '';
 		const feedPinKinds = Array.isArray(feedPin?.pins)
 			? feedPin.pins.map((p) => (p && typeof p.kind === 'string' ? p.kind : 'other'))
@@ -3583,10 +3605,14 @@ async function loadCreation() {
 		const shareMounted = isShareMountedView();
 
 		// Load like metadata from backend (no localStorage fallback).
+		// Pinned / results detail hides the action strip — skip the like round-trip.
 		let likeMeta = { like_count: 0, viewer_liked: false };
-		// When the detail page is served at a share URL (/s/...), don't touch likes for private/unpublished creations.
-		// Likes are a "public surface area" and we don't want extra API calls here.
-		if (!shareMounted) {
+		if (shareMounted || isPinnedInteractiveDetail) {
+			perf.skipPart(
+				'likeMeta',
+				shareMounted ? 'share-mounted' : isFeedPinPromo ? 'feed-pin' : 'challenge-results'
+			);
+		} else {
 			perf.expectReady('likeMeta');
 			try {
 				await perf.timeAsync('likeMeta', 'fetch', async () => {
@@ -3603,8 +3629,6 @@ async function loadCreation() {
 				// ignore like meta load failures
 			}
 			perf.markReady('likeMeta');
-		} else {
-			perf.skipPart('likeMeta', 'share-mounted');
 		}
 		if (!isCurrentLoad()) return;
 
@@ -4310,8 +4334,14 @@ async function loadCreation() {
 			: '';
 		const hasPublishedMeta = isPublished ? hasPublishedDate : true;
 		const hasMetaInDescription = !!(serverName || methodName || displayModel || durationStr || hasPublishedMeta);
+		// Pinned / results pages: show description content, skip method/published meta chrome.
 		const showDescriptionBlock =
-			descriptionText || hasPromptSection || hasStyle || hasAudioClip || lineageSectionHtml || hasMetaInDescription;
+			descriptionText ||
+			hasPromptSection ||
+			hasStyle ||
+			hasAudioClip ||
+			lineageSectionHtml ||
+			(!isPinnedInteractiveDetail && hasMetaInDescription);
 
 		if (showDescriptionBlock) {
 			const descriptionParts = [];
@@ -4361,16 +4391,18 @@ async function loadCreation() {
 
 			const descriptionInnerHtml = descriptionParts.length ? descriptionParts.join('') : '';
 
-			const metaLineHtml = buildDescriptionMetaLineHtml({
-				serverName,
-				methodName,
-				displayModel,
-				durationStr,
-				isPublished,
-				publishedTimeAgo,
-				publishedAtTitle,
-				escapeHtml
-			});
+			const metaLineHtml = isPinnedInteractiveDetail
+				? ''
+				: buildDescriptionMetaLineHtml({
+						serverName,
+						methodName,
+						displayModel,
+						durationStr,
+						isPublished,
+						publishedTimeAgo,
+						publishedAtTitle,
+						escapeHtml
+					});
 
 			descriptionHtml = html`
 				<div class="creation-detail-published${lineageSectionHtml ? ' has-history' : ''}">
@@ -4591,26 +4623,60 @@ async function loadCreation() {
 			</div>`
 			: '';
 
-		const feedPinBannerTitle = feedPinIsWinners
+		const feedPinChallenge =
+			feedPin?.challenge && typeof feedPin.challenge === 'object' ? feedPin.challenge : null;
+		const feedPinChallengeId =
+			(typeof feedPin?.challenge_id === 'string' && feedPin.challenge_id.trim()) ||
+			(typeof feedPinChallenge?.challenge_id === 'string' && feedPinChallenge.challenge_id.trim()) ||
+			(Array.isArray(feedPin?.pins)
+				? feedPin.pins
+						.map((p) => (typeof p?.challenge_id === 'string' ? p.challenge_id.trim() : ''))
+						.find(Boolean)
+				: '') ||
+			(Array.isArray(meta?.challenge_feed_pins)
+				? meta.challenge_feed_pins
+						.map((p) => (typeof p?.challenge_id === 'string' ? p.challenge_id.trim() : ''))
+						.find(Boolean)
+				: '') ||
+			'';
+		const feedPinChallengeTitle =
+			typeof feedPinChallenge?.title === 'string' ? feedPinChallenge.title.trim() : '';
+		const feedPinChallengeDetails =
+			typeof feedPinChallenge?.details === 'string' ? feedPinChallenge.details.trim() : '';
+		const feedPinKindLabel = feedPinIsWinners
 			? 'Challenge winners'
 			: feedPinIsOpen
 				? 'Challenge promo'
 				: 'Challenge pin';
-		const feedPinBannerDetail = isOwner
-			? `This creation is featured for a challenge${feedPinUntilLabel ? ` until ${feedPinUntilLabel}` : ''}. You can’t publish or delete it while it’s pinned — same as a challenge entry.`
-			: `This creation is featured for a community challenge${feedPinUntilLabel ? ` until ${feedPinUntilLabel}` : ''}.`;
+		const feedPinBannerTitle = feedPinChallengeTitle || feedPinKindLabel;
+		const feedPinUntilLine = feedPinUntilLabel
+			? `Featured until ${feedPinUntilLabel}.`
+			: 'Featured for a community challenge.';
+		const feedPinOwnerLockLine = isOwner
+			? ' You can’t publish or delete it while it’s pinned — same as a challenge entry.'
+			: '';
+		const feedPinDetailsHtml = feedPinChallengeDetails
+			? html`<div class="creation-detail-challenge-banner-details user-text">${processUserText(feedPinChallengeDetails, { messageMarkdown: true })}</div>`
+			: '';
+		const feedPinBannerDetail = `${feedPinUntilLine}${feedPinOwnerLockLine}`;
+		const feedPinChallengeHref = feedPinChallengeId
+			? `/challenges/details/${encodeURIComponent(feedPinChallengeId)}`
+			: challengesChannelHref;
+		const feedPinCtaLabel = feedPinChallengeId ? 'View challenge' : 'Open Challenges';
 		const feedPinBannerHtml = hasActiveFeedPin
 			? html`
 			<div class="creation-detail-challenge-banner" role="status">
 				<div class="creation-detail-challenge-banner-main">
 					<div class="creation-detail-challenge-banner-icon">${challengeTrophyIconSvg}</div>
 					<div class="creation-detail-challenge-banner-body">
-						<p class="creation-detail-challenge-banner-title">${feedPinBannerTitle}</p>
+						${feedPinChallengeTitle ? html`<p class="creation-detail-challenge-banner-kind">${feedPinKindLabel}</p>` : ''}
+						<p class="creation-detail-challenge-banner-title">${escapeHtml(feedPinBannerTitle)}</p>
+						${feedPinDetailsHtml}
 						<p class="creation-detail-challenge-banner-detail">${feedPinBannerDetail}</p>
 					</div>
 				</div>
 				<div class="creation-detail-challenge-banner-actions">
-					<a class="creation-detail-challenge-banner-link btn-outlined" href="${challengesChannelHref}">Open Challenges</a>
+					<a class="creation-detail-challenge-banner-link btn-outlined" href="${feedPinChallengeHref}">${feedPinCtaLabel}</a>
 				</div>
 			</div>`
 			: '';
@@ -4685,13 +4751,9 @@ async function loadCreation() {
 
 		const hasNsfwTag = Boolean(creation.nsfw ?? creation.meta?.nsfw);
 		const needsTitleSlot = Boolean(displayTitle || (isGroupCreation && groupSources.length > 0));
+		// Feed-pin promo uses the banner below (not a title-row chip) so the pill doesn't sit on the box.
 		const showTitleRow =
-			needsTitleSlot || hasNsfwTag || hasChallengeSubmission || hasActiveFeedPin || hasOrganizerRef;
-		const feedPinChipLabel = feedPinIsWinners
-			? 'Challenge winners'
-			: feedPinIsOpen
-				? 'Challenge promo'
-				: 'Challenge pin';
+			needsTitleSlot || hasNsfwTag || hasChallengeSubmission || (hasOrganizerRef && !hasActiveFeedPin);
 
 		const detailRenderStart = performance.now();
 		detailContent.innerHTML = html`
@@ -4699,7 +4761,6 @@ async function loadCreation() {
 				${hasNsfwTag ? html`<span class="creation-detail-nsfw-tag">NSFW</span>` : ''}
 				${hasChallengeSubmission ? html`<span class="creation-detail-challenge-chip${challengeAllEnded ? ' creation-detail-challenge-chip-ended' : ''}" title="${challengeAllEnded ? 'Entered in a community challenge that has ended' : 'Entered in a community challenge'}">${challengeTrophyIconSvg}<span class="creation-detail-challenge-chip-label">${challengeAllEnded ? 'Challenge ended' : 'Challenge entry'}</span></span>` :
 				''}
-				${hasActiveFeedPin ? html`<span class="creation-detail-challenge-chip" title="${feedPinBannerTitle}">${challengeTrophyIconSvg}<span class="creation-detail-challenge-chip-label">${feedPinChipLabel}</span></span>` : ''}
 				${hasOrganizerRef && !hasActiveFeedPin ? html`<span class="creation-detail-challenge-chip" title="${organizerRefLabel}">${challengeTrophyIconSvg}<span class="creation-detail-challenge-chip-label">${organizerRefLabel}</span></span>` : ''}
 				${needsTitleSlot ? html`<div class="creation-detail-title${isUntitled ? ' creation-detail-title-untitled' : ''}"${displayTitle ? '' : ' hidden'}>${displayTitle ? escapeHtml(displayTitle) : ''}</div>` : ''}
 			</div>` : ''}
@@ -4707,9 +4768,9 @@ async function loadCreation() {
 			${organizerBannerHtml}
 			${feedPinBannerHtml}
 			${challengeDetailBannerHtml}
-			${isOwner && !isPublished ? html`<section class="creation-detail-organizer-assign" data-organizer-assign hidden></section>` : ''}
-			${renderCreationDetailActionStrip(stripData, escapeHtml)}
-			${renderCreationDetailMoreMenu(menuData, escapeHtml)}
+			${isOwner && !isPublished && !hasActiveFeedPin ? html`<section class="creation-detail-organizer-assign" data-organizer-assign hidden></section>` : ''}
+			${hideIdentifyActionChrome ? '' : renderCreationDetailActionStrip(stripData, escapeHtml)}
+			${hideIdentifyActionChrome ? '' : renderCreationDetailMoreMenu(menuData, escapeHtml)}
 			${groupLeadDescriptionHtml}
 			${groupSectionHtml}
 			${groupSectionHtml ? html`<div class="creation-detail-group-divider" aria-hidden="true"></div>` : ''}
@@ -4757,17 +4818,17 @@ async function loadCreation() {
 				</button>
 			</div>
 			
-			${isPublished && !isFailed ? html`
+			${(isPublished || showCommentsWithoutPublish) && !isFailed ? html`
 			<div data-creation-comments-host></div>
 
-			<section class="creation-detail-related" data-related-container aria-label="More like this" style="display: none;">
+			${isPublished ? html`<section class="creation-detail-related" data-related-container aria-label="More like this" style="display: none;">
 				<div class="creation-detail-related-inner">
 					<h2 class="creation-detail-related-heading">More like this</h2>
 					<div class="route-cards content-cards-image-grid creation-detail-related-grid" data-related-grid role="list">
 					</div>
 					<div class="creation-detail-related-sentinel" data-related-sentinel aria-hidden="true"></div>
 				</div>
-			</section>
+			</section>` : ''}
 			` : ''}
 			<div class="creation-detail-set-avatar-modal-overlay" data-set-avatar-modal aria-hidden="true">
 				<div class="creation-detail-set-avatar-modal">
@@ -6922,7 +6983,7 @@ async function loadCreation() {
 			);
 			perf.markReady('comments');
 		} else {
-			perf.skipPart('comments', 'not-published-or-failed');
+			perf.skipPart('comments', isFailed ? 'failed' : 'not-published');
 		}
 
 		// Related section and transition recording: only when creation is published and not failed.

@@ -773,8 +773,9 @@ function buildFeedCreationCard(
 	const isVideo = mediaType === "video" && typeof item.video_url === "string" && item.video_url;
 
 	const parsedMeta = parseFeedItemMeta(item);
+	// Audio/Suno covers stay visible — challenge blur is for image/video submission art.
 	const challengeThumbnailBlur =
-		creationMetaHasChallengeSubmission(parsedMeta) && !item.nsfw;
+		creationMetaHasChallengeSubmission(parsedMeta) && !item.nsfw && mediaType !== 'audio';
 	const challengeBlurClass = challengeThumbnailBlur ? ' feed-card-image--challenge-pending' : '';
 	const challengeBlurOverlay = challengeThumbnailBlur
 		? html`<span class="route-media-challenge-blur-overlay" aria-hidden="true"></span>${challengeEnteredBadgeHtml()}`

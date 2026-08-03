@@ -1157,8 +1157,15 @@ html.chat-page body.chat-page.chat-page--challenges-organize .chat-page-mobile-c
 
 /* In-pane Organize CTA (matches Vote hero size; quiet outline) */
 html.chat-page body.chat-page .challenge-pane-organize-entry {
-	margin-top: -8px;
-	margin-bottom: 16px;
+	margin-top: 0;
+	margin-bottom: 14px;
+}
+
+@media (max-width: 768px) {
+	html.chat-page--use-app-mobile-header body.chat-page .challenge-pane-organize-entry {
+		margin-top: 4px;
+		margin-bottom: 12px;
+	}
 }
 
 html.chat-page body.chat-page .challenge-pane-organize-entry-btn {
@@ -1193,6 +1200,20 @@ html.chat-page body.chat-page .challenge-pane-organize-entry-btn:hover {
 html.chat-page body.chat-page .challenge-pane-organize-entry-btn:focus-visible {
 	outline: 2px solid color-mix(in srgb, var(--accent, #5eead4) 55%, transparent);
 	outline-offset: 3px;
+}
+
+/* Stats callouts: fill, not outline — so they don’t read as buttons. */
+html.chat-page body.chat-page .challenge-pane-hero-stat {
+	border: none;
+	background: var(--color-purple-bg-subtle, color-mix(in srgb, var(--color-purple, #a78bfa) 14%, transparent));
+}
+
+html.chat-page body.chat-page .challenge-pane-organizer-stats-totals {
+	margin: 0 0 4px;
+}
+
+html.chat-page body.chat-page .challenge-pane-organizer-stats-totals.challenge-pane-hero-stats {
+	margin-top: 0;
 }
 
 html.chat-page body.chat-page.chat-page--challenges-organizer-modal-open .chat-page-mobile-chrome {

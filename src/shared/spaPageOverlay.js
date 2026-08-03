@@ -679,12 +679,19 @@ export function routeSpaPageOverlayFromEmbed(href, options = {}) {
 		path === '/creations' ||
 		path === '/feed' ||
 		path === '/explore' ||
-		path === '/challenges' ||
+		path === '/challenges'
+	) {
+		dismissEntireSpaPageOverlay();
+		return;
+	}
+
+	// Organize / challenge details live on the chat shell — leave the overlay and SPA-navigate.
+	if (
 		path === '/challenges/organize' ||
 		path === '/challenges/details' ||
 		path.startsWith('/challenges/details/')
 	) {
-		dismissEntireSpaPageOverlay();
+		shellOutFromSpaPageOverlay(target);
 		return;
 	}
 
@@ -848,7 +855,23 @@ function dismissSpaPageOverlayViaHistory() {
  * @returns {boolean}
  */
 export function handleSpaPageOverlayPopstate(ev) {
-	if (!isSpaPageOverlayOpen()) return false;
+	const state = window.history?.state;
+
+	// Shell-out from an overlay (e.g. View challenge) closes the DOM but leaves the
+	// /creations/:id history entry. Back should reopen that overlay.
+	if (!isSpaPageOverlayOpen()) {
+		if (state && typeof state === 'object' && state[HISTORY_FLAG]) {
+			const href =
+				(typeof state.prsnOverlayHref === 'string' && state.prsnOverlayHref.trim()) ||
+				window.location.pathname + window.location.search + window.location.hash;
+			if (parseSpaOverlayTarget(href)) {
+				openSpaPageOverlayFromHref(href, { restoreFromHistory: true });
+				if (ev && typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+				return true;
+			}
+		}
+		return false;
+	}
 
 	const store = getOverlayStore();
 	if (store.overlayDismissEntirePending) {
@@ -859,7 +882,6 @@ export function handleSpaPageOverlayPopstate(ev) {
 		return true;
 	}
 
-	const state = window.history?.state;
 	const stillInOverlayStack = Boolean(state?.[HISTORY_FLAG]);
 
 	if (stillInOverlayStack) {
@@ -1107,7 +1129,7 @@ function buildOverlayChrome(target) {
 	return { toolbar, frame, veil };
 }
 
-function mountSpaPageOverlayShell(target, store) {
+function mountSpaPageOverlayShell(target, store, options = {}) {
 	for (const legacyId of ['prsn-creation-detail-overlay', 'prsn-prompt-library-overlay', OVERLAY_ID]) {
 		const orphaned = document.getElementById(legacyId);
 		if (orphaned instanceof HTMLElement) orphaned.remove();
@@ -1134,12 +1156,23 @@ function mountSpaPageOverlayShell(target, store) {
 	store.overlayFrame = frame;
 
 	assignOverlayFrameUrl(frame, target.embedUrl, target);
-	pushOverlayHistoryForTarget(target);
+	if (options.skipHistoryPush) {
+		const state = window.history?.state;
+		store.overlayReturnPath =
+			(state &&
+				typeof state === 'object' &&
+				typeof state.prsnOverlayReturnPath === 'string' &&
+				state.prsnOverlayReturnPath) ||
+			null;
+		store.overlayPushCount = 1;
+	} else {
+		pushOverlayHistoryForTarget(target);
+	}
 }
 
 /**
  * @param {string} href
- * @param {{ forceReload?: boolean }} [options]
+ * @param {{ forceReload?: boolean, restoreFromHistory?: boolean }} [options]
  */
 export function openSpaPageOverlayFromHref(href, options = {}) {
 	const target = parseSpaOverlayTarget(href, { bustCache: Boolean(options.forceReload) });
@@ -1153,6 +1186,14 @@ export function openSpaPageOverlayFromHref(href, options = {}) {
 	ensureOverlayMessageListener();
 	ensureOverlayPopstateListener();
 	ensureOverlayEscapeListener();
+
+	if (options.restoreFromHistory) {
+		if (isSpaPageOverlayOpen()) {
+			closeSpaPageOverlay({ skipNotify: true, skipScrollRestore: true });
+		}
+		mountSpaPageOverlayShell(target, store, { skipHistoryPush: true });
+		return;
+	}
 
 	if (isSpaPageOverlayOpen() && store.overlayFrame) {
 		if (store.overlayFramePath === target.canonicalUrl) {

@@ -1411,10 +1411,15 @@ function buildFeedCreationCard(
 	card.dataset.inChallenge = isChallengeLocked ? '1' : '0';
 	// The challenge "entry pending" blur/badge only applies to unpublished entries whose challenge
 	// is still active. Published items (e.g. anything in the main feed) never show it; NSFW blur is separate.
+	// Audio/Suno covers are not spoilery submission art — keep them visible with the music badge.
 	const isPublishedEntry = item.published === true || item.published === 1;
 	const challengeEnded = item.challenge_ended === true;
 	const challengeThumbnailBlur =
-		isChallengeEntry && !isPublishedEntry && !challengeEnded && !item.nsfw;
+		isChallengeEntry &&
+		!isPublishedEntry &&
+		!challengeEnded &&
+		!item.nsfw &&
+		mediaType !== 'audio';
 	const challengeBlurClass = challengeThumbnailBlur ? ' feed-card-image--challenge-pending' : '';
 	const challengeBlurOverlay = challengeThumbnailBlur
 		? html`<span class="route-media-challenge-blur-overlay" aria-hidden="true"></span>${challengeEnteredBadgeHtml()}`

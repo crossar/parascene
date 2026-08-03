@@ -427,7 +427,7 @@ export function navigateToMyCreationsIfNeeded({
 }
 
 /**
- * SPA-navigate to a /chat/* route from an overlay on the chat shell (no full page reload).
+ * SPA-navigate to a /chat/* or /challenges* route from an overlay on the chat shell (no full page reload).
  * Dispatches `prsn-chat-open-path` with `{ href }` for chatPage `navigateWithinChatShell`.
  * @param {string} href
  * @returns {boolean} true when handled on chat shell
@@ -443,7 +443,13 @@ export function navigateToChatPathFromOverlay(href) {
 		return false;
 	}
 	const pathOnly = (url.pathname || '/').replace(/\/+$/, '') || '/';
-	if (pathOnly !== '/chat' && !pathOnly.startsWith('/chat/')) return false;
+	const isChatPath = pathOnly === '/chat' || pathOnly.startsWith('/chat/');
+	const isChallengesShellPath =
+		pathOnly === '/challenges' ||
+		pathOnly === '/challenges/organize' ||
+		pathOnly === '/challenges/details' ||
+		pathOnly.startsWith('/challenges/details/');
+	if (!isChatPath && !isChallengesShellPath) return false;
 
 	const onChatPage =
 		typeof document !== 'undefined' &&

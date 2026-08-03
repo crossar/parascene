@@ -157,11 +157,14 @@ export async function loadEditorialPinCreationRows(queries, creationIds) {
  */
 export function transformEditorialPinFeedItem(row, pin) {
 	const item = transformFeedCreationRow(row);
+	const pinId = typeof pin?.id === 'string' ? pin.id : '';
+	// Challenge promo/winners/theme-vote pins are always image-only in the feed.
+	const isChallengePin = pinId.startsWith('challenge-');
 	return {
 		...item,
 		editorial_pin: true,
 		editorial_pin_id: pin.id,
-		editorial_pin_show_metadata: pin.show_metadata !== false,
+		editorial_pin_show_metadata: isChallengePin ? false : pin.show_metadata !== false,
 		editorial_pin_extra_spacing: pin.extra_spacing !== false
 	};
 }
@@ -244,6 +247,25 @@ export async function canViewUnpublishedCreationViaEditorialPin(queries, args) {
 }
 
 /**
+ * Parse challenge id + kind from editorial pin id (`challenge-{kind}-{challengeId}`).
+ * @param {unknown} pinId
+ * @returns {{ kind: 'open'|'winners'|'topic_vote'|'other', challengeId: string }}
+ */
+export function parseChallengeEditorialPinId(pinId) {
+	const id = typeof pinId === 'string' ? pinId.trim() : '';
+	if (id.startsWith('challenge-open-')) {
+		return { kind: 'open', challengeId: id.slice('challenge-open-'.length) };
+	}
+	if (id.startsWith('challenge-winners-')) {
+		return { kind: 'winners', challengeId: id.slice('challenge-winners-'.length) };
+	}
+	if (id.startsWith('challenge-topic_vote-')) {
+		return { kind: 'topic_vote', challengeId: id.slice('challenge-topic_vote-'.length) };
+	}
+	return { kind: 'other', challengeId: '' };
+}
+
+/**
  * Active editorial pins that target a creation (for creation-detail lock / banner).
  *
  * @param {object} queries
@@ -252,16 +274,17 @@ export async function canViewUnpublishedCreationViaEditorialPin(queries, args) {
  * @returns {Promise<{
  *   active: boolean,
  *   until: string|null,
- *   pins: { id: string, kind: 'open'|'winners'|'other', until: string|null }[]
+ *   challenge_id: string|null,
+ *   pins: { id: string, kind: 'open'|'winners'|'topic_vote'|'other', until: string|null, challenge_id: string }[]
  * }>}
  */
 export async function getCreationFeedPinStatus(queries, creationId, opts = {}) {
-	const empty = { active: false, until: null, pins: [] };
+	const empty = { active: false, until: null, challenge_id: null, pins: [] };
 	const cid = Number(creationId);
 	if (!Number.isFinite(cid) || cid <= 0) return empty;
 	const nowMs = Number(opts?.nowMs) || Date.now();
 
-	/** @type {{ id: string, kind: 'open'|'winners'|'other', until: string|null }[]} */
+	/** @type {{ id: string, kind: 'open'|'winners'|'topic_vote'|'other', until: string|null, challenge_id: string }[]} */
 	let pins = [];
 
 	if (queries) {
@@ -270,11 +293,16 @@ export async function getCreationFeedPinStatus(queries, creationId, opts = {}) {
 			for (const pin of activePins) {
 				if (Number(pin?.created_image_id) !== cid) continue;
 				const id = typeof pin?.id === 'string' ? pin.id : '';
-				let kind = 'other';
-				if (id.startsWith('challenge-open-')) kind = 'open';
-				else if (id.startsWith('challenge-winners-')) kind = 'winners';
+				const parsed = parseChallengeEditorialPinId(id);
 				const until = typeof pin?.until === 'string' && pin.until.trim() ? pin.until.trim() : null;
-				pins.push({ id, kind, until });
+				pins.push({
+					id,
+					kind: parsed.kind,
+					until,
+					challenge_id: parsed.challengeId,
+					title: typeof pin?.title === 'string' ? pin.title.trim() : '',
+					details: typeof pin?.details === 'string' ? pin.details.trim() : ''
+				});
 			}
 		} catch {
 			// fall through to meta
@@ -285,10 +313,20 @@ export async function getCreationFeedPinStatus(queries, creationId, opts = {}) {
 	const metaPins = listActiveChallengeFeedPinsFromMeta(opts?.meta, nowMs);
 	for (const mp of metaPins) {
 		if (pins.some((p) => p.id === mp.pin_id)) continue;
+		const parsed = parseChallengeEditorialPinId(mp.pin_id);
+		const challengeId =
+			(typeof mp.challenge_id === 'string' && mp.challenge_id.trim()) || parsed.challengeId || '';
+		const kind =
+			mp.kind === 'open' || mp.kind === 'winners' || mp.kind === 'topic_vote'
+				? mp.kind
+				: parsed.kind;
 		pins.push({
 			id: mp.pin_id,
-			kind: /** @type {'open'|'winners'|'other'} */ (mp.kind),
-			until: mp.until
+			kind,
+			until: mp.until,
+			challenge_id: challengeId,
+			title: typeof mp.title === 'string' ? mp.title : '',
+			details: typeof mp.details === 'string' ? mp.details : ''
 		});
 	}
 
@@ -303,7 +341,10 @@ export async function getCreationFeedPinStatus(queries, creationId, opts = {}) {
 			until = p.until;
 		}
 	}
-	return { active: true, until, pins };
+	const challengeId =
+		pins.map((p) => (typeof p.challenge_id === 'string' ? p.challenge_id.trim() : '')).find(Boolean) ||
+		null;
+	return { active: true, until, challenge_id: challengeId, pins };
 }
 
 /** @deprecated Use getActiveEditorialPins — kept for tests migrating off hardcoded promos. */

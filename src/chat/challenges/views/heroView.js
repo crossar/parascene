@@ -13,7 +13,8 @@ import {
  *   phase: string,
  *   track?: string,
  *   countdownHtml?: string,
- *   stats?: { key?: string, label: string, value: string }[]
+ *   stats?: { key?: string, label: string, value: string }[],
+ *   omitTitle?: boolean
  * }} vm
  */
 export function renderHeroSection(vm) {
@@ -29,8 +30,14 @@ export function renderHeroSection(vm) {
 			.map((row) => `<div class="challenge-pane-hero-stat">${heroStatIconSvg(row?.key, track)}<span class="challenge-pane-hero-stat-copy"><span class="challenge-pane-hero-stat-value">${esc(row?.value ?? '—')}</span><span class="challenge-pane-hero-stat-label">${esc(row?.label ?? '')}</span></span></div>`)
 			.join('')}</div>`
 		: '';
-	return `<section class="challenge-pane-hero">
-		<h2 class="challenge-pane-title">${esc(vm.title)}</h2>
+	const titleHtml = vm.omitTitle
+		? ''
+		: `<h2 class="challenge-pane-title">${esc(vm.title)}</h2>`;
+	const heroCls = vm.omitTitle
+		? 'challenge-pane-hero challenge-pane-hero--no-title'
+		: 'challenge-pane-hero';
+	return `<section class="${heroCls}">
+		${titleHtml}
 		<div class="challenge-pane-hero-meta">
 			<p class="challenge-pane-phase challenge-pane-phase--${esc(vm.phase)}"><span class="challenge-pane-phase-label">${phaseLabel}</span></p>
 			${countdown}

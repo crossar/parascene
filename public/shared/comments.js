@@ -122,15 +122,21 @@ export async function updateCreatedImageComment(commentId, text) {
 }
 
 /**
- * Toggle a reaction on a chat message. POST /api/chat/messages/:messageId/reactions with { emoji_key }.
+ * Toggle a reaction on a chat message. POST /api/chat/messages/:messageId/reactions with { emoji_key, op? }.
+ * @param {number|string} messageId
+ * @param {string} emojiKey
+ * @param {{ op?: 'add' | 'remove' | 'toggle' }} [opts]
  * @returns {Promise<{ ok: boolean, status: number, data?: { added: boolean, count: number } }>}
  */
-export async function toggleChatMessageReaction(messageId, emojiKey) {
+export async function toggleChatMessageReaction(messageId, emojiKey, opts = {}) {
 	const url = `/api/chat/messages/${encodeURIComponent(String(messageId))}/reactions`;
+	const body = { emoji_key: emojiKey };
+	const op = opts?.op === 'add' || opts?.op === 'remove' ? opts.op : null;
+	if (op) body.op = op;
 	const response = await fetch(url, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ emoji_key: emojiKey }),
+		body: JSON.stringify(body),
 		credentials: 'include'
 	});
 	const data = await readResponsePayload(response);

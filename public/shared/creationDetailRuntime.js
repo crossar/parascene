@@ -274,7 +274,13 @@ export function bindCreationDetailEmbedNavigation() {
 			} catch {
 				path = '';
 			}
-			if (path.startsWith('/chat')) {
+			if (
+				path.startsWith('/chat') ||
+				path === '/challenges' ||
+				path === '/challenges/organize' ||
+				path === '/challenges/details' ||
+				path.startsWith('/challenges/details/')
+			) {
 				shellOut(href);
 				return;
 			}

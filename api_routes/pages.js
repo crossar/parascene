@@ -18,6 +18,8 @@ import { LANDING_PAGE_HTML, LANDING_PAGE_STANDALONE, LANDING_PAGE_VARIANT } from
 import { recordLandingFunnelEvent } from "./utils/landingAnalytics.js";
 import { findPublicChannelBySlug, mintKioskToken } from "./kiosk.js";
 import { normalizeTag } from "./utils/tag.js";
+import { canViewUnpublishedCreationViaEditorialPin } from "./feed/editorialPin.js";
+import { canViewUnpublishedChallengeResultsCreation } from "./utils/challengeResultsAccess.js";
 
 function getPageForUser(user) {
 	const roleToPage = {
@@ -1386,7 +1388,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			// First try to get as owner
 			let image = await queries.selectCreatedImageById.get(creationId, user.id);
 
-			// If not found as owner, check if it exists and is either published or user is admin
+			// If not found as owner, check published, admin, editorial pin, or challenge results
 			if (!image) {
 				const anyImage = await queries.selectCreatedImageByIdAnyUser.get(creationId);
 				if (anyImage) {
@@ -1395,7 +1397,30 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 					if (isPublished || isAdmin) {
 						image = anyImage;
 					} else {
-						return serveNotFoundPage(req, res, user);
+						let editorialPinOk = false;
+						try {
+							editorialPinOk = await canViewUnpublishedCreationViaEditorialPin(queries, {
+								ancestorRow: anyImage
+							});
+						} catch {
+							editorialPinOk = false;
+						}
+						let challengeResultsOk = false;
+						if (!editorialPinOk) {
+							try {
+								challengeResultsOk = await canViewUnpublishedChallengeResultsCreation({
+									image: anyImage,
+									userId: user.id
+								});
+							} catch {
+								challengeResultsOk = false;
+							}
+						}
+						if (editorialPinOk || challengeResultsOk) {
+							image = anyImage;
+						} else {
+							return serveNotFoundPage(req, res, user);
+						}
 					}
 				} else {
 					return serveNotFoundPage(req, res, user);

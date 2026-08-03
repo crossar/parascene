@@ -17,21 +17,28 @@ import {
 	fetchThreadMessagesChronological,
 	findChallengesChannelThreadId,
 	parseCreationIdFromChallengeHeroRef,
+	pickLatestChallengeConfigForChallengeId,
 	CHALLENGE_ENDED_PHASES
 } from "./utils/challengeSubmitShared.js";
 import {
 	upsertChallengeEditorialPin,
 	removeChallengeEditorialPin,
-	normalizeChallengePinKind
+	normalizeChallengePinKind,
+	ORGANIZER_ROLE_TO_PIN_KIND
 } from "./utils/challengeLifecycle.js";
 import { invalidateAndRebuildChallengeFeedSnapshotCache } from "./feed/challengeFeedSnapshotCache.js";
 import { syncChallengeOrganizerCreationRefsOnConfigWrite } from "./utils/challengeOrganizerRefSync.js";
 import { persistSingleChallengeConfigMessage } from "./utils/challengeConfigMessage.js";
+import { loadEditorialPinPolicyDocument } from "./feed/editorialPinPolicy.js";
 import { collectChatMiscGenericKeysFromMessageBody,
 	isChatMiscGenericKeyOwnedByUser
 } from "./utils/chatMiscGenericKeys.js";
 import { canvasBodyMarkdownToSafeHtml } from "./utils/canvasBodyHtml.js";
 import { CHALLENGE_SCORE_REACTION_KEYS } from "../src/chat/challenges/constants.js";
+import {
+	isChallengeScoreReactionKey,
+	stripUserFromChallengeScoreReactions
+} from "../src/chat/challenges/model/scoreReactions.js";
 import { composeChatStampedReply, sanitizeClientReplyPreview } from "./utils/chatReplyStamp.js";
 import {
 	mergeFullChallengeConfigForChallenge,
@@ -2574,13 +2581,32 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 						? body.until_at
 						: null;
 
+			const cfg = pickLatestChallengeConfigForChallengeId(
+				[...messages].reverse(),
+				challengeId
+			);
+			const challengeTitle = typeof cfg?.title === "string" ? cfg.title.trim() : "";
+			const challengeDetails = typeof cfg?.details === "string" ? cfg.details.trim() : "";
+			const challengeTrackRaw = String(cfg?.track || cfg?.challenge_track || "")
+				.trim()
+				.toLowerCase();
+			const challengeTrack =
+				challengeTrackRaw === "weekly" ||
+				challengeTrackRaw === "suno" ||
+				challengeTrackRaw === "monthly"
+					? challengeTrackRaw
+					: "monthly";
+
 			const upserted = await upsertChallengeEditorialPin({
 				queries,
 				kind: pinKind,
 				challengeId,
 				createdImageId,
 				startsAt,
-				until
+				until,
+				title: challengeTitle,
+				details: challengeDetails,
+				track: challengeTrack
 			});
 			if (!upserted.ok) {
 				return res.status(400).json({ error: upserted.error || "Could not upsert pin" });
@@ -2880,6 +2906,65 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				});
 			} catch (syncErr) {
 				console.warn("[assign-creation] organizer ref sync", syncErr?.message || syncErr);
+			}
+
+			// Keep editorial pins aligned with assign/remove (organize form does this via pin sync ops).
+			const pinKind = ORGANIZER_ROLE_TO_PIN_KIND[role];
+			if (pinKind) {
+				try {
+					if (remove) {
+						await removeChallengeEditorialPin({ queries, kind: pinKind, challengeId });
+					} else {
+						const pick = ORGANIZER_ASSIGN_ROLE_PICKERS[role];
+						const prevCreationId = pick ? parseCreationIdFromChallengeHeroRef(pick(merged)) : NaN;
+						const doc = await loadEditorialPinPolicyDocument(queries);
+						const pinId = `challenge-${pinKind}-${challengeId}`;
+						const existing = (doc.pins || []).find((p) => String(p?.id || "") === pinId);
+						if (existing && Number(existing.created_image_id) !== createdImageId) {
+							const title =
+								typeof persisted.payload?.title === "string"
+									? persisted.payload.title.trim()
+									: typeof merged.title === "string"
+										? merged.title.trim()
+										: "";
+							const details =
+								typeof persisted.payload?.details === "string"
+									? persisted.payload.details.trim()
+									: typeof merged.details === "string"
+										? merged.details.trim()
+										: "";
+							const trackRaw = String(
+								persisted.payload?.track || merged.track || merged.challenge_track || ""
+							)
+								.trim()
+								.toLowerCase();
+							const track =
+								trackRaw === "weekly" || trackRaw === "suno" || trackRaw === "monthly"
+									? trackRaw
+									: "monthly";
+							await upsertChallengeEditorialPin({
+								queries,
+								kind: pinKind,
+								challengeId,
+								createdImageId,
+								startsAt: existing.starts_at,
+								until: existing.until,
+								title,
+								details,
+								track
+							});
+						} else if (
+							!existing &&
+							Number.isFinite(prevCreationId) &&
+							prevCreationId > 0 &&
+							prevCreationId !== createdImageId
+						) {
+							// No pin to retarget; ref swap alone is enough.
+						}
+					}
+				} catch (pinErr) {
+					console.warn("[assign-creation] pin sync", pinErr?.message || pinErr);
+				}
 			}
 
 			return res.status(200).json({
@@ -4095,7 +4180,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 		}
 	});
 
-	// POST /api/chat/messages/:messageId/reactions  { emoji_key } — toggle; stored on message.reactions jsonb
+	// POST /api/chat/messages/:messageId/reactions  { emoji_key, op? } — toggle/add/remove; stored on message.reactions jsonb
 	router.post("/api/chat/messages/:messageId/reactions", async (req, res) => {
 		const userId = requireUser(req, res);
 		if (userId == null) return;
@@ -4111,11 +4196,13 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 		if (!emojiKey || !REACTION_ORDER.includes(emojiKey)) {
 			return res.status(400).json({ error: "Bad request", message: "Invalid or missing emoji_key" });
 		}
+		const opRaw = typeof req.body?.op === "string" ? req.body.op.trim().toLowerCase() : "";
+		const op = opRaw === "add" || opRaw === "remove" ? opRaw : "toggle";
 
 		try {
 			const { data: msg, error: msgErr } = await sb
 				.from("prsn_chat_messages")
-				.select("id, thread_id, reactions")
+				.select("id, thread_id, reactions, body")
 				.eq("id", messageId)
 				.maybeSingle();
 			if (msgErr) throw msgErr;
@@ -4128,13 +4215,27 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				return res.status(403).json({ error: "Forbidden", message: "Not a member of this thread" });
 			}
 
+			const challengePayload = tryParseChallengeJsonBody(msg.body);
+			const isChallengeSubmission =
+				challengePayload && String(challengePayload.kind || "").trim() === "challenge_submission";
+			const isScoreKey = isChallengeScoreReactionKey(emojiKey);
+
 			const bucket = normalizeChatReactionsBucket(msg.reactions);
 			const uid = Number(userId);
 			let arr = Array.isArray(bucket[emojiKey]) ? [...bucket[emojiKey]].map((x) => Number(x)) : [];
 			arr = [...new Set(arr.filter((n) => Number.isFinite(n) && n > 0))];
 			const idx = arr.indexOf(uid);
 			let added;
-			if (idx >= 0) {
+			if (op === "add") {
+				if (idx < 0) arr.push(uid);
+				bucket[emojiKey] = arr;
+				added = true;
+			} else if (op === "remove") {
+				if (idx >= 0) arr.splice(idx, 1);
+				added = false;
+				if (arr.length === 0) delete bucket[emojiKey];
+				else bucket[emojiKey] = arr;
+			} else if (idx >= 0) {
 				arr.splice(idx, 1);
 				added = false;
 				if (arr.length === 0) {
@@ -4146,6 +4247,15 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				arr.push(uid);
 				bucket[emojiKey] = arr;
 				added = true;
+			}
+
+			// Challenge submissions: at most one score reaction per voter.
+			if (isChallengeSubmission && isScoreKey) {
+				if (added) {
+					stripUserFromChallengeScoreReactions(bucket, uid, { keepKey: emojiKey });
+				} else {
+					stripUserFromChallengeScoreReactions(bucket, uid);
+				}
 			}
 
 			const { error: upErr } = await sb

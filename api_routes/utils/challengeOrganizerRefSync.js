@@ -211,6 +211,18 @@ export async function syncChallengeOrganizerCreationRefsOnConfigWrite(args) {
 	const prevRefs = organizerRefsFromPayload(effectivePrev);
 	const nextRefs = organizerRefsFromPayload(effectiveNext);
 
+	const challengeTitle =
+		typeof effectiveNext.title === 'string' ? effectiveNext.title.trim() : '';
+	const challengeDetails =
+		typeof effectiveNext.details === 'string' ? effectiveNext.details.trim() : '';
+	const challengeTrackRaw = String(effectiveNext.track || effectiveNext.challenge_track || '')
+		.trim()
+		.toLowerCase();
+	const challengeTrack =
+		challengeTrackRaw === 'weekly' || challengeTrackRaw === 'suno' || challengeTrackRaw === 'monthly'
+			? challengeTrackRaw
+			: 'monthly';
+
 	const prevByRole = new Map(prevRefs.map((r) => [r.role, r.creationId]));
 	const nextByRole = new Map(nextRefs.map((r) => [r.role, r.creationId]));
 	const roles = /** @type {ChallengeOrganizerRefRole[]} */ ([
@@ -228,7 +240,13 @@ export async function syncChallengeOrganizerCreationRefsOnConfigWrite(args) {
 		if (prevOk && nextOk && prevId === nextId) {
 			try {
 				await mutateCreationMeta(queries, /** @type {number} */ (nextId), (meta) =>
-					upsertChallengeOrganizerRefInMeta(meta, { challenge_id: challengeId, role })
+					upsertChallengeOrganizerRefInMeta(meta, {
+						challenge_id: challengeId,
+						role,
+						title: challengeTitle,
+						details: challengeDetails,
+						track: challengeTrack
+					})
 				);
 			} catch (err) {
 				console.warn('[challengeOrganizerRefSync] refresh stamp', err?.message || err);
@@ -247,12 +265,32 @@ export async function syncChallengeOrganizerCreationRefsOnConfigWrite(args) {
 		if (nextOk) {
 			try {
 				await mutateCreationMeta(queries, /** @type {number} */ (nextId), (meta) =>
-					upsertChallengeOrganizerRefInMeta(meta, { challenge_id: challengeId, role })
+					upsertChallengeOrganizerRefInMeta(meta, {
+						challenge_id: challengeId,
+						role,
+						title: challengeTitle,
+						details: challengeDetails,
+						track: challengeTrack
+					})
 				);
 			} catch (err) {
 				console.warn('[challengeOrganizerRefSync] add', err?.message || err);
 			}
 		}
+	}
+
+	// Keep active feed-pin policy + meta titles in sync when organizers rename a challenge.
+	try {
+		const { refreshChallengeEditorialPinCopy } = await import('./challengeLifecycle.js');
+		await refreshChallengeEditorialPinCopy({
+			queries,
+			challengeId,
+			title: challengeTitle,
+			details: challengeDetails,
+			track: challengeTrack
+		});
+	} catch (err) {
+		console.warn('[challengeOrganizerRefSync] pin copy refresh', err?.message || err);
 	}
 }
 
@@ -303,7 +341,12 @@ export async function collectChallengeOrganizerRefsByCreationId(args) {
 		for (const { role, creationId } of organizerRefsFromPayload(merged)) {
 			const list = byCreation.get(creationId) || [];
 			if (!list.some((r) => r.challenge_id === challengeId && r.role === role)) {
-				list.push({ challenge_id: challengeId, role });
+				list.push({
+					challenge_id: challengeId,
+					role,
+					title: typeof merged?.title === 'string' ? merged.title.trim() : '',
+					details: typeof merged?.details === 'string' ? merged.details.trim() : ''
+				});
 			}
 			byCreation.set(creationId, list);
 		}

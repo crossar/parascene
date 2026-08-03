@@ -47,7 +47,7 @@ import { normalizeEditedUploadBuffer } from "./utils/editedImageUpload.js";
 import { ACTIVE_SHARE_VERSION, mintShareToken, verifyShareToken } from "./utils/shareLink.js";
 import { getStyleInfo } from "./utils/createStyles.js";
 import { importSunoCreation, previewSunoImport } from "./utils/importSunoCreation.js";
-import { importYoutubeCreation, previewYoutubeImport } from "./utils/importYoutubeCreation.js";
+import { importYoutubeCreation, previewYoutubeImport, refreshYoutubeImportCover } from "./utils/importYoutubeCreation.js";
 import {
 	applyPickerStyleModifiersToPrompt,
 	expandStyleSigilsForProvider,
@@ -76,8 +76,11 @@ import {
 	computeChallengeEndedByImageId
 } from "./utils/challengeSubmitShared.js";
 import { canViewUnpublishedCreationViaEditorialPin, getCreationFeedPinStatus } from "./feed/editorialPin.js";
+import { canViewUnpublishedChallengeResultsCreation } from "./utils/challengeResultsAccess.js";
+import { loadChallengeFeedSnapshotSharedCached } from "./feed/challengeFeedSnapshotCache.js";
 import {
 	creationMetaHasActiveChallengeFeedPin,
+	listActiveChallengeFeedPinsFromMeta,
 	upsertChallengeFeedPinInMeta
 } from "../src/shared/challengeSubmitMeta.js";
 import {
@@ -358,8 +361,21 @@ export default function createCreateRoutes({ queries, storage }) {
 				}
 			}
 
+			let challengeResultsOk = false;
+			if (!isOwner && !isPublished && !isAdmin && userId && !challengeHeroOk) {
+				try {
+					challengeResultsOk = await canViewUnpublishedChallengeResultsCreation({
+						image,
+						userId,
+						challengeId: challengeIdImg || undefined
+					});
+				} catch {
+					challengeResultsOk = false;
+				}
+			}
+
 			let editorialPinOk = false;
-			if (!isOwner && !isPublished && !isAdmin && !challengeHeroOk) {
+			if (!isOwner && !isPublished && !isAdmin && !challengeHeroOk && !challengeResultsOk) {
 				try {
 					editorialPinOk = await canViewUnpublishedCreationViaEditorialPin(queries, {
 						ancestorRow: image
@@ -397,6 +413,7 @@ export default function createCreateRoutes({ queries, storage }) {
 				!creationDelegationOk &&
 				!challengeMessageOk &&
 				!challengeHeroOk &&
+				!challengeResultsOk &&
 				!editorialPinOk &&
 				!shareDelegationOk
 			) {
@@ -557,8 +574,21 @@ export default function createCreateRoutes({ queries, storage }) {
 				}
 			}
 
+			let challengeResultsOkVideo = false;
+			if (!isOwner && !isPublished && !isAdmin && userId && !challengeHeroOkVideo) {
+				try {
+					challengeResultsOkVideo = await canViewUnpublishedChallengeResultsCreation({
+						image,
+						userId,
+						challengeId: challengeIdVid || undefined
+					});
+				} catch {
+					challengeResultsOkVideo = false;
+				}
+			}
+
 			let editorialPinOkVideo = false;
-			if (!isOwner && !isPublished && !isAdmin && !challengeHeroOkVideo) {
+			if (!isOwner && !isPublished && !isAdmin && !challengeHeroOkVideo && !challengeResultsOkVideo) {
 				try {
 					editorialPinOkVideo = await canViewUnpublishedCreationViaEditorialPin(queries, {
 						ancestorRow: image
@@ -596,6 +626,7 @@ export default function createCreateRoutes({ queries, storage }) {
 				!creationDelegationOkVideo &&
 				!challengeMessageOkVideo &&
 				!challengeHeroOkVideo &&
+				!challengeResultsOkVideo &&
 				!editorialPinOkVideo &&
 				!shareDelegationOkVideo
 			) {
@@ -3359,6 +3390,27 @@ export default function createCreateRoutes({ queries, storage }) {
 						}
 					}
 
+					// Challenge results/highlights stay viewable after the winners pin window.
+					if (!image && !isUnavailable) {
+						const chIdRawResults = req.query?.challenge_id;
+						const chIdResults =
+							typeof chIdRawResults === "string"
+								? chIdRawResults.trim()
+								: String(chIdRawResults || "").trim();
+						try {
+							const resultsOk = await canViewUnpublishedChallengeResultsCreation({
+								image: anyImage,
+								userId: user.id,
+								challengeId: chIdResults || undefined
+							});
+							if (resultsOk) {
+								image = anyImage;
+							}
+						} catch {
+							// ignore
+						}
+					}
+
 					// Active editorial feed pins (promo / winners) may stay unpublished.
 					if (!image && !isUnavailable) {
 						try {
@@ -3626,8 +3678,11 @@ export default function createCreateRoutes({ queries, storage }) {
 					for (const p of response.feed_pin.pins) {
 						nextMeta = upsertChallengeFeedPinInMeta(nextMeta, {
 							pin_id: p.id,
+							challenge_id: p.challenge_id || response.feed_pin.challenge_id,
 							kind: p.kind,
-							until: p.until
+							until: p.until,
+							title: typeof p.title === 'string' ? p.title : '',
+							details: typeof p.details === 'string' ? p.details : ''
 						});
 					}
 					await queries.updateCreatedImageMetaAnyUser.run(image.id, nextMeta).catch(() => null);
@@ -3635,8 +3690,64 @@ export default function createCreateRoutes({ queries, storage }) {
 					response.meta = nextMeta;
 					await appendChallengeSubmitEligibility(req, user, image, meta, response);
 				}
+				// Attach challenge title/details for the creation-detail promo banner (no thread walk).
+				if (response.feed_pin?.active === true) {
+					const challengeId =
+						(typeof response.feed_pin.challenge_id === "string" &&
+							response.feed_pin.challenge_id.trim()) ||
+						(Array.isArray(response.feed_pin.pins)
+							? response.feed_pin.pins
+									.map((p) =>
+										typeof p?.challenge_id === "string" ? p.challenge_id.trim() : ""
+									)
+									.find(Boolean)
+							: "") ||
+						"";
+					if (challengeId) {
+						response.feed_pin.challenge_id = challengeId;
+						let title = "";
+						let details = "";
+						const metaPins = listActiveChallengeFeedPinsFromMeta(meta);
+						const stamped = metaPins.find(
+							(p) =>
+								String(p.challenge_id || "").trim() === challengeId ||
+								(Array.isArray(response.feed_pin.pins) &&
+									response.feed_pin.pins.some((fp) => fp.id === p.pin_id))
+						);
+						if (stamped) {
+							title = stamped.title || "";
+							details = stamped.details || "";
+						}
+						if (!title || !details) {
+							try {
+								const snap = await loadChallengeFeedSnapshotSharedCached();
+								if (snap && typeof snap === "object") {
+									const snapCid =
+										snap.challengeId != null ? String(snap.challengeId).trim() : "";
+									if (snapCid === challengeId) {
+										if (!title && typeof snap.title === "string") title = snap.title.trim();
+										const cfg = snap.cfg && typeof snap.cfg === "object" ? snap.cfg : null;
+										if (!details && typeof cfg?.details === "string") {
+											details = cfg.details.trim();
+										}
+										if (!title && typeof cfg?.title === "string") title = cfg.title.trim();
+									}
+								}
+							} catch {
+								// banner falls back to generic copy
+							}
+						}
+						if (title || details) {
+							response.feed_pin.challenge = {
+								challenge_id: challengeId,
+								title,
+								details
+							};
+						}
+					}
+				}
 			} catch {
-				response.feed_pin = { active: false, until: null, pins: [] };
+				response.feed_pin = { active: false, until: null, challenge_id: null, pins: [] };
 			}
 
 			const organizerRefs = listChallengeOrganizerRefsFromMeta(meta);
@@ -5573,16 +5684,44 @@ export default function createCreateRoutes({ queries, storage }) {
 				return res.status(500).json({ error: "Failed to update image" });
 			}
 
-			// Persist edit options in meta when provided
-			if (typeof nsfw !== 'undefined' || typeof doomScrollFullHeight !== 'undefined') {
-				const currentMeta = parseMeta(targetImage.meta) || {};
-				const mergedMeta = { ...currentMeta };
-				if (typeof nsfw !== 'undefined') {
-					mergedMeta.nsfw = !!nsfw;
+			// Persist edit options in meta when provided; also refresh YouTube covers on save.
+			const currentMeta = parseMeta(targetImage.meta) || {};
+			const mergedMeta = { ...currentMeta };
+			let metaDirty = false;
+			if (typeof nsfw !== 'undefined') {
+				mergedMeta.nsfw = !!nsfw;
+				metaDirty = true;
+			}
+			if (typeof doomScrollFullHeight !== 'undefined') {
+				mergedMeta.doom_scroll_full_height = !!doomScrollFullHeight;
+				metaDirty = true;
+			}
+
+			let youtubeCoverRefreshed = false;
+			const importProvider =
+				typeof mergedMeta?.import?.provider === "string"
+					? mergedMeta.import.provider.trim().toLowerCase()
+					: "";
+			if (importProvider === "youtube") {
+				try {
+					const refreshed = await refreshYoutubeImportCover({
+						imageId: Number(req.params.id),
+						userId: targetImage.user_id,
+						meta: mergedMeta,
+						color: targetImage.color,
+						queries,
+						storage,
+					});
+					if (refreshed) {
+						youtubeCoverRefreshed = true;
+						metaDirty = false; // cover update already wrote merged meta
+					}
+				} catch {
+					// Best-effort — title/description save still succeeds.
 				}
-				if (typeof doomScrollFullHeight !== 'undefined') {
-					mergedMeta.doom_scroll_full_height = !!doomScrollFullHeight;
-				}
+			}
+
+			if (metaDirty) {
 				await queries.updateCreatedImageMeta.run(req.params.id, targetImage.user_id, mergedMeta);
 			}
 
@@ -5595,6 +5734,11 @@ export default function createCreateRoutes({ queries, storage }) {
 					titleValue || 'Untitled',
 					description ? description.trim() : ''
 				);
+			}
+
+			if (youtubeCoverRefreshed) {
+				await bumpFeedVersionCounter();
+				void invalidateFeedBetaCatalogSnapshot().catch(() => { });
 			}
 
 			// Get updated image

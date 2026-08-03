@@ -3783,11 +3783,36 @@ body.view-nsfw .creation-detail-image-wrapper.nsfw::after {
 	flex-direction: column;
 	align-items: stretch;
 	gap: 12px;
-	margin: 0 0 12px;
+	margin: 10px 0 12px;
 	padding: 12px 14px;
 	border-radius: 10px;
 	border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
 	background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.creation-detail-challenge-banner-kind {
+	margin: 0 0 2px;
+	font-size: 0.65rem;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--accent);
+	line-height: 1.2;
+}
+
+.creation-detail-challenge-banner-details.user-text {
+	margin: 0 0 8px;
+	font-size: 0.8125rem;
+	line-height: 1.45;
+	color: var(--text);
+}
+
+.creation-detail-challenge-banner-details.user-text p {
+	margin: 0 0 0.5em;
+}
+
+.creation-detail-challenge-banner-details.user-text p:last-child {
+	margin-bottom: 0;
 }
 
 /* Ended challenge: voting closed, publishing now available -> positive accent */
@@ -5473,9 +5498,10 @@ button.creation-detail-history-thumb-link.creation-detail-history-unavailable.cr
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
+	align-self: center;
 	width: 46px;
 	height: 46px;
-	margin: auto;
+	margin: 0 0 0 -4px;
 	padding: 0;
 	border: none;
 	border-radius: 50%;
@@ -5514,7 +5540,8 @@ button.creation-detail-history-thumb-link.creation-detail-history-unavailable.cr
 	width: 46px;
 	height: 46px;
 	padding: 0;
-	margin: auto;
+	margin: 0;
+	align-self: center;
 	color: var(--text);
 }
 

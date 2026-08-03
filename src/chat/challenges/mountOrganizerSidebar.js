@@ -1161,7 +1161,10 @@ export function mountChallengesOrganizerTools(host, opts) {
 				);
 			}
 			postSucceeded = true;
-			if (shouldSyncPins && !isGlobalForm && challengeId) {
+			// Re-sync editorial pins on any successful challenge save when Announce fields exist,
+			// so older pins (show_metadata: true) heal to image-only — not only when saving from Announce.
+			const hasPinFields = Boolean(adminForm.querySelector('[name="pin_open_start_ymd"]'));
+			if ((shouldSyncPins || hasPinFields) && !isGlobalForm && challengeId) {
 				const pinEnabled = (name) => {
 					const v = fd.get(name);
 					if (v == null) return false;

@@ -44,14 +44,28 @@
 			} catch (e) { }
 			var root = document.documentElement;
 			if (!root) return;
+			function isChallengesSubPagePath(pathname) {
+				var p = String(pathname || '').replace(/\/+$/, '') || '/';
+				if (p === '/challenges/organize') return true;
+				if (p === '/challenges/details' || p.indexOf('/challenges/details/') === 0) return true;
+				if (p === '/challenges') {
+					try {
+						if (window.sessionStorage && window.sessionStorage.getItem('prsn-chat-organize-boot') === '1') {
+							return true;
+						}
+					} catch (e) { }
+				}
+				return false;
+			}
 			function shouldUseAppMobileHeader(pathname) {
 				var p = String(pathname || '').replace(/\/+$/, '') || '/';
-				if (p === '/' || p === '/index.html' || p === '/feed' || p === '/explore' || p === '/creations') return true;
+				if (isChallengesSubPagePath(p)) return false;
+				if (p === '/' || p === '/index.html' || p === '/feed' || p === '/creations' || p === '/challenges') return true;
 				if (!p.startsWith('/chat/c/')) return false;
 				var slug = p.slice('/chat/c/'.length).split('/')[0] || '';
 				slug = String(slug).toLowerCase().trim();
 				if (!slug || slug === 'feedback') return false;
-				return slug === 'feed' || slug === 'explore' || slug === 'creations';
+				return slug === 'feed' || slug === 'challenges' || slug === 'creations';
 			}
 			function shouldUseChannelsSidebar(pathname, hash) {
 				var p = String(pathname || '').replace(/\/+$/, '') || '/';

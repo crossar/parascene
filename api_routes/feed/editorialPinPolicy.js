@@ -159,6 +159,12 @@ export function normalizeEditorialPinConfig(raw, defaults = EDITORIAL_PIN_POLICY
 		enabled: p.enabled === false ? false : true,
 		starts_at: parseOptionalIso(p.starts_at),
 		until: parseOptionalIso(p.until),
+		title: typeof p.title === 'string' ? p.title.trim().slice(0, 200) : '',
+		details: typeof p.details === 'string' ? p.details.trim().slice(0, 4000) : '',
+		track: (() => {
+			const t = typeof p.track === 'string' ? p.track.trim().toLowerCase() : '';
+			return t === 'weekly' || t === 'suno' || t === 'monthly' ? t : '';
+		})(),
 		show_metadata:
 			typeof p.show_metadata === 'boolean' ? p.show_metadata : defaults.show_metadata,
 		extra_spacing:

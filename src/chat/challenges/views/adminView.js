@@ -21,8 +21,21 @@ import {
 } from '../model/ranking.js';
 import { renderOrganizeTemplatePickerHtml, renderOrganizeBoardHtml } from './organizeBoardView.js';
 import { resolvePinSlotWindows } from '../model/pinSlots.js';
-import { clock3Icon, megaphoneIcon, pencilIcon, trophyIcon } from '/icons/svg-strings.js';
+import { clock3Icon, megaphoneIcon, pencilIcon, trophyIcon, pictureIcon, peopleOutlined, thumbsUpStrokeIcon } from '/icons/svg-strings.js';
 import { renderChallengeHistoryThumbWrapHtml } from '../../../shared/challengeHistoryThumb.js';
+
+const ORGANIZER_STATS_TOTAL_ICON_CLASS = 'challenge-pane-hero-stat-svg';
+
+/**
+ * @param {'entries' | 'creators' | 'votes'} key
+ */
+function organizerStatsTotalIconHtml(key) {
+	const wrap = (inner) =>
+		`<span class="challenge-pane-hero-stat-icon" aria-hidden="true">${inner}</span>`;
+	if (key === 'creators') return wrap(peopleOutlined(ORGANIZER_STATS_TOTAL_ICON_CLASS));
+	if (key === 'votes') return wrap(thumbsUpStrokeIcon(ORGANIZER_STATS_TOTAL_ICON_CLASS));
+	return wrap(pictureIcon(ORGANIZER_STATS_TOTAL_ICON_CLASS));
+}
 
 /** @param {object} latest @param {number} [nowMs] */
 function isChallengeReadyForResultsConfig(latest, nowMs = Date.now()) {
@@ -1040,10 +1053,6 @@ export function renderChallengeOrganizerStatsModalInnerHtml(vm) {
  * @param {object} vm
  */
 export function renderChallengeOrganizerStatsBodyHtml(vm) {
-	const challengeTitle =
-		typeof vm?.challengeTitle === 'string' && vm.challengeTitle.trim()
-			? vm.challengeTitle.trim()
-			: 'Challenge';
 	const excludedUserNames = Array.isArray(vm?.excludedUserNames)
 		? vm.excludedUserNames
 		: [];
@@ -1237,8 +1246,20 @@ export function renderChallengeOrganizerStatsBodyHtml(vm) {
 		</table>`
 		: `<p class="challenge-pane-muted challenge-pane-organizer-stats-empty">No votes cast yet.</p>`;
 
+	const totalEntries = topCreations.length;
+	const totalCreators = Array.isArray(vm?.topSubmitters) ? vm.topSubmitters.length : 0;
+	const totalVotes = topCreations.reduce((sum, row) => {
+		const n = Number(row?.voteCount);
+		return sum + (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+	}, 0);
+	const totalsHtml = `<div class="challenge-pane-hero-stats challenge-pane-organizer-stats-totals" aria-label="Challenge totals">
+		<div class="challenge-pane-hero-stat">${organizerStatsTotalIconHtml('entries')}<span class="challenge-pane-hero-stat-copy"><span class="challenge-pane-hero-stat-value">${esc(String(totalEntries))}</span><span class="challenge-pane-hero-stat-label">Entries</span></span></div>
+		<div class="challenge-pane-hero-stat">${organizerStatsTotalIconHtml('creators')}<span class="challenge-pane-hero-stat-copy"><span class="challenge-pane-hero-stat-value">${esc(String(totalCreators))}</span><span class="challenge-pane-hero-stat-label">Creators entered</span></span></div>
+		<div class="challenge-pane-hero-stat">${organizerStatsTotalIconHtml('votes')}<span class="challenge-pane-hero-stat-copy"><span class="challenge-pane-hero-stat-value">${esc(String(totalVotes))}</span><span class="challenge-pane-hero-stat-label">Total votes</span></span></div>
+	</div>`;
+
 	return `<section class="challenge-pane-organizer-stats-view">
-		<p class="challenge-pane-organizer-stats-kicker">${esc(challengeTitle)}</p>
+		${totalsHtml}
 		<h4 class="challenge-pane-organizer-stats-subhead">Top 10 creations by ${sortMode === 'average' ? 'average vote' : 'weighted rating'}</h4>
 		<div class="challenge-pane-organizer-stats-controls-row">
 			<div class="challenge-pane-organizer-stats-sort-toggle" role="group" aria-label="Top 10 sort mode">

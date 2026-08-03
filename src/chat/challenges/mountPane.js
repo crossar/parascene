@@ -294,7 +294,8 @@ function renderChallengeDetailView(item, opts) {
 		phase,
 		track,
 		stats: heroVm.stats,
-		countdownHtml: renderChallengeCountdowns(latestConfig, phase, opts.nowMs)
+		countdownHtml: renderChallengeCountdowns(latestConfig, phase, opts.nowMs),
+		omitTitle: true
 	});
 	html += renderChallengeHeroImage(latestConfig, heroVm.title);
 	html += renderChallengeVoteHeroCta({
@@ -354,10 +355,11 @@ function renderStackedChallengePane(liveItems, opts) {
 		return String(a?.challengeId || '').localeCompare(String(b?.challengeId || ''));
 	});
 
-	let html = `<div class="challenge-pane-active-list challenge-pane-active-list--stacked">`;
+	let html = '';
 	if (opts.showOrganize) {
 		html += renderOrganizeEntryCta();
 	}
+	html += `<div class="challenge-pane-active-list challenge-pane-active-list--stacked">`;
 	for (const item of items) {
 		const latestConfig = item.latestConfig;
 		const phase = item.phase;
@@ -449,7 +451,6 @@ export function renderChallengesPaneHtml(model, opts) {
 				return cid === detailId;
 			}) || null;
 		if (detailItem) {
-			if (showOrganize) html += renderOrganizeEntryCta();
 			html += renderChallengeDetailView(detailItem, {
 				viewerId: opts.viewerId ?? null,
 				nowMs: model.nowMs
@@ -559,7 +560,7 @@ function syncVoteTabChrome(scope, rankedPeers, viewerId, phase) {
  *   messages: object[],
  *   reload: () => Promise<void>,
  *   postMessage: (body: string) => Promise<{ ok: boolean, error?: string }>,
- *   toggleReaction: (messageId: number, emojiKey: string) => Promise<{ ok?: boolean, data?: { added?: boolean } }>,
+ *   toggleReaction: (messageId: number, emojiKey: string, opts?: { op?: 'add' | 'remove' }) => Promise<{ ok?: boolean, data?: { added?: boolean } }>,
  *   reactionIconHtml: (key: string, className?: string) => string,
  *   showOrganizeEntry?: boolean,
  *   onDetailsChrome?: (info: { challengeId: string, title: string } | null) => void,
@@ -816,7 +817,7 @@ export async function mountChallengesPane(opts) {
  *   messages: object[],
  *   viewerId: number | null,
  *   challengeId?: string | null,
- *   toggleReaction: (messageId: number, emojiKey: string) => Promise<{ ok?: boolean, data?: { added?: boolean } }>,
+ *   toggleReaction: (messageId: number, emojiKey: string, opts?: { op?: 'add' | 'remove' }) => Promise<{ ok?: boolean, data?: { added?: boolean } }>,
  *   onAfterVote?: () => void,
  * }} opts
  * @returns {boolean} whether modal opened

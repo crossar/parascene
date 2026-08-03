@@ -1463,13 +1463,21 @@ class AppRouteCreations extends HTMLElement {
 			};
 			if (isNativeVideo) {
 				mediaAttrs['data-media-type'] = 'video';
+			} else if (mediaType === 'audio') {
+				mediaAttrs['data-media-type'] = 'audio';
 			}
 			card.innerHTML = buildCreationCardShell({
 				mediaAttrs,
 				badgesHtml: publishedBadge + challengeLockedBadge + routeCardGroupBadgeHtml(item),
 				bulkOverlayHtml: bulkOverlay(),
 				nsfw: Boolean(item.nsfw),
-				challengeGridBlur: inChallenge && !isPublished && !challengeEnded && !item.nsfw,
+				// Audio/Suno covers aren't spoilery submission art — skip pending blur.
+				challengeGridBlur:
+					inChallenge &&
+					!isPublished &&
+					!challengeEnded &&
+					!item.nsfw &&
+					mediaType !== 'audio',
 			});
 			const mediaEl = card.querySelector('.route-media');
 			if (mediaEl && typeof hydrateRouteCardMedia === 'function') {

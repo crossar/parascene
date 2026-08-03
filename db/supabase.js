@@ -15,6 +15,12 @@ import {
 	collectCreationPromptMentionTexts,
 	textContainsBoundedPersonalityMention
 } from "../api_routes/utils/textMentions.js";
+import { creationEligibleForLatestCommentsStream, resolveCreationTitleForLatestComments, creationMetaIsChallengeEditorialMedia } from "../api_routes/utils/latestCommentsVisibility.js";
+import { getActiveEditorialPins, parseChallengeEditorialPinId } from "../api_routes/feed/editorialPin.js";
+import {
+	challengeIdsFromCreationMeta,
+	resolveChallengeTitlesByIds
+} from "../api_routes/utils/challengeTitleLookup.js";
 
 // Note: Supabase schema must be provisioned separately (SQL editor/migrations).
 // All application tables use the "prsn_" prefix.
@@ -6367,7 +6373,7 @@ export function openDb() {
 				const limitRaw = Number.parseInt(String(options?.limit ?? "10"), 10);
 				const limit = Number.isFinite(limitRaw) ? Math.min(200, Math.max(1, limitRaw)) : 10;
 
-				// Over-fetch a bit so filtering unpublished creations still returns enough rows.
+				// Over-fetch a bit so filtering non-eligible creations still returns enough rows.
 				const fetchLimit = Math.min(200, Math.max(10, limit * 5));
 
 				const before =
@@ -6399,7 +6405,7 @@ export function openDb() {
 				if (createdImageIds.length > 0) {
 					const { data: imageRows, error: imageError } = await serviceClient
 						.from(prefixedTable("created_images"))
-						.select("id, title, published, user_id, file_path, created_at, meta")
+						.select("id, title, published, user_id, file_path, created_at, meta, unavailable_at")
 						.in("id", createdImageIds);
 					if (imageError) throw imageError;
 					imageById = new Map((imageRows ?? []).map((row) => [String(row.id), row]));
@@ -6425,6 +6431,60 @@ export function openDb() {
 					);
 				}
 
+				const nowMs = Date.now();
+				/** @type {Set<number>} */
+				let activeEditorialPinCreationIds = new Set();
+				/** @type {Map<number, string>} */
+				const titleByCreationId = new Map();
+				/** @type {string[]} */
+				const challengeIdsForTitleLookup = [];
+				try {
+					const activePins = await getActiveEditorialPins(queries, nowMs, "");
+					for (const pin of activePins || []) {
+						const cid = Number(pin?.created_image_id);
+						if (Number.isFinite(cid) && cid > 0) activeEditorialPinCreationIds.add(cid);
+						const pinTitle = typeof pin?.title === "string" ? pin.title.trim() : "";
+						if (Number.isFinite(cid) && cid > 0 && pinTitle) {
+							titleByCreationId.set(cid, pinTitle);
+						}
+						const parsed = parseChallengeEditorialPinId(pin?.id);
+						if (parsed.challengeId) challengeIdsForTitleLookup.push(parsed.challengeId);
+					}
+				} catch {
+					activeEditorialPinCreationIds = new Set();
+				}
+
+				for (const image of imageById.values()) {
+					const ownTitle = typeof image?.title === "string" ? image.title.trim() : "";
+					if (ownTitle) continue;
+					for (const challengeId of challengeIdsFromCreationMeta(image?.meta)) {
+						challengeIdsForTitleLookup.push(challengeId);
+					}
+				}
+
+				let challengeTitleById = new Map();
+				try {
+					challengeTitleById = await resolveChallengeTitlesByIds(challengeIdsForTitleLookup);
+				} catch {
+					challengeTitleById = new Map();
+				}
+
+				// Fill creation titles from challenge ids when the pin policy row has no title yet.
+				for (const image of imageById.values()) {
+					const imageId = Number(image?.id);
+					if (!Number.isFinite(imageId) || imageId <= 0) continue;
+					if (titleByCreationId.has(imageId)) continue;
+					const ownTitle = typeof image?.title === "string" ? image.title.trim() : "";
+					if (ownTitle) continue;
+					for (const challengeId of challengeIdsFromCreationMeta(image?.meta)) {
+						const t = challengeTitleById.get(challengeId);
+						if (t) {
+							titleByCreationId.set(imageId, t);
+							break;
+						}
+					}
+				}
+
 				const visibleComments = comments
 					.map((row) => {
 						const image = row?.created_image_id !== null && row?.created_image_id !== undefined
@@ -6440,7 +6500,16 @@ export function openDb() {
 						return {
 							...row,
 							meta,
-							created_image_title: image?.title ?? null,
+							_image: image,
+							created_image_title: resolveCreationTitleForLatestComments(image, {
+								nowMs,
+								challengeTitleById,
+								titleByCreationId
+							}),
+							created_image_is_challenge_media: creationMetaIsChallengeEditorialMedia(
+								image?.meta,
+								nowMs
+							),
 							created_image_url: image?.file_path ?? null,
 							created_image_meta: image?.meta ?? null,
 							created_image_created_at: image?.created_at ?? null,
@@ -6453,7 +6522,16 @@ export function openDb() {
 							created_image_media_type
 						};
 					})
-					.filter((row) => row?.created_image_published === true);
+					.filter((row) =>
+						creationEligibleForLatestCommentsStream(row?._image, {
+							nowMs,
+							activeEditorialPinCreationIds
+						})
+					)
+					.map((row) => {
+						const { _image, ...rest } = row;
+						return rest;
+					});
 
 				const trimmed = visibleComments.slice(0, limit);
 

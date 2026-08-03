@@ -67,34 +67,24 @@ function patchRowViewerChallengeVote(row, score0to10) {
  * @param {number} messageId
  * @param {number} score0to10
  * @param {object} row
- * @param {(mid: number, key: string) => Promise<{ ok?: boolean }>} toggleReaction
+ * @param {(mid: number, key: string, opts?: { op?: 'add' | 'remove' }) => Promise<{ ok?: boolean }>} toggleReaction
  */
 export async function applyChallengeVoteScore(messageId, score0to10, row, toggleReaction) {
-	let vr = Array.isArray(row.msg.viewer_reactions) ? [...row.msg.viewer_reactions] : [];
 	const targetKey = challengeScoreToReactionKey(score0to10);
 
 	if (!targetKey) {
+		// Clear: force-remove every score key (safe no-op when already absent).
 		for (const k of CHALLENGE_SCORE_REACTION_KEYS) {
-			if (!vr.includes(k)) continue;
-			const res = await toggleReaction(messageId, k);
+			const res = await toggleReaction(messageId, k, { op: 'remove' });
 			if (!res.ok) throw new Error('Could not update vote');
-			vr = vr.filter((x) => x !== k);
 		}
 		patchRowViewerChallengeVote(row, 0);
 		return;
 	}
 
-	for (const k of CHALLENGE_SCORE_REACTION_KEYS) {
-		if (k === targetKey) continue;
-		if (!vr.includes(k)) continue;
-		const res = await toggleReaction(messageId, k);
-		if (!res.ok) throw new Error('Could not update vote');
-		vr = vr.filter((x) => x !== k);
-	}
-	if (!vr.includes(targetKey)) {
-		const res = await toggleReaction(messageId, targetKey);
-		if (!res.ok) throw new Error('Could not update vote');
-	}
+	// Set: one add — server strips sibling score keys on challenge submissions.
+	const res = await toggleReaction(messageId, targetKey, { op: 'add' });
+	if (!res.ok) throw new Error('Could not update vote');
 	patchRowViewerChallengeVote(row, score0to10);
 }
 
@@ -122,7 +112,7 @@ function thumbFracFromHeatScore(v) {
 
 /**
  * @param {{
- *   toggleReaction: (messageId: number, emojiKey: string) => Promise<{ ok?: boolean }>,
+ *   toggleReaction: (messageId: number, emojiKey: string, opts?: { op?: 'add' | 'remove' }) => Promise<{ ok?: boolean }>,
  *   onAfterVote?: () => void,
  * }} opts
  */

@@ -1120,19 +1120,9 @@ function injectOrganizeEntryButtons() {
 	link.innerHTML = '<span class="challenge-pane-organize-entry-btn-label">Organize</span>';
 	section.appendChild(link);
 
-	const voteCta = pane.querySelector('.challenge-pane-vote-hero-cta');
-	if (voteCta instanceof HTMLElement && voteCta.parentNode) {
-		voteCta.insertAdjacentElement('afterend', section);
-		return;
-	}
-	const heroImg = pane.querySelector('.challenge-pane-active-card .challenge-pane-hero-image-section');
-	if (heroImg instanceof HTMLElement && heroImg.parentNode) {
-		heroImg.insertAdjacentElement('afterend', section);
-		return;
-	}
-	const firstCard = pane.querySelector('.challenge-pane-active-card');
-	if (firstCard instanceof HTMLElement) {
-		firstCard.appendChild(section);
+	const list = pane.querySelector('.challenge-pane-active-list');
+	if (list instanceof HTMLElement && list.parentNode) {
+		list.insertAdjacentElement('beforebegin', section);
 		return;
 	}
 	pane.prepend(section);

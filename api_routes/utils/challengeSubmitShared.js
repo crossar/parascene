@@ -1,6 +1,7 @@
 import { deriveChallengePhase } from "../../src/chat/challenges/model/phases.js";
 import {
 	pickChallengeHeroImageUrl,
+	pickChallengeResultsCreationUrl,
 	pickChallengeConfigTimestamp,
 	IMPLIED_CHALLENGE_ORGANIZER,
 	normalizeChallengeOrganizerUserNames,
@@ -449,6 +450,74 @@ export async function canViewUnpublishedCreationViaChallengeHero(sb, args) {
 
 	for (const cid of latestChallengeConfigByChallengeId(messagesNewest).keys()) {
 		if (challengeHeroCreationMatchesInRecentConfigs(messagesNewest, cid, ancestorRow.id)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Walk newest challenge_config rows for `challengeId` until a results/highlights ref matches `creationId`.
+ * @param {{ body?: unknown }[]} messagesNewestFirst
+ * @param {string} challengeId
+ * @param {number} creationId
+ */
+export function challengeResultsCreationMatchesInRecentConfigs(messagesNewestFirst, challengeId, creationId) {
+	const cid = String(challengeId || "").trim();
+	const targetId = Number(creationId);
+	if (!cid || !Number.isFinite(targetId) || targetId <= 0) return false;
+	for (const m of messagesNewestFirst || []) {
+		const p = tryParseChallengeJsonBody(m?.body);
+		if (!p || String(p.kind || "").trim() !== "challenge_config") continue;
+		if (String(p.challenge_id || "").trim() !== cid) continue;
+		const resultsRef = pickChallengeResultsCreationUrl(p);
+		if (!resultsRef) continue;
+		const resultsCreationId = parseCreationIdFromChallengeHeroRef(resultsRef);
+		if (Number.isFinite(resultsCreationId) && resultsCreationId === targetId) return true;
+	}
+	return false;
+}
+
+/**
+ * Viewer may load another user's unpublished creation when it is the configured
+ * results/highlights creation for a challenge (past challenges "View results").
+ * Access lasts while the challenge still points at this creation — not tied to the winners pin window.
+ *
+ * @param {import("@supabase/supabase-js").SupabaseClient} sb
+ * @param {{
+ *   ancestorRow: { id?: unknown, unavailable_at?: unknown },
+ *   challengeId?: string,
+ *   viewerUserId: number,
+ * }} args
+ */
+export async function canViewUnpublishedCreationViaChallengeResults(sb, args) {
+	const ancestorRow = args?.ancestorRow;
+	const challengeId = String(args?.challengeId || "").trim();
+	const vid = Number(args?.viewerUserId);
+	if (!ancestorRow || !Number.isFinite(vid) || vid <= 0) {
+		return false;
+	}
+	if (ancestorRow.unavailable_at != null && ancestorRow.unavailable_at !== "") return false;
+
+	const threadId = await findChallengesChannelThreadId(sb);
+	if (!threadId) return false;
+
+	const threadRow = await fetchChatChannelThreadRow(sb, threadId);
+	const slug = String(threadRow?.channel_slug || "").toLowerCase();
+	if (!threadRow || threadRow.type !== "channel" || slug !== "challenges") return false;
+
+	const messagesNewest = await fetchThreadMessagesNewestFirst(sb, threadId);
+
+	if (challengeId) {
+		return challengeResultsCreationMatchesInRecentConfigs(
+			messagesNewest,
+			challengeId,
+			ancestorRow.id
+		);
+	}
+
+	for (const cid of latestChallengeConfigByChallengeId(messagesNewest).keys()) {
+		if (challengeResultsCreationMatchesInRecentConfigs(messagesNewest, cid, ancestorRow.id)) {
 			return true;
 		}
 	}
