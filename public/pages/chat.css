@@ -2321,10 +2321,6 @@ body.chat-page.chat-page--mobile-sidebar-open .chat-page-sidebar-create-sticky {
 		font-weight: 500;
 	}
 
-	.chat-page-mobile-chrome-back:hover {
-		background: color-mix(in srgb, var(--text) 6%, transparent);
-	}
-
 	.chat-page-mobile-chrome-back:focus-visible {
 		outline: 2px solid var(--focus);
 		outline-offset: 2px;
@@ -2580,19 +2576,15 @@ body.chat-page .chat-route {
 	touch-action: manipulation;
 }
 
-.chat-page-back:hover {
-	background: color-mix(in srgb, var(--text) 6%, transparent);
+.chat-page-back .chat-page-back-icon {
+	font-family: inherit;
+	font-size: 26px;
+	font-weight: 500;
 }
 
 .chat-page-back:focus-visible {
 	outline: 2px solid var(--focus);
 	outline-offset: 2px;
-}
-
-.chat-page-back .chat-page-back-icon {
-	font-family: inherit;
-	font-size: 26px;
-	font-weight: 500;
 }
 
 .chat-page-title {
@@ -4499,7 +4491,7 @@ body.chat-page.chat-page--doom-scroll .chat-route {
 
 #chat-doom-scroll-overlay .chat-doom-topbar a.chat-page-back:hover,
 #chat-doom-scroll-overlay .chat-doom-topbar button.chat-page-back:hover {
-	background: rgba(255, 255, 255, 0.14) !important;
+	background: transparent !important;
 	filter: none !important;
 }
 
@@ -4523,10 +4515,6 @@ body.chat-page.chat-page--doom-scroll .chat-route {
 
 .chat-doom-topbar .chat-page-back .chat-page-back-icon {
 	text-shadow: none;
-}
-
-.chat-doom-topbar .chat-page-back:hover {
-	background: rgba(255, 255, 255, 0.12);
 }
 
 .chat-doom-topbar .chat-page-back:focus-visible {

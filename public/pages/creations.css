@@ -5365,7 +5365,6 @@ button.creation-detail-history-thumb-link.creation-detail-history-unavailable.cr
 
 	.creation-detail-lineage-modal .chat-page-mobile-chrome-back:hover {
 		filter: none;
-		background: color-mix(in srgb, var(--text) 6%, transparent);
 	}
 
 	.creation-detail-lineage-modal .chat-page-mobile-chrome-back:active {
@@ -5493,7 +5492,6 @@ button.creation-detail-history-thumb-link.creation-detail-history-unavailable.cr
 
 .creation-detail-overlay-chrome .chat-page-mobile-chrome-back:hover {
 	filter: none;
-	background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
 .creation-detail-overlay-chrome .chat-page-mobile-chrome-back:active {

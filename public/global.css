@@ -8026,19 +8026,14 @@ body.chat-page .chat-page-canvas-panel-body {
 	touch-action: manipulation;
 }
 
-.chat-page-back:hover {
-	background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-
 .chat-page-back:focus-visible {
 	outline: 2px solid var(--focus);
 	outline-offset: 2px;
 }
 
 /*
- * Inter `<-` ligature ink sits left/high in the em box.
- * Nudge so the glyph centers in the circular hit-target and lines up
- * with adjacent header title text/icons.
+ * Inter `<-` ligature ink sits high in the em box — slight nudge so it
+ * optically lines up with adjacent header title text/icons.
  */
 .chat-page-back-icon,
 .blog-edit-back-icon {
@@ -8047,7 +8042,7 @@ body.chat-page .chat-page-canvas-panel-body {
 	letter-spacing: 0;
 	font-variant-ligatures: common-ligatures contextual;
 	font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
-	transform: translate(2px, 5px);
+	transform: translateY(5px);
 }
 
 .chat-page-back-icon-svg {
@@ -10978,10 +10973,6 @@ body.blog-edit-page .blog-edit-route {
 	flex-shrink: 0;
 	-webkit-tap-highlight-color: transparent;
 	touch-action: manipulation;
-}
-
-.blog-edit-back:hover {
-	background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
 .blog-edit-back:focus-visible {
