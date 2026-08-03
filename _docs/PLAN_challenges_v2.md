@@ -8,7 +8,7 @@ Phases below are numbered in **ship order**. Phase 1 is song creations (Suno pos
 
 ## Direction, agreed
 
-- Clock drives phases (unchanged). Pins + feed freshness fire automatically. Humans get one-click card actions: Announce, Close voting, Review results (swap winners before confirm; confirm pays out). Organizer promo/winners creations used as editorial pins stay unpublished (feed can still show them while the pin is active).
+- Clock drives phases (unchanged). Pins + feed freshness fire from config (existing pin system). Card **Results** → Stats | Payout is the human payout path. Close voting may stay a card action; promo / winners / theme-vote pins are driven by dated slots on a dedicated **Announce** edit tab (creation URL + window), not one-off card Announce clicks. Organizer promo/winners creations used as editorial pins stay unpublished (feed can still show them while the pin is active).
 - Prizes: structured numeric `prizes` on config (main 1st/2nd/3rd + optional top submitters/voters) is the single source of truth. Card copy is generated from the numbers ("400 credits"). Free-text `reward_first/second/third/participation` are RETIRED — existing configs were migrated in place (`db/maintenance/migrate-challenge-prizes.js`, 2026-08-02; backup jsonl beside it) and all legacy read paths removed. Only `reward_custom` stays free text. Participation prize *details* revealed only at results.
 - Prize structures are per-challenge config, inherited from the most recent same-track challenge by **submission start date**. Only the first challenge of a track needs full definition (track presets).
 - Feed keeps one engagement card. Focus = soonest deadline among active. "+N more open" chip when concurrent. `/challenges` lane is the canonical multi-track surface.
@@ -20,7 +20,7 @@ Phases below are numbered in **ship order**. Phase 1 is song creations (Suno pos
 
 1. Song creations (Suno posts) — no deps; ship first
 2. Foundations (debt + snapshot freshness)
-3–6. Organizer console (prizes → publish → board actions → auto pins)
+3–6. Organizer console (prizes → publish → board + Announce tab → auto pin sync)
 7–9. Multi-track participation (lane → submit targeting → Music challenge wiring)
 10. Cleanup + data contract doc
 
@@ -33,8 +33,8 @@ Note to the implementer: this is a big plan — progress MUST be visible in this
 - Phase 1 — Song creations (Suno posts): [x] built (2026-08-02) · [x] validated (2026-08-02)
 - Phase 2 — Foundations (debt + snapshot freshness): [x] built (2026-08-02) · [x] validated (2026-08-02)
 - Phase 3 — Prize structures + inheritance: [x] built (2026-08-02) · [x] validated (2026-08-02)
-- Phase 4 — Results + publish + payouts: [ ] built · [ ] validated
-- Phase 5 — Board actions + review modal: [ ] built · [ ] validated
+- Phase 4 — Results + publish + payouts: [x] built (2026-08-02; tip from admin account; Save order / Pay unpaid; unpaid amounts always from live Prizes; finalize stamps `results_published_at` only — no pin/announce) · [x] validated (2026-08-02)
+- Phase 5 — Board actions + Announce tab + review modal: [x] built (2026-08-02: Results Stats|Payout; **Announce** tab with dated slots + upsert/clear on save via organize/pins) · [x] validated (2026-08-02)
 - Phase 6 — Auto open-pins: [ ] built · [ ] validated
 - Phase 7 — Multi-track lane + voting + results display: [ ] built · [ ] validated
 - Phase 8 — Submit targeting: [ ] built · [ ] validated
@@ -149,32 +149,35 @@ results: {
 }
 ```
 
-- Payouts: one executor function taking a source — `{ type: 'system_mint' }` today; sponsor-wallet (`transferCredits`) is a future source, not built now. Mint = copy `grantFounderCredits` pattern (`api/webhooks/stripe.js` ~36–47) over `queries.updateUserCreditsBalance` (`db/supabase.js` ~7321–7349); ensure credits row exists first.
+- Payouts (DECIDED 2026-08-02, differs from the original draft below): source is the **tip system**, not system_mint — funded by the **platform admin account** (resolved by `role: 'admin'` at publish time), not the confirming organizer. `executeChallengePayouts` (`api_routes/utils/challengePayouts.js`) takes a source arg — `{ type: 'tip', fromUserId: adminUserId }` transfers via `queries.transferCredits`, logs `insertTipActivity`, notifies the recipient. Route pre-checks the admin balance vs total. A future system_mint / sponsor-wallet source slots into the same executor.
 - Payout ordering (no ledger exists — get this exact):
   1. One PATCH publishes results with every payout row `{ user_id, amount, reason, source, paid_at: null }` (pending).
   2. Then execute grants; flip each row's `paid_at` as it succeeds.
   3. A crash mid-loop leaves pending rows visible; results card offers "Retry unpaid" which grants only rows with `paid_at: null`. Never pay before publishing (retry would double-pay); never treat publish guard as payment proof.
-- Side effects (winners pin targeting `results_creation_url` else 1st-place creation, winners `challenge_announce` authored by the confirming organizer, snapshot invalidation) run via the lifecycle module (see Extensibility guardrails), not inline in the route.
+- Side effects (winners pin targeting `results_creation_url` else 1st-place creation, snapshot invalidation) run via the lifecycle module (see Extensibility guardrails), not inline in the route. Do not post `challenge_announce` into #challenges.
 
-Done when: one confirmed request publishes results, pays every recipient exactly once (with a visible retry path for partial failure), pins winners, refreshes feed.
+Done when: one confirmed request saves the payout draft, pays every unpaid recipient exactly once via admin tips (with retry for partial failure), and Finalize moves Pending → Complete. (Winners pin / announce deferred — phase 5/6 later.)
+
+Built 2026-08-02: `model/ranking.js` (canonical weighted/average ranking + exclusions), `api_routes/challenges.js` (`publish-results` save_only + pay, `retry-unpaid`, `finalize-results` status-only), `challengePayouts.js` (tip executor, configured prize amounts, congratulatory tip/notification copy, merge unpaid drafts preserving paid), `challengeLifecycle.js` (`onResultsPublished` kept for later pin/announce). Tests: `test/challengeRanking.test.js`, `test/challengePayouts.test.js`.
+Validated 2026-08-02: organizer walked payout on a live Pending challenge (order + prizes sync + Pay unpaid + Finalize → Complete); past challenges keep Results → Payout for review.
 
 ---
 
-## Phase 5 — Board lifecycle actions + review-and-confirm modal
+## Phase 5 — Board lifecycle actions + Announce tab + review modal
 
-→ User flows F4 (announce / close voting) and F5 (review + confirm winners).
+→ User flows F4 (Announce tab / close voting) and F5 (review + confirm winners).
 
-Click wiring for `[data-organize-action]` exists (`mountOrganizerSidebar.js` ~1342); handlers ~1695–1803. Render buttons; build one new modal.
+Click wiring for `[data-organize-action]` exists (`mountOrganizerSidebar.js` ~1342); handlers ~1695–1803.
 
-- `organizeActionsForPhase` (`views/organizeBoardView.js` ~47–64), per phase:
-  - listed pre_submit / live: Announce (existing handler: `challenge_announce` + open pin). "Not announced" nudge chip on live cards until `announced_at` marker set.
-  - voting / submit_and_vote: Close voting (existing handler, confirm dialog).
-  - finalizing: Review results (replaces raw publish-winners).
-- Review modal is a new view module `views/reviewResultsView.js` beside adminView.js; card-action wiring goes in a new `organizeActions.js`, not appended to `mountOrganizerSidebar.js` (already 1.8k lines). Modal behavior: fetch stats on open with a skeleton state; ranked entries with up/down swap for places 1–3; editable top submitters / top voters lists; editable prize amounts from config; total payout; single Confirm → phase 4 route. Disable while in flight; server refusal (already published) → reload prompt.
-- Card actions update the local model optimistically and re-render in place — do NOT refetch the whole `#challenges` thread + remount per click (feels like a page reload). The existing soft reconcile catches drift.
+- Review UI shipped 2026-08-02 as **Results** on the card → modal tabs **Stats | Payout** (`views/reviewResultsView.js` + `organizeResults.js`): appears for `finalizing`/`results` (oceanman/admin); ranked sections; recipients editable until paid; Save when dirty; Pay N unpaid; Finalize → Complete (status only). Paid-row chrome. Calendar pin-window dots still in organize calendar.
+- **Announce tab shipped 2026-08-02:** Announce / hero, Results / highlights, and Next challenge — theme vote live on **Announce** (not Details). Each has creation URL + pin starts/ends (defaults from schedule). Save persists `pin_*_ymd` on config and upserts/clears editorial pins (`open` / `winners` / `topic_vote`) via `POST /api/chat/challenges/organize/pins` (`starts_at`/`until`/`clear` + lifecycle helpers). Clear URL removes that pin. No separate card Announce button required for pins.
+- Still pending / deferred: Close-voting card button (if kept), optimistic in-place card re-render. Channel `challenge_announce` retired — #challenges is machine-readable only; pins come from the Announce tab.
+- Card actions update the local model optimistically and re-render in place — do NOT refetch the whole `#challenges` thread + remount per click. Soft reconcile catches drift.
 - Results cards show paid/pending summary from `results.payouts` + "Retry unpaid" when any pending.
 
-Done when: announce, close voting, and winner publication all happen from Organize cards, no JSON edits.
+Done when: Results/Payout from cards works; Announce tab saves drive feed pins from dated slots; Close voting (if kept) from cards; no JSON edits for payouts/pins.
+
+Built 2026-08-02: Announce tab UI (`adminView.js`), `model/pinSlots.js`, save sync in `mountOrganizerSidebar.js`, pins route accepts dates/clear/`topic_vote` via `challengeLifecycle.js`. Tests: `test/challengePinSlots.test.js`.
 
 ---
 
@@ -182,16 +185,16 @@ Done when: announce, close voting, and winner publication all happen from Organi
 
 → User flow F6 (challenge goes live; feed pin appears without organizer clicks).
 
-Pins are authorless policy rows; announce messages need a human author. That's the auto/manual split.
+Announce tab (phase 5) is the source of truth for creation + window. This phase only auto-upserts when a listed challenge crosses a boundary and the matching pin is missing.
 
-- In snapshot build (`api_routes/feed/challengeFeedSnapshotShared.js`): listed challenge entered open phase + no `challenge-open-{id}` pin in policy → fire `onChallengeOpened` in the lifecycle module (which upserts the pin; pins-route logic extracted there). Pins keep the existing timed-window behavior from the organize pins route: `starts_at` now, `until` +7d open / +14d winners, `respect_challenge: true` so they sit correctly next to the engagement card.
-- Idempotency = existence of the pin id in the policy. Do NOT stamp markers onto the config message from the server: server-side config PATCHes change the body fingerprint and trigger phantom save-conflict banners for organizers with the edit modal open.
-- Pin upserts run after the feed response (fire-and-forget), inside the phase-2 single-flight lock. The pins policy is one JSON array under one key — unserialized concurrent upserts (feed rebuilds, admin UI) clobber each other.
-- Winners pins handled by phase 4. No system bot.
+- In snapshot build (`api_routes/feed/challengeFeedSnapshotShared.js`): listed challenge entered open phase + open slot has a creation + no `challenge-open-{id}` pin → fire `onChallengeOpened` (pins-route logic in lifecycle module). Prefer config window over hard-coded +7/+14. Same idea for winners after results when results slot is set.
+- Idempotency = pin id in policy. Do NOT stamp markers onto the config message from the server (save-conflict fingerprint).
+- Pin upserts after the feed response (fire-and-forget), inside the phase-2 single-flight lock.
+- Unpublished organizer creations as pin targets: unchanged (phase 2 addendum). No system bot.
 
-Done when: a scheduled challenge going live gets its feed pin within one snapshot rebuild, zero clicks.
+Done when: a scheduled challenge going live gets its open pin within one snapshot rebuild from Announce-tab config, zero card clicks.
 
-Team validate after phases 3–6 (organizer console): one full staged challenge cycle — create (prizes pre-filled from last same-track) → goes live on schedule → open pin appears with no clicks → Announce from card → Close voting from card → Review results shows computed rankings + swappable winners + participation lists + payout total → Confirm pays everyone once (check balances), pins winners, feed updates → second confirm attempt refused → "Retry unpaid" works after a simulated mid-payout failure.
+Team validate after phases 3–6 (organizer console): create (prizes + Announce tab with dates) → goes live → open pin appears (save and/or auto) → (optional Close voting) → Results → Payout → Finalize → Complete → winners pin if results slot set → past Results still reviewable.
 
 ---
 
@@ -294,7 +297,7 @@ Confirmed direction: sponsored/partner challenges plausible; cross-challenge pro
 
 - Lifecycle module: one server module (`api_routes/utils/challengeLifecycle.js`) owns `onChallengeOpened`, `onVotingClosed`, `onResultsPublished`. All side effects (pins, announces, invalidation, payouts) route through it. Future notifications/analytics/automations attach here, nowhere else.
 - Thread scoping: every new server helper and route takes `threadId` as a parameter; the canonical `#challenges` thread is a default resolved at the edges only. No new code calls `findChallengesChannelThreadId` internally.
-- Payout source: the payout executor takes a source arg (`system_mint` today); sponsor-wallet funding slots in later without touching the publish flow. `results.payouts[].source` records it.
+- Payout source: the payout executor takes a source arg (`tip` today — admin account balance via transferCredits); system_mint / sponsor-wallet funding slots in later without touching the publish flow. `results.payouts[].source` records it.
 - Track discipline: all track behavior reads the registry in `model/tracks.js`; no track-literal branches elsewhere. New tracks stay a one-file change until tracks become data.
 - Data contract doc: write `_docs/CHALLENGES_data_contract.md` freezing event kinds and schemas (`challenge_config` fields incl. `prizes`/`accepted_media`/`remix_source`, `challenge_submission`, `challenge_announce`, `results` v1, payout rows). This is the source of truth for any future projection table (leaderboards, seasons, profile wins) — and for the implementer.
 
@@ -366,25 +369,26 @@ F3 — Create / edit challenge with prizes (phase 3)
 3. Adjusts numeric main amounts, top-submitter / top-voter enable + amounts (defaults on, editable), and optional Custom text.
 4. Saves. Participants see generated main prize cards ("400 credits"); when participation is enabled, a Participation card says "revealed at results" (no amounts until results).
 
-F4 — Announce and close voting from the board (phase 5)
+F4 — Announce tab + optional close voting (phase 5)
 
-1. Challenge is listed / live. Organize card shows Announce (and a "Not announced" nudge until done).
-2. Organizer clicks Announce → announce message + open pin; board updates without a full page remount.
+1. Organizer opens Manage → **Announce** tab: sets Announce/hero, Results/highlights, and/or theme-vote creation + date windows; Save upserts pins.
+2. Open pin on feed from that slot; no card Announce. Close voting (if still a card action) updates board in place.
 3. While voting is open, organizer can Close voting (confirm) → phase moves to finalizing without hand-editing dates.
 
 F5 — Review and confirm winners + payouts (phases 4–5)
 
-1. Challenge is finalizing. Organizer clicks Review results on the card.
-2. Modal loads rankings (skeleton first): places 1–3 from votes, top submitters, top voters, prize amounts, total credits.
-3. Organizer swaps places / edits lists / amounts as needed, then Confirm.
-4. Server publishes results, pays each recipient (pending → paid), pins winners, refreshes feed. Second confirm refused.
-5. If a payout failed mid-run, results card shows unpaid rows and Retry unpaid pays only those.
+1. Challenge is finalizing (Pending). Organizer opens Results → Payout.
+2. Ledger shows Places / Top submitters / Top voters with amounts from live Prizes; change recipients as needed (Custom + undo).
+3. Save order only appears when something changed; Pay N unpaid tips from the admin account (saves first if dirty), each with a congratulatory tip note + notification.
+4. When all paid, Finalize moves Pending → Complete (status only — no pin/announce yet).
+5. Past Complete challenges still open Results → Payout read-only for review.
 
 F6 — Challenge goes live; pin appears without clicks (phase 6 + feed)
 
-1. Scheduled listed challenge crosses into an open phase on the clock.
-2. Next snapshot rebuild upserts the open pin. No organizer action.
-3. Feed shows the engagement card for the soonest-deadline challenge; if more than one is open, a "+N more open" chip links to `/challenges`.
+1. Organizer already set open/hero creation + window on the Announce tab (or defaults apply).
+2. Scheduled listed challenge crosses into an open phase on the clock.
+3. Next snapshot rebuild upserts the open pin from that slot. No card Announce.
+4. Feed shows the engagement card for the soonest-deadline challenge; if more than one is open, a "+N more open" chip links to `/challenges`.
 
 F7 — Browse and vote on concurrent tracks (phase 7)
 

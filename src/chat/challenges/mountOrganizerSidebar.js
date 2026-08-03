@@ -9,6 +9,7 @@ import {
 	tracksViewerCanOrganize,
 	viewerOrganizesTrack,
 	isImpliedChallengeOrganizer,
+	viewerCanManageChallengePayouts,
 	applyChallengeListed,
 	applyChallengeUnlisted
 } from './challengeAdmin.js';
@@ -17,17 +18,20 @@ import {
 	renderChallengeOrganizerPageMarkup,
 	renderChallengeOrganizerModalInnerHtml,
 	renderChallengeOrganizerStatsModalInnerHtml,
+	renderChallengeOrganizerStatsBodyHtml,
 	renderOrganizeSoftDeleteConfirmHtml,
 	bindChallengeResultsToggle,
 	bindChallengeListingToggle,
 	bindChallengePrizeCategoryToggles
 } from './views/adminView.js';
+import { deriveChallengePhase } from './model/phases.js';
 import {
 	renderOrganizeCalendarHtml,
 	resolveCalendarClick,
 	occupiedRangesForTrack,
 	getChallengeTrackTemplate
 } from './views/organizeBoardView.js';
+import { applyPinSlotsToPayload, buildPinSyncOps, pinWindowsForCalendar } from './model/pinSlots.js';
 import {
 	dateToLocalYmd,
 	localEndOfDayToIso,
@@ -53,9 +57,14 @@ import {
 } from '../../shared/chatInlineImageLightbox.js';
 import { hydrateChallengeHistoryThumbnails } from '../../shared/challengeHistoryThumb.js';
 import {
+	hydrateChallengeOrganizerStatsThumbs,
+	statsThumbSrcFromCreationPayload
+} from './statsThumbs.js';
+import { mountOrganizeResultsPanel } from './organizeResults.js';
+import {
 	eyeIcon,
 	gearIcon,
-	pencilIcon,
+	slidersIcon,
 	statsBarsIcon
 } from '/icons/svg-strings.js';
 
@@ -72,57 +81,7 @@ export function mountChallengesOrganizerSidebar(host) {
 	};
 }
 
-/** Creation payload from GET /api/create/images/:id (with optional challenge_message_id). */
-function statsThumbSrcFromCreationPayload(c) {
-	if (!c || c._error) return '';
-	const mediaType = typeof c.media_type === 'string' ? c.media_type : 'image';
-	const videoUrl = typeof c.video_url === 'string' ? c.video_url.trim() : '';
-	const url = typeof c.url === 'string' ? c.url.trim() : '';
-	const thumb = typeof c.thumbnail_url === 'string' ? c.thumbnail_url.trim() : '';
-	if (mediaType === 'video') return (thumb || url || videoUrl).trim();
-	return (url || thumb).trim();
-}
-
-function escapeHtmlAttr(value) {
-	return String(value ?? '')
-		.replace(/&/g, '&amp;')
-		.replace(/"/g, '&quot;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;');
-}
-
-/**
- * Same authorization path as blind voting: `?challenge_message_id=` unlocks unpublished challenge entries.
- * @param {HTMLElement} rootEl — modal body containing `[data-challenge-stats-thumb-slot]`
- */
-async function hydrateChallengeOrganizerStatsThumbs(rootEl) {
-	const slots = rootEl.querySelectorAll('[data-challenge-stats-thumb-slot]');
-	await Promise.all(
-		[...slots].map(async (slot) => {
-			const cid = Number(slot.getAttribute('data-creation-id'));
-			const midRaw = slot.getAttribute('data-challenge-message-id');
-			const mid = Number(midRaw);
-			if (!Number.isFinite(cid) || cid <= 0) return;
-			const qs =
-				Number.isFinite(mid) && mid > 0
-					? `?challenge_message_id=${encodeURIComponent(String(mid))}`
-					: '';
-			let src = '';
-			try {
-				const res = await fetch(`/api/create/images/${encodeURIComponent(String(cid))}${qs}`, {
-					credentials: 'include'
-				});
-				const c = res.ok ? await res.json().catch(() => null) : null;
-				src = statsThumbSrcFromCreationPayload(c);
-			} catch {
-				src = '';
-			}
-			if (src && slot.isConnected) {
-				slot.innerHTML = `<img class="challenge-pane-organizer-stats-thumb" src="${escapeHtmlAttr(src)}" alt="" width="40" height="40" decoding="async" loading="lazy" />`;
-			}
-		})
-	);
-}
+// Thumb hydration + src helpers live in statsThumbs.js (shared with the payout tab).
 
 /**
  * Full challenge organizer tools for the standalone `/challenges/organize` page.
@@ -386,13 +345,20 @@ export function mountChallengesOrganizerTools(host, opts) {
 			calOpts.readOnly === true ||
 			Boolean(modalBody.querySelector('[data-challenges-organize-view]'));
 		const occupied = occupiedRangesForTrack(boardSummaries(), track, excludeChallengeId);
+		const cidForPins = String(excludeChallengeId || '').trim();
+		const pinWindows = cidForPins
+			? pinWindowsForCalendar(
+					mergeFullChallengeConfigForChallenge(challengeConfigEntries, cidForPins)
+				)
+			: [];
 		mount.innerHTML = renderOrganizeCalendarHtml({
 			track,
 			monthYmd: calendarMonthYmd,
 			startYmd,
 			endYmd,
 			occupied,
-			readOnly
+			readOnly,
+			pinWindows
 		});
 	};
 
@@ -421,6 +387,46 @@ export function mountChallengesOrganizerTools(host, opts) {
 			exclude,
 			readOnly
 		};
+	};
+
+	/**
+	 * Announce-tab creation thumbs: hydrate on open; refresh when the URL input changes.
+	 * @param {HTMLElement} modalBody
+	 */
+	const bindOrganizePinThumbs = (modalBody) => {
+		if (!(modalBody instanceof HTMLElement)) return;
+		const syncThumbFromInput = (input) => {
+			if (!(input instanceof HTMLInputElement)) return;
+			const slot = input.closest('.challenges-organize-pin-slot');
+			if (!(slot instanceof HTMLElement)) return;
+			const wrap = slot.querySelector('.challenges-organize-pin-thumb-wrap');
+			if (!(wrap instanceof HTMLElement)) return;
+			const ref = String(input.value || '').trim();
+			const img = wrap.querySelector('[data-challenge-history-thumb-img]');
+			const fallback = wrap.querySelector('[data-challenge-history-thumb-fallback]');
+			wrap.setAttribute('data-challenge-history-thumb-ref', ref);
+			wrap.setAttribute('data-challenge-history-thumb-pending', '');
+			if (img instanceof HTMLImageElement) {
+				img.removeAttribute('src');
+				img.hidden = true;
+			}
+			if (fallback instanceof HTMLElement) fallback.hidden = false;
+			if (!ref) {
+				wrap.removeAttribute('data-challenge-history-thumb-pending');
+				return;
+			}
+			void hydrateChallengeHistoryThumbnails(slot);
+		};
+		if (!modalBody.dataset.organizePinThumbsBound) {
+			modalBody.dataset.organizePinThumbsBound = '1';
+			modalBody.addEventListener('input', (e) => {
+				const t = e.target;
+				if (!(t instanceof HTMLInputElement)) return;
+				if (!t.hasAttribute('data-organize-pin-url')) return;
+				syncThumbFromInput(t);
+			});
+		}
+		void hydrateChallengeHistoryThumbnails(modalBody);
 	};
 
 	const closeModal = () => {
@@ -503,6 +509,7 @@ export function mountChallengesOrganizerTools(host, opts) {
 		bindChallengeResultsToggle(modalBody);
 		bindChallengeListingToggle(modalBody);
 		bindChallengePrizeCategoryToggles(modalBody);
+		bindOrganizePinThumbs(modalBody);
 		if (mode === 'create') {
 			syncCreatePrefills(modalBody, track);
 		} else if (mode === 'edit' && editPayload) {
@@ -540,8 +547,9 @@ export function mountChallengesOrganizerTools(host, opts) {
 	/**
 	 * @param {string} challengeId
 	 * @param {string} challengeTitle
+	 * @param {{ activeTab?: 'stats' | 'payout' }} [openOpts]
 	 */
-	const openStatsModal = async (challengeId, challengeTitle) => {
+	const openStatsModal = async (challengeId, challengeTitle, openOpts = {}) => {
 		const cid = String(challengeId || '').trim();
 		if (!cid) return;
 		const modalEl = host.querySelector('[data-challenges-organizer-modal]');
@@ -554,8 +562,16 @@ export function mountChallengesOrganizerTools(host, opts) {
 		) {
 			return;
 		}
+		const merged = mergeFullChallengeConfigForChallenge(challengeConfigEntries, cid);
+		const phase = deriveChallengePhase(merged, Date.now());
+		const showPayoutTab =
+			(phase === 'finalizing' || phase === 'results') &&
+			viewerCanManageChallengePayouts(opts.viewerUserName);
+		const activeTab =
+			openOpts.activeTab === 'payout' && showPayoutTab ? 'payout' : 'stats';
+
 		const requestToken = ++activeStatsRequestToken;
-		modalTitle.textContent = 'Challenge stats';
+		modalTitle.textContent = challengeTitle?.trim() || 'Results';
 		modalBody.innerHTML = renderChallengeOrganizerStatsModalInnerHtml({
 			challengeTitle,
 			loading: true
@@ -563,6 +579,36 @@ export function mountChallengesOrganizerTools(host, opts) {
 		modalEl.classList.add('open');
 		modalEl.setAttribute('aria-hidden', 'false');
 		setOrganizerModalOpenClass(true);
+
+		const paintStatsBody = () => {
+			if (!activeStatsModalState) return;
+			const panel = modalBody.querySelector('[data-challenge-results-panel="stats"]');
+			if (!(panel instanceof HTMLElement)) return;
+			panel.innerHTML = renderChallengeOrganizerStatsBodyHtml({
+				challengeTitle: activeStatsModalState.challengeTitle,
+				topCreations: activeStatsModalState.data.topCreations,
+				topSubmitters: activeStatsModalState.data.topSubmitters,
+				topVoters: activeStatsModalState.data.topVoters,
+				globalAverage: activeStatsModalState.data.globalAverage,
+				excludedUserNames: activeStatsModalState.excludedUserNames,
+				sortMode: activeStatsModalState.sortMode
+			});
+			void hydrateChallengeOrganizerStatsThumbs(panel);
+		};
+
+		const mountPayoutIfNeeded = () => {
+			const mount = modalBody.querySelector('[data-organize-results-mount]');
+			if (!(mount instanceof HTMLElement) || !showPayoutTab) return;
+			const liveMerged = mergeFullChallengeConfigForChallenge(challengeConfigEntries, cid);
+			mountOrganizeResultsPanel(mount, {
+				threadId: opts.threadId,
+				challengeId: cid,
+				config: liveMerged || merged || {},
+				viewerUserName: opts.viewerUserName || '',
+				reload: opts.reload
+			});
+		};
+
 		try {
 			const endpoint = `/api/chat/threads/${encodeURIComponent(String(opts.threadId))}/challenges/${encodeURIComponent(cid)}/stats`;
 			const res = await fetch(endpoint, { credentials: 'include' });
@@ -572,7 +618,7 @@ export function mountChallengesOrganizerTools(host, opts) {
 				const msg =
 					typeof data?.message === 'string' && data.message.trim()
 						? data.message.trim()
-						: 'Could not load challenge stats.';
+						: 'Could not load challenge results.';
 				modalBody.innerHTML = renderChallengeOrganizerStatsModalInnerHtml({
 					challengeTitle,
 					error: msg
@@ -581,7 +627,11 @@ export function mountChallengesOrganizerTools(host, opts) {
 			}
 			const defaultExcludedUserNames = parseExcludedUsernames(opts.viewerUserName || '');
 			activeStatsModalState = {
+				challengeId: cid,
 				challengeTitle,
+				showPayoutTab,
+				activeTab,
+				paintStatsBody,
 				data: {
 					topCreations: data.topCreations,
 					topSubmitters: data.topSubmitters,
@@ -598,10 +648,13 @@ export function mountChallengesOrganizerTools(host, opts) {
 				topVoters: activeStatsModalState.data.topVoters,
 				globalAverage: activeStatsModalState.data.globalAverage,
 				excludedUserNames: activeStatsModalState.excludedUserNames,
-				sortMode: activeStatsModalState.sortMode
+				sortMode: activeStatsModalState.sortMode,
+				showPayoutTab,
+				activeTab
 			});
 			if (requestToken !== activeStatsRequestToken) return;
 			void hydrateChallengeOrganizerStatsThumbs(modalBody);
+			mountPayoutIfNeeded();
 		} catch (err) {
 			if (requestToken !== activeStatsRequestToken) return;
 			modalBody.innerHTML = renderChallengeOrganizerStatsModalInnerHtml({
@@ -609,7 +662,7 @@ export function mountChallengesOrganizerTools(host, opts) {
 				error:
 					err instanceof Error && err.message
 						? err.message
-						: 'Could not load challenge stats.'
+						: 'Could not load challenge results.'
 			});
 		}
 	};
@@ -629,21 +682,13 @@ export function mountChallengesOrganizerTools(host, opts) {
 		const form = e.target;
 		if (!(form instanceof HTMLFormElement)) return;
 		if (form.matches('[data-challenge-stats-filter-form]')) {
-			const modalBody = host.querySelector('[data-challenges-organizer-modal-body]');
-			if (!(modalBody instanceof HTMLElement) || !activeStatsModalState) return;
+			if (!activeStatsModalState) return;
 			const input = form.querySelector('[data-challenge-stats-filter-input]');
 			if (!(input instanceof HTMLInputElement)) return;
 			activeStatsModalState.excludedUserNames = parseExcludedUsernames(input.value);
-			modalBody.innerHTML = renderChallengeOrganizerStatsModalInnerHtml({
-				challengeTitle: activeStatsModalState.challengeTitle,
-				topCreations: activeStatsModalState.data.topCreations,
-				topSubmitters: activeStatsModalState.data.topSubmitters,
-				topVoters: activeStatsModalState.data.topVoters,
-				globalAverage: activeStatsModalState.data.globalAverage,
-				excludedUserNames: activeStatsModalState.excludedUserNames,
-				sortMode: activeStatsModalState.sortMode
-			});
-			void hydrateChallengeOrganizerStatsThumbs(modalBody);
+			if (typeof activeStatsModalState.paintStatsBody === 'function') {
+				activeStatsModalState.paintStatsBody();
+			}
 			return;
 		}
 		const adminForm = form;
@@ -734,6 +779,8 @@ export function mountChallengesOrganizerTools(host, opts) {
 		};
 
 		let postSucceeded = false;
+		/** When true, after config save sync editorial pins from the Announce tab. */
+		let shouldSyncPins = false;
 		try {
 			let payload;
 			if (isGlobalForm) {
@@ -831,8 +878,8 @@ export function mountChallengesOrganizerTools(host, opts) {
 					};
 					if (details) payload.details = details;
 					else delete payload.details;
-					// Media fields live on the Details tab. Saving from Schedule/Prizes must not
-					// clear hero/results/theme-vote just because those inputs weren't the focus.
+					// Pin fields live on the Announce tab. Saving from Details/Schedule/Prizes must not
+					// clear hero/results/theme-vote or pin windows just because those inputs weren't the focus.
 					const activeEditTab = String(
 						adminForm
 							.querySelector('.challenges-organize-edit-tab.is-active')
@@ -840,14 +887,14 @@ export function mountChallengesOrganizerTools(host, opts) {
 					)
 						.trim()
 						.toLowerCase();
-					const applyMediaFromForm = activeEditTab === 'details';
-					if (applyMediaFromForm) {
-						if (topicVoteRef) payload.topic_vote_creation_url = topicVoteRef;
-						else delete payload.topic_vote_creation_url;
-						if (heroRef) payload.hero_image_url = heroRef;
-						else delete payload.hero_image_url;
-						if (resultsRef) payload.results_creation_url = resultsRef;
-						else delete payload.results_creation_url;
+					const applyPinsFromForm = activeEditTab === 'pins';
+					if (applyPinsFromForm) {
+						applyPinSlotsToPayload(payload, fd, {
+							heroRef,
+							resultsRef,
+							topicVoteRef
+						});
+						shouldSyncPins = true;
 					}
 					applyRewardsAndPrizesFromForm(payload, fd, adminForm);
 				} else if (isEditForm && editSection && editSection !== 'schedule') {
@@ -856,7 +903,7 @@ export function mountChallengesOrganizerTools(host, opts) {
 						kind: 'challenge_config',
 						challenge_id: challengeId
 					};
-					if (editSection === 'details' || editSection === 'media') {
+					if (editSection === 'details' || editSection === 'media' || editSection === 'pins') {
 						if (!title) {
 							setFormError('Title is required.');
 							return;
@@ -864,12 +911,21 @@ export function mountChallengesOrganizerTools(host, opts) {
 						payload.title = title;
 						if (details) payload.details = details;
 						else delete payload.details;
-						if (topicVoteRef) payload.topic_vote_creation_url = topicVoteRef;
-						else delete payload.topic_vote_creation_url;
-						if (heroRef) payload.hero_image_url = heroRef;
-						else delete payload.hero_image_url;
-						if (resultsRef) payload.results_creation_url = resultsRef;
-						else delete payload.results_creation_url;
+						if (editSection === 'media' || editSection === 'pins') {
+							applyPinSlotsToPayload(payload, fd, {
+								heroRef,
+								resultsRef,
+								topicVoteRef
+							});
+							shouldSyncPins = true;
+						} else {
+							if (topicVoteRef) payload.topic_vote_creation_url = topicVoteRef;
+							else delete payload.topic_vote_creation_url;
+							if (heroRef) payload.hero_image_url = heroRef;
+							else delete payload.hero_image_url;
+							if (resultsRef) payload.results_creation_url = resultsRef;
+							else delete payload.results_creation_url;
+						}
 					} else if (editSection === 'prizes') {
 						applyRewardsAndPrizesFromForm(payload, fd, adminForm);
 					}
@@ -931,31 +987,56 @@ export function mountChallengesOrganizerTools(host, opts) {
 						};
 						if (details) payload.details = details;
 						else delete payload.details;
-						if (topicVoteRef) payload.topic_vote_creation_url = topicVoteRef;
-						else delete payload.topic_vote_creation_url;
-						if (heroRef) payload.hero_image_url = heroRef;
-						else delete payload.hero_image_url;
-						const publishCheckbox = adminForm.querySelector('[name="results_publish_now"]');
-						if (publishCheckbox instanceof HTMLInputElement) {
-							if (publishCheckbox.checked) {
-								if (resultsPublishedExisting) {
-									payload.results_published_at = resultsPublishedExisting;
+						const createActiveTab = String(
+							adminForm
+								.querySelector('.challenges-organize-edit-tab.is-active')
+								?.getAttribute('data-organize-edit-tab') || 'details'
+						)
+							.trim()
+							.toLowerCase();
+						const hasPinsFields = Boolean(
+							adminForm.querySelector('[name="pin_open_start_ymd"]')
+						);
+						if (hasPinsFields && (createActiveTab === 'pins' || createActiveTab === 'details')) {
+							// Create form includes Announce fields; persist URLs/windows + sync pins when
+							// saving from Details (defaults) or Announce.
+							applyPinSlotsToPayload(payload, fd, {
+								heroRef,
+								resultsRef,
+								topicVoteRef
+							});
+							shouldSyncPins =
+								createActiveTab === 'pins' ||
+								Boolean(heroRef || resultsRef || topicVoteRef);
+						} else {
+							if (topicVoteRef) payload.topic_vote_creation_url = topicVoteRef;
+							else delete payload.topic_vote_creation_url;
+							if (heroRef) payload.hero_image_url = heroRef;
+							else delete payload.hero_image_url;
+							const publishCheckbox = adminForm.querySelector('[name="results_publish_now"]');
+							if (publishCheckbox instanceof HTMLInputElement) {
+								if (publishCheckbox.checked) {
+									if (resultsPublishedExisting) {
+										payload.results_published_at = resultsPublishedExisting;
+									} else {
+										payload.results_published_at = new Date().toISOString();
+									}
+									const resultsUrlInput = adminForm.querySelector(
+										'[name="results_creation_url"]'
+									);
+									if (resultsUrlInput instanceof HTMLInputElement) {
+										if (resultsRef) payload.results_creation_url = resultsRef;
+										else delete payload.results_creation_url;
+									}
 								} else {
-									payload.results_published_at = new Date().toISOString();
+									delete payload.results_published_at;
+									delete payload.results_creation_url;
 								}
-								const resultsUrlInput = adminForm.querySelector('[name="results_creation_url"]');
-								if (resultsUrlInput instanceof HTMLInputElement) {
-									if (resultsRef) payload.results_creation_url = resultsRef;
-									else delete payload.results_creation_url;
-								}
+							} else if (resultsRef) {
+								payload.results_creation_url = resultsRef;
 							} else {
-								delete payload.results_published_at;
 								delete payload.results_creation_url;
 							}
-						} else if (resultsRef) {
-							payload.results_creation_url = resultsRef;
-						} else {
-							delete payload.results_creation_url;
 						}
 						applyRewardsAndPrizesFromForm(payload, fd, adminForm);
 					}
@@ -1064,6 +1145,49 @@ export function mountChallengesOrganizerTools(host, opts) {
 				);
 			}
 			postSucceeded = true;
+			if (shouldSyncPins && !isGlobalForm && challengeId) {
+				const ops = buildPinSyncOps(challengeId, {
+					heroRef,
+					resultsRef,
+					topicVoteRef,
+					openStart: String(fd.get('pin_open_start_ymd') || '').trim(),
+					openUntil: String(fd.get('pin_open_until_ymd') || '').trim(),
+					winnersStart: String(fd.get('pin_winners_start_ymd') || '').trim(),
+					winnersUntil: String(fd.get('pin_winners_until_ymd') || '').trim(),
+					topicStart: String(fd.get('pin_topic_vote_start_ymd') || '').trim(),
+					topicUntil: String(fd.get('pin_topic_vote_until_ymd') || '').trim(),
+					localStartOfDayToIso,
+					localEndOfDayToIso
+				});
+				await Promise.all(
+					ops.map(async (op) => {
+						const body = op.clear
+							? {
+									kind: op.kind,
+									challenge_id: challengeId,
+									clear: true
+								}
+							: {
+									kind: op.kind,
+									challenge_id: challengeId,
+									created_image_id: op.created_image_id,
+									creation_ref: op.creation_ref,
+									starts_at: op.starts_at,
+									until: op.until
+								};
+						try {
+							await fetch('/api/chat/challenges/organize/pins', {
+								method: 'POST',
+								credentials: 'include',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify(body)
+							});
+						} catch {
+							/* pin sync is best-effort; config already saved */
+						}
+					})
+				);
+			}
 			if (successEl instanceof HTMLElement) {
 				successEl.hidden = false;
 				successEl.textContent = isGlobalForm ? 'Organizers saved.' : 'Saved.';
@@ -1182,20 +1306,34 @@ export function mountChallengesOrganizerTools(host, opts) {
 		if (statsSortSwitch instanceof HTMLButtonElement) {
 			const nextSortMode =
 				activeStatsModalState?.sortMode === 'weighted' ? 'average' : 'weighted';
-			const modalBody = host.querySelector('[data-challenges-organizer-modal-body]');
-			if (!(modalBody instanceof HTMLElement) || !activeStatsModalState) return;
+			if (!activeStatsModalState) return;
 			if (activeStatsModalState.sortMode === nextSortMode) return;
 			activeStatsModalState.sortMode = nextSortMode;
-			modalBody.innerHTML = renderChallengeOrganizerStatsModalInnerHtml({
-				challengeTitle: activeStatsModalState.challengeTitle,
-				topCreations: activeStatsModalState.data.topCreations,
-				topSubmitters: activeStatsModalState.data.topSubmitters,
-				topVoters: activeStatsModalState.data.topVoters,
-				globalAverage: activeStatsModalState.data.globalAverage,
-				excludedUserNames: activeStatsModalState.excludedUserNames,
-				sortMode: activeStatsModalState.sortMode
-			});
-			void hydrateChallengeOrganizerStatsThumbs(modalBody);
+			if (typeof activeStatsModalState.paintStatsBody === 'function') {
+				activeStatsModalState.paintStatsBody();
+			}
+			return;
+		}
+
+		const resultsTabBtn = t.closest('[data-challenge-results-tab]');
+		if (resultsTabBtn instanceof HTMLButtonElement) {
+			const tabId = resultsTabBtn.getAttribute('data-challenge-results-tab') || '';
+			const scope = resultsTabBtn.closest('[data-challenge-results-modal]');
+			if (!tabId || !(scope instanceof HTMLElement)) return;
+			const tabs = scope.querySelectorAll('[data-challenge-results-tab]');
+			const panels = scope.querySelectorAll('[data-challenge-results-panel]');
+			for (const btn of tabs) {
+				if (!(btn instanceof HTMLButtonElement)) continue;
+				const on = btn.getAttribute('data-challenge-results-tab') === tabId;
+				btn.classList.toggle('is-active', on);
+				btn.setAttribute('aria-selected', on ? 'true' : 'false');
+				btn.tabIndex = on ? 0 : -1;
+			}
+			for (const panel of panels) {
+				if (!(panel instanceof HTMLElement)) continue;
+				panel.hidden = panel.getAttribute('data-challenge-results-panel') !== tabId;
+			}
+			if (activeStatsModalState) activeStatsModalState.activeTab = tabId;
 			return;
 		}
 
@@ -1389,6 +1527,12 @@ export function mountChallengesOrganizerTools(host, opts) {
 				const on = panel.getAttribute('data-organize-edit-panel') === tabId;
 				panel.hidden = !on;
 			}
+			if (tabId === 'pins') {
+				const pinsPanel = scope.querySelector('[data-organize-edit-panel="pins"]');
+				if (pinsPanel instanceof HTMLElement) {
+					void hydrateChallengeHistoryThumbnails(pinsPanel);
+				}
+			}
 			return;
 		}
 
@@ -1504,10 +1648,10 @@ export function mountChallengesOrganizerTools(host, opts) {
 					delete payload.purged_at;
 					delete payload.purged;
 					const body = JSON.stringify(payload);
-					const r =
-						Number.isFinite(mid) && mid > 0 && typeof opts.patchMessage === 'function'
-							? await opts.patchMessage(mid, body)
-							: await opts.postMessage(body);
+					if (!(Number.isFinite(mid) && mid > 0 && typeof opts.patchMessage === 'function')) {
+						throw new Error('Missing challenge config message to update.');
+					}
+					const r = await opts.patchMessage(mid, body);
 					if (!r?.ok) {
 						throw new Error(r?.error || 'Could not move challenge to Deleted.');
 					}
@@ -1550,10 +1694,10 @@ export function mountChallengesOrganizerTools(host, opts) {
 					delete payload.purged;
 					const mid = Number(row?.configMessageId);
 					const body = JSON.stringify(payload);
-					const r =
-						Number.isFinite(mid) && mid > 0 && typeof opts.patchMessage === 'function'
-							? await opts.patchMessage(mid, body)
-							: await opts.postMessage(body);
+					if (!(Number.isFinite(mid) && mid > 0 && typeof opts.patchMessage === 'function')) {
+						throw new Error('Missing challenge config message to update.');
+					}
+					const r = await opts.patchMessage(mid, body);
 					if (!r?.ok) throw new Error(r?.error || 'Could not restore challenge.');
 					await opts.reload();
 				} catch (err) {
@@ -1600,10 +1744,10 @@ export function mountChallengesOrganizerTools(host, opts) {
 					};
 					const mid = Number(row?.configMessageId);
 					const body = JSON.stringify(payload);
-					const r =
-						Number.isFinite(mid) && mid > 0 && typeof opts.patchMessage === 'function'
-							? await opts.patchMessage(mid, body)
-							: await opts.postMessage(body);
+					if (!(Number.isFinite(mid) && mid > 0 && typeof opts.patchMessage === 'function')) {
+						throw new Error('Missing challenge config message to update.');
+					}
+					const r = await opts.patchMessage(mid, body);
 					if (!r?.ok) throw new Error(r?.error || 'Could not permanently delete.');
 					await opts.reload();
 				} catch (err) {
@@ -1691,7 +1835,7 @@ export function mountChallengesOrganizerTools(host, opts) {
 		rowByChallengeId = new Map(summaries.map((s) => [s.challenge_id, s]));
 
 		const statsSvg = statsIcon('challenge-pane-organizer-stats-trigger-svg');
-		const contentSvg = pencilIcon('challenges-organize-section-svg');
+		const contentSvg = slidersIcon('challenges-organize-section-svg');
 		const viewSvg = eyeIcon('challenges-organize-section-svg');
 		const settingsSvg = gearIcon('challenges-organize-settings-svg');
 		host.innerHTML = renderChallengeOrganizerPageMarkup({
@@ -1743,10 +1887,10 @@ export function mountChallengesOrganizerTools(host, opts) {
 					voting_end_at: endIso
 				};
 				const body = JSON.stringify(payload);
-				const r =
-					Number.isFinite(mid) && mid > 0 && typeof opts.patchMessage === 'function'
-						? await opts.patchMessage(mid, body)
-						: await opts.postMessage(body);
+				if (!(Number.isFinite(mid) && mid > 0 && typeof opts.patchMessage === 'function')) {
+					throw new Error('Missing challenge config message to update.');
+				}
+				const r = await opts.patchMessage(mid, body);
 				if (!r?.ok) throw new Error(r?.error || 'Could not close voting');
 				await opts.reload();
 				return;
@@ -1760,14 +1904,19 @@ export function mountChallengesOrganizerTools(host, opts) {
 						merged.results_published_at || new Date().toISOString()
 				};
 				const body = JSON.stringify(payload);
-				const r =
-					Number.isFinite(mid) && mid > 0 && typeof opts.patchMessage === 'function'
-						? await opts.patchMessage(mid, body)
-						: await opts.postMessage(body);
+				if (!(Number.isFinite(mid) && mid > 0 && typeof opts.patchMessage === 'function')) {
+					throw new Error('Missing challenge config message to update.');
+				}
+				const r = await opts.patchMessage(mid, body);
 				if (!r?.ok) throw new Error(r?.error || 'Could not publish winners');
+				const resultsUrl =
+					typeof merged.results_creation_url === 'string'
+						? merged.results_creation_url.trim()
+						: '';
 				const hero =
 					typeof merged.hero_image_url === 'string' ? merged.hero_image_url.trim() : '';
-				const creationMatch = hero.match(/\/creations\/(\d+)/);
+				const pinRef = resultsUrl || hero;
+				const creationMatch = pinRef.match(/\/creations\/(\d+)/);
 				const createdImageId = creationMatch ? Number(creationMatch[1]) : 0;
 				if (Number.isFinite(createdImageId) && createdImageId > 0) {
 					await fetch('/api/chat/challenges/organize/pins', {
@@ -1778,40 +1927,13 @@ export function mountChallengesOrganizerTools(host, opts) {
 							kind: 'winners',
 							challenge_id: cid,
 							created_image_id: createdImageId,
+							creation_ref: pinRef,
 							title: merged.title || cid
 						})
 					}).catch(() => null);
 				}
 				await opts.reload();
 				return;
-			}
-			if (action === 'announce') {
-				const title = typeof merged.title === 'string' ? merged.title : cid;
-				const announceBody = JSON.stringify({
-					kind: 'challenge_announce',
-					challenge_id: cid,
-					title,
-					text: `Challenge open: ${title}`
-				});
-				await opts.postMessage(announceBody);
-				const hero =
-					typeof merged.hero_image_url === 'string' ? merged.hero_image_url.trim() : '';
-				const creationMatch = hero.match(/\/creations\/(\d+)/);
-				const createdImageId = creationMatch ? Number(creationMatch[1]) : 0;
-				if (Number.isFinite(createdImageId) && createdImageId > 0) {
-					await fetch('/api/chat/challenges/organize/pins', {
-						method: 'POST',
-						credentials: 'include',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({
-							kind: 'open',
-							challenge_id: cid,
-							created_image_id: createdImageId,
-							title
-						})
-					}).catch(() => null);
-				}
-				await opts.reload();
 			}
 		} catch (err) {
 			console.error('[organize]', action, err);

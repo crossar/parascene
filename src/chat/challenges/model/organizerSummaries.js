@@ -15,14 +15,21 @@ export function summarizeLatestChallengeConfigs(configs) {
 		if (!cid) continue;
 		const msgId = Number(row.msg?.id);
 		const sortKey = Number.isFinite(msgId) && msgId > 0 ? msgId : 0;
-		const title = typeof p.title === 'string' ? p.title : '';
+		const titleFromPayload =
+			typeof p.title === 'string' && p.title.trim() ? p.title.trim() : '';
 		const prev = latest.get(cid);
 		if (prev && prev.sortKey > sortKey) {
+			// Older patch arrived out of order: keep latest row, but retain a title if
+			// the newer payload was a partial save without one.
+			if (titleFromPayload && !prev.title) {
+				latest.set(cid, { ...prev, title: titleFromPayload });
+			}
 			continue;
 		}
+		// Partial later patches often omit `title`; keep the last non-empty title.
 		latest.set(cid, {
 			challenge_id: cid,
-			title,
+			title: titleFromPayload || prev?.title || '',
 			payload: p,
 			sortKey,
 			configMessageId: sortKey

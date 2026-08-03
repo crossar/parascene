@@ -19,11 +19,22 @@ import {
 	snapRangeAwayFromOccupied
 } from '../model/tracks.js';
 import {
+	CHALLENGE_OPEN_PIN_DAYS,
+	CHALLENGE_WINNERS_PIN_DAYS,
+	pinWindowsFromChallengeConfig
+} from '../model/pinSlots.js';
+import {
 	mergeFullChallengeConfigForChallenge,
 	pickChallengeHeroImageUrl,
 	isChallengeListedForUpcoming
 } from '../challengeAdmin.js';
 import { audioClipMusicIcon, clock3Icon } from '/icons/svg-strings.js';
+
+export {
+	CHALLENGE_OPEN_PIN_DAYS,
+	CHALLENGE_WINNERS_PIN_DAYS,
+	pinWindowsFromChallengeConfig
+};
 
 /** @param {string} phase @param {boolean} [listed] */
 function organizePhaseLabel(phase, listed = true) {
@@ -142,18 +153,33 @@ function organizeHeroThumbHtml(merged, challengeId, _track) {
 /**
  * @param {number} year
  * @param {number} monthIndex 0-11
+ * @returns {{ ymd: string, inMonth: boolean }[]}
  */
 function monthMatrix(year, monthIndex) {
 	const first = new Date(year, monthIndex, 1);
 	const startPad = first.getDay(); // 0 Sun
 	const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
-	/** @type {({ ymd: string, inMonth: boolean } | null)[]} */
+	/** @type {{ ymd: string, inMonth: boolean }[]} */
 	const cells = [];
-	for (let i = 0; i < startPad; i += 1) cells.push(null);
+	for (let i = 0; i < startPad; i += 1) {
+		const date = new Date(year, monthIndex, 1 - (startPad - i));
+		cells.push({
+			ymd: formatYmd(date.getFullYear(), date.getMonth() + 1, date.getDate()),
+			inMonth: false
+		});
+	}
 	for (let d = 1; d <= daysInMonth; d += 1) {
 		cells.push({ ymd: formatYmd(year, monthIndex + 1, d), inMonth: true });
 	}
-	while (cells.length % 7 !== 0) cells.push(null);
+	let next = 1;
+	while (cells.length % 7 !== 0) {
+		const date = new Date(year, monthIndex + 1, next);
+		cells.push({
+			ymd: formatYmd(date.getFullYear(), date.getMonth() + 1, date.getDate()),
+			inMonth: false
+		});
+		next += 1;
+	}
 	return cells;
 }
 
@@ -177,6 +203,7 @@ function dayIsOccupied(occupied, ymd) {
  *   endYmd?: string,
  *   occupied: { challenge_id: string, title: string, start: string, end: string }[],
  *   readOnly?: boolean,
+ *   pinWindows?: { kind: 'open' | 'winners' | 'topic_vote', start: string, end: string }[],
  * }} opts
  */
 export function renderOrganizeCalendarHtml(opts) {
@@ -203,6 +230,28 @@ export function renderOrganizeCalendarHtml(opts) {
 	const startYmd = opts.startYmd || '';
 	const endYmd = opts.endYmd || '';
 	const occupied = opts.occupied || [];
+	const pinWindows = Array.isArray(opts.pinWindows) ? opts.pinWindows : [];
+	/** @param {string} kind */
+	const pinKindLabel = (kind) => {
+		if (kind === 'winners') return 'winners';
+		if (kind === 'topic_vote') return 'theme vote';
+		return 'open';
+	};
+	const pinKindsForDay = (ymd) => {
+		const kinds = [];
+		for (const w of pinWindows) {
+			if (
+				w?.start &&
+				w?.end &&
+				compareYmd(ymd, w.start) >= 0 &&
+				compareYmd(ymd, w.end) <= 0 &&
+				!kinds.includes(w.kind)
+			) {
+				kinds.push(w.kind);
+			}
+		}
+		return kinds;
+	};
 	const cells = monthMatrix(year, monthIndex);
 	const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
@@ -212,7 +261,33 @@ export function renderOrganizeCalendarHtml(opts) {
 
 	const body = cells
 		.map((cell) => {
-			if (!cell) return `<span class="challenges-organize-cal-day is-empty"></span>`;
+			const dayNum = Number(cell.ymd.slice(-2));
+			const pinKinds = pinKindsForDay(cell.ymd);
+			const pinDots = pinKinds
+				.map(
+					(k) =>
+						`<span class="challenges-organize-cal-pin-dot challenges-organize-cal-pin-dot--${esc(k)}" aria-hidden="true"></span>`
+				)
+				.join('');
+			const pinDotsHtml = pinDots
+				? `<span class="challenges-organize-cal-pin-dots">${pinDots}</span>`
+				: '';
+			if (!cell.inMonth) {
+				const outsideSelected =
+					Boolean(startYmd) &&
+					Boolean(endYmd) &&
+					compareYmd(cell.ymd, startYmd) >= 0 &&
+					compareYmd(cell.ymd, endYmd) <= 0;
+				const outsideClasses = [
+					'challenges-organize-cal-day',
+					'is-outside',
+					outsideSelected ? 'is-selected' : '',
+					pinKinds.length ? 'has-feed-pin' : ''
+				]
+					.filter(Boolean)
+					.join(' ');
+				return `<span class="${outsideClasses}" aria-hidden="true"><span class="challenges-organize-cal-day-num">${dayNum}</span>${pinDotsHtml}</span>`;
+			}
 			const block = dayIsOccupied(occupied, cell.ymd);
 			const selected =
 				startYmd &&
@@ -227,40 +302,67 @@ export function renderOrganizeCalendarHtml(opts) {
 				selected ? 'is-selected' : '',
 				isStart ? 'is-range-start' : '',
 				isEnd ? 'is-range-end' : '',
+				pinKinds.length ? 'has-feed-pin' : '',
 				readOnly ? 'is-readonly' : ''
 			]
 				.filter(Boolean)
 				.join(' ');
-			const title = readOnly
-				? selected
-					? `Scheduled ${cell.ymd}`
+			const pinLabel = pinKinds.length
+				? ` · Feed pin: ${pinKinds.map((k) => pinKindLabel(k)).join(' + ')}`
+				: '';
+			const title =
+				(readOnly
+					? selected
+						? `Scheduled ${cell.ymd}`
+						: block
+							? `Taken by ${block.title}`
+							: cell.ymd
 					: block
 						? `Taken by ${block.title}`
-						: cell.ymd
-				: block
-					? `Taken by ${block.title}`
-					: `Select ${cell.ymd}`;
+						: `Select ${cell.ymd}`) + pinLabel;
 			const disabled = readOnly || block ? ' disabled' : '';
-			const dayNum = Number(cell.ymd.slice(-2));
-			return `<button type="button" class="${classes}" data-organize-cal-day="${esc(cell.ymd)}" title="${esc(title)}"${disabled}>${dayNum}</button>`;
+			return `<button type="button" class="${classes}" data-organize-cal-day="${esc(cell.ymd)}" title="${esc(title)}"${disabled}>${dayNum}${pinDotsHtml}</button>`;
 		})
 		.join('');
 
 	const hint = readOnly
 		? `Scheduled range for this ${esc(CHALLENGE_TRACK_LABELS[track] || track)} challenge.`
 		: `Click a start day, then an end day. Occupied ${esc(CHALLENGE_TRACK_LABELS[track] || track)} days are blocked.`;
+	const hasOpenPin = pinWindows.some((w) => w?.kind === 'open');
+	const hasTopicVotePin = pinWindows.some((w) => w?.kind === 'topic_vote');
+	const hasWinnersPin = pinWindows.some((w) => w?.kind === 'winners');
+	const pinLegendParts = [];
+	if (hasOpenPin) {
+		pinLegendParts.push(
+			`<span class="challenges-organize-cal-pin-dot challenges-organize-cal-pin-dot--open" aria-hidden="true"></span> open (${CHALLENGE_OPEN_PIN_DAYS}d)`
+		);
+	}
+	if (hasTopicVotePin) {
+		pinLegendParts.push(
+			`<span class="challenges-organize-cal-pin-dot challenges-organize-cal-pin-dot--topic_vote" aria-hidden="true"></span> theme vote (${CHALLENGE_OPEN_PIN_DAYS}d)`
+		);
+	}
+	if (hasWinnersPin) {
+		pinLegendParts.push(
+			`<span class="challenges-organize-cal-pin-dot challenges-organize-cal-pin-dot--winners" aria-hidden="true"></span> winners (${CHALLENGE_WINNERS_PIN_DAYS}d)`
+		);
+	}
+	const pinLegend = pinLegendParts.length
+		? `<p class="challenge-pane-muted challenges-organize-cal-hint challenges-organize-cal-pin-legend">Feed pin: ${pinLegendParts.join(' · ')}</p>`
+		: '';
 
 	return `<div class="challenges-organize-cal${readOnly ? ' is-readonly' : ''}" data-organize-calendar data-organize-cal-track="${esc(track)}"${readOnly ? ' data-organize-calendar-readonly' : ''}>
 		<div class="challenges-organize-cal-nav">
-			<button type="button" class="btn-outlined challenges-organize-cal-nav-btn" data-organize-cal-month="${esc(prevMonthStart)}" aria-label="Previous month">‹</button>
+			<button type="button" class="challenges-organize-cal-nav-btn" data-organize-cal-month="${esc(prevMonthStart)}" aria-label="Previous month">‹</button>
 			<span class="challenges-organize-cal-month-label">${esc(monthLabel)}</span>
-			<button type="button" class="btn-outlined challenges-organize-cal-nav-btn" data-organize-cal-month="${esc(nextMonthStart)}" aria-label="Next month">›</button>
+			<button type="button" class="challenges-organize-cal-nav-btn" data-organize-cal-month="${esc(nextMonthStart)}" aria-label="Next month">›</button>
 		</div>
 		<div class="challenges-organize-cal-grid" role="grid" aria-label="${readOnly ? 'Challenge schedule (read-only)' : 'Challenge calendar'}">
 			${head}
 			${body}
 		</div>
 		<p class="challenge-pane-muted challenges-organize-cal-hint">${hint}</p>
+		${pinLegend}
 	</div>`;
 }
 
@@ -402,10 +504,10 @@ export function renderOrganizeBoardHtml(vm) {
  */
 function renderOrganizeCardHtml(c, vm) {
 	const cid = String(c.challenge_id || '').trim();
-	const titleRaw =
-		c.title && String(c.title).trim()
-			? String(c.title).trim()
-			: cid;
+	const mergedTitle =
+		c.merged && typeof c.merged.title === 'string' ? c.merged.title.trim() : '';
+	const rowTitle = c.title && String(c.title).trim() ? String(c.title).trim() : '';
+	const titleRaw = mergedTitle || rowTitle || cid;
 	const title = esc(titleRaw);
 	const phase = c.phase || 'unknown';
 	const listed = phase === 'pre_submit' ? isChallengeListedForUpcoming(c.merged) : true;
@@ -426,9 +528,9 @@ function renderOrganizeCardHtml(c, vm) {
 	const isDraft = phase === 'pre_submit' && !listed;
 
 	const statsBtn = actions.showStats
-		? `<button type="button" class="challenges-organize-card-action challenges-organize-card-action--ghost" data-challenges-organizer-stats="${esc(cid)}" aria-label="View stats for ${title}">
+		? `<button type="button" class="challenges-organize-card-action challenges-organize-card-action--ghost" data-challenges-organizer-stats="${esc(cid)}" aria-label="View results for ${title}">
 			${vm.statsIconSvg || ''}
-			<span>Stats</span>
+			<span>Results</span>
 		</button>`
 		: '';
 
@@ -438,9 +540,9 @@ function renderOrganizeCardHtml(c, vm) {
 			<span>View</span>
 		</button>`
 		: actions.showEdit
-			? `<button type="button" class="challenges-organize-card-action challenges-organize-card-action--ghost" data-challenges-organizer-edit="${esc(cid)}" aria-label="Edit ${title}">
+			? `<button type="button" class="challenges-organize-card-action challenges-organize-card-action--ghost" data-challenges-organizer-edit="${esc(cid)}" aria-label="Manage ${title}">
 			${vm.contentIconSvg || ''}
-			<span>Edit</span>
+			<span>Manage</span>
 		</button>`
 			: '';
 

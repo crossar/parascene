@@ -3,6 +3,7 @@ import {
 	pickChallengeResultsCreationUrl,
 	pickChallengeTopicVoteCreationUrl,
 	isChallengeConfigSoftDeleted,
+	isChallengeConfigPurged,
 	mergeFullChallengeConfigForChallenge
 } from '../../src/chat/challenges/challengeAdmin.js';
 import { parseCreationIdFromChallengeHeroRef } from './challengeSubmitShared.js';
@@ -56,16 +57,71 @@ const ORGANIZER_REF_ROLES = /** @type {const} */ ([
 
 /**
  * @param {object | null | undefined} payload
+ * @param {{ allowSoftDeleted?: boolean }} [opts]
  * @returns {{ role: ChallengeOrganizerRefRole, creationId: number }[]}
  */
-function organizerRefsFromPayload(payload) {
-	if (!payload || typeof payload !== 'object' || isChallengeConfigSoftDeleted(payload)) return [];
+function organizerRefsFromPayload(payload, opts = {}) {
+	if (!payload || typeof payload !== 'object') return [];
+	if (!opts.allowSoftDeleted && isChallengeConfigSoftDeleted(payload)) return [];
 	const out = [];
 	for (const { role, pick } of ORGANIZER_REF_ROLES) {
 		const id = parseCreationIdFromChallengeHeroRef(pick(payload));
 		if (Number.isFinite(id) && id > 0) out.push({ role, creationId: id });
 	}
 	return out;
+}
+
+/**
+ * Soft-delete / purge: drop organizer-ref stamps and editorial pins for this challenge.
+ * Clears refs from every creation URL still present on the deleted payload (and prev),
+ * so PATCH soft-delete cannot leave hero/results/theme-vote creations stuck.
+ *
+ * @param {{
+ *   queries: object,
+ *   challengeId: string,
+ *   prevPayload?: object|null,
+ *   nextPayload?: object|null
+ * }} args
+ */
+export async function clearChallengeAttachmentsOnSoftDelete(args) {
+	const queries = args?.queries;
+	const challengeId = String(args?.challengeId || '').trim();
+	if (!queries || !challengeId) return;
+
+	const prevRefs = organizerRefsFromPayload(args?.prevPayload, { allowSoftDeleted: true });
+	const nextRefs = organizerRefsFromPayload(args?.nextPayload, { allowSoftDeleted: true });
+	/** @type {Map<number, Set<ChallengeOrganizerRefRole|''>>} */
+	const byCreation = new Map();
+	for (const ref of [...prevRefs, ...nextRefs]) {
+		const set = byCreation.get(ref.creationId) || new Set();
+		set.add(ref.role);
+		byCreation.set(ref.creationId, set);
+	}
+
+	for (const [creationId, roles] of byCreation.entries()) {
+		try {
+			await mutateCreationMeta(queries, creationId, (meta) => {
+				let next = meta;
+				for (const role of roles) {
+					if (role) next = removeChallengeOrganizerRefFromMeta(next, { challenge_id: challengeId, role });
+				}
+				// Belt-and-suspenders: drop any remaining roles for this challenge.
+				next = removeChallengeOrganizerRefFromMeta(next, { challenge_id: challengeId });
+				return next;
+			});
+		} catch (err) {
+			console.warn('[challengeOrganizerRefSync] soft-delete clear refs', err?.message || err);
+		}
+	}
+
+	try {
+		const { removeChallengeEditorialPin } = await import('./challengeLifecycle.js');
+		for (const kind of /** @type {const} */ (['open', 'winners', 'topic_vote'])) {
+			await removeChallengeEditorialPin({ queries, kind, challengeId });
+		}
+	} catch (err) {
+		console.warn('[challengeOrganizerRefSync] soft-delete clear pins', err?.message || err);
+	}
 }
 
 /**
@@ -141,8 +197,19 @@ export async function syncChallengeOrganizerCreationRefsOnConfigWrite(args) {
 	}
 
 	const deletedAt = isChallengeConfigSoftDeleted(effectiveNext);
+	const purged = isChallengeConfigPurged(effectiveNext);
+	if (deletedAt || purged) {
+		await clearChallengeAttachmentsOnSoftDelete({
+			queries,
+			challengeId,
+			prevPayload: effectivePrev,
+			nextPayload: effectiveNext
+		});
+		return;
+	}
+
 	const prevRefs = organizerRefsFromPayload(effectivePrev);
-	const nextRefs = deletedAt ? [] : organizerRefsFromPayload(effectiveNext);
+	const nextRefs = organizerRefsFromPayload(effectiveNext);
 
 	const prevByRole = new Map(prevRefs.map((r) => [r.role, r.creationId]));
 	const nextByRole = new Map(nextRefs.map((r) => [r.role, r.creationId]));
@@ -232,7 +299,7 @@ export async function collectChallengeOrganizerRefsByCreationId(args) {
 	for (const [challengeId, newestFirstEntries] of entriesByChallenge.entries()) {
 		const chronological = [...newestFirstEntries].reverse();
 		const merged = mergeFullChallengeConfigForChallenge(chronological, challengeId);
-		if (isChallengeConfigSoftDeleted(merged)) continue;
+		if (isChallengeConfigSoftDeleted(merged) || isChallengeConfigPurged(merged)) continue;
 		for (const { role, creationId } of organizerRefsFromPayload(merged)) {
 			const list = byCreation.get(creationId) || [];
 			if (!list.some((r) => r.challenge_id === challengeId && r.role === role)) {

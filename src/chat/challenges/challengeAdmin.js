@@ -203,6 +203,15 @@ export function isImpliedChallengeOrganizer(viewerUserName) {
 }
 
 /**
+ * Payout / finalize actions — oceanman and the platform admin account only (for now).
+ * @param {string | null | undefined} viewerUserName
+ */
+export function viewerCanManageChallengePayouts(viewerUserName) {
+	const u = typeof viewerUserName === 'string' ? viewerUserName.trim().toLowerCase() : '';
+	return u === IMPLIED_CHALLENGE_ORGANIZER || u === 'admin';
+}
+
+/**
  * @param {unknown} value from `<input type="datetime-local">`
  * @returns {string} ISO string or '' if empty / invalid
  */

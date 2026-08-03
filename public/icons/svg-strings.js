@@ -648,6 +648,31 @@ export const gearIcon = withAttributes(html`
 	</svg>
 `);
 
+/** Sliders / manage-settings (lucide sliders-horizontal). */
+export const slidersIcon = withAttributes(html`
+	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+		stroke-linejoin="round" aria-hidden="true">
+		<line x1="21" x2="14" y1="4" y2="4"></line>
+		<line x1="10" x2="3" y1="4" y2="4"></line>
+		<line x1="21" x2="12" y1="12" y2="12"></line>
+		<line x1="8" x2="3" y1="12" y2="12"></line>
+		<line x1="21" x2="16" y1="20" y2="20"></line>
+		<line x1="12" x2="3" y1="20" y2="20"></line>
+		<line x1="14" x2="14" y1="2" y2="6"></line>
+		<line x1="8" x2="8" y1="10" y2="14"></line>
+		<line x1="16" x2="16" y1="18" y2="22"></line>
+	</svg>
+`);
+
+/** Undo / revert (lucide undo-2). */
+export const undoIcon = withAttributes(html`
+	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+		stroke-linejoin="round" aria-hidden="true">
+		<path d="M9 14 4 9l5-5"></path>
+		<path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"></path>
+	</svg>
+`);
+
 /** Challenge organizer stats / bar chart (stroke, 24×24). */
 export const statsBarsIcon = withAttributes(html`
 	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"

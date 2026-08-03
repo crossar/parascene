@@ -37,7 +37,8 @@ export function listActiveChallengeFeedPinsFromMeta(meta, nowMs = Date.now()) {
 		const untilMs = until ? Date.parse(until) : NaN;
 		if (Number.isFinite(untilMs) && now > untilMs) continue;
 		const kindRaw = typeof raw.kind === 'string' ? raw.kind.trim().toLowerCase() : '';
-		const kind = kindRaw === 'winners' || kindRaw === 'open' ? kindRaw : 'other';
+		const kind =
+			kindRaw === 'winners' || kindRaw === 'open' || kindRaw === 'topic_vote' ? kindRaw : 'other';
 		const challengeId =
 			raw.challenge_id != null ? String(raw.challenge_id).trim() : '';
 		out.push({
@@ -98,12 +99,30 @@ export function upsertChallengeFeedPinInMeta(meta, pin) {
 	filtered.push({
 		pin_id: pinId,
 		challenge_id: pin.challenge_id != null ? String(pin.challenge_id).trim() : '',
-		kind: kindRaw === 'winners' || kindRaw === 'open' ? kindRaw : 'other',
+		kind: kindRaw === 'winners' || kindRaw === 'open' || kindRaw === 'topic_vote' ? kindRaw : 'other',
 		until: typeof pin.until === 'string' && pin.until.trim() ? pin.until.trim() : null,
 		starts_at:
 			typeof pin.starts_at === 'string' && pin.starts_at.trim() ? pin.starts_at.trim() : null,
 		pinned_at: new Date().toISOString()
 	});
 	base.challenge_feed_pins = filtered;
+	return base;
+}
+
+/**
+ * Remove one feed-pin stamp by pin_id (after pin clear/expire).
+ * @param {object|null|undefined} meta
+ * @param {string} pinId
+ * @returns {object}
+ */
+export function removeChallengeFeedPinFromMeta(meta, pinId) {
+	const base = meta && typeof meta === 'object' && !Array.isArray(meta) ? { ...meta } : {};
+	const id = pinId != null ? String(pinId).trim() : '';
+	if (!id) return base;
+	const prev = Array.isArray(base.challenge_feed_pins) ? base.challenge_feed_pins : [];
+	base.challenge_feed_pins = prev.filter((row) => {
+		if (!row || typeof row !== 'object') return false;
+		return String(row.pin_id || '').trim() !== id;
+	});
 	return base;
 }

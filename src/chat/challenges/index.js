@@ -35,6 +35,7 @@ export {
 export {
 	isChallengeChannelAdmin,
 	isImpliedChallengeOrganizer,
+	viewerCanManageChallengePayouts,
 	normalizeChallengeOrganizerUserNames,
 	pickLatestChallengesGlobalConfig,
 	resolveChallengeOrganizerAllowlistFromMessages,

@@ -20,16 +20,13 @@ import {
 	CHALLENGE_ENDED_PHASES
 } from "./utils/challengeSubmitShared.js";
 import {
-	loadEditorialPinPolicyDocument,
-	parseEditorialPinPolicyDocument,
-	serializeEditorialPinPolicyDocument,
-	validateEditorialPinPolicyDocument,
-	FEED_EDITORIAL_PINS_POLICY_KEY
-} from "./feed/editorialPinPolicy.js";
-import { bumpFeedVersionCounter } from "./feed/feedVersion.js";
+	upsertChallengeEditorialPin,
+	removeChallengeEditorialPin,
+	normalizeChallengePinKind
+} from "./utils/challengeLifecycle.js";
 import { invalidateAndRebuildChallengeFeedSnapshotCache } from "./feed/challengeFeedSnapshotCache.js";
-import { upsertChallengeFeedPinInMeta } from "../src/shared/challengeSubmitMeta.js";
 import { syncChallengeOrganizerCreationRefsOnConfigWrite } from "./utils/challengeOrganizerRefSync.js";
+import { persistSingleChallengeConfigMessage } from "./utils/challengeConfigMessage.js";
 import { collectChatMiscGenericKeysFromMessageBody,
 	isChatMiscGenericKeyOwnedByUser
 } from "./utils/chatMiscGenericKeys.js";
@@ -46,6 +43,11 @@ import {
 	tracksViewerCanOrganize
 } from "../src/chat/challenges/challengeAdmin.js";
 import { deriveChallengePhase } from "../src/chat/challenges/model/phases.js";
+import {
+	MAX_CHAT_MESSAGE_CHARS,
+	MAX_MACHINE_CHANNEL_MESSAGE_CHARS,
+	maxChatMessageBodyChars
+} from "./utils/chatMessageLimits.js";
 
 function normalizeChatReactionsBucket(raw) {
 	const out = {};
@@ -191,7 +193,7 @@ function normalizeOrganizerUserNamesList(raw) {
 	return out;
 }
 
-const MAX_MESSAGE_CHARS = 4000;
+const MAX_MESSAGE_CHARS = MAX_CHAT_MESSAGE_CHARS;
 const MAX_CANVAS_TITLE_CHARS = 200;
 const DEFAULT_PAGE_LIMIT = 50;
 const MAX_PAGE_LIMIT = 100;
@@ -2488,8 +2490,8 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 	});
 
 	/**
-	 * POST /api/chat/challenges/organize/pins — challenge organizers upsert a timed editorial pin.
-	 * Body: { kind: 'open'|'winners', challenge_id, created_image_id, title? }
+	 * POST /api/chat/challenges/organize/pins — challenge organizers upsert or clear a timed editorial pin.
+	 * Body: { kind: 'open'|'winners'|'topic_vote', challenge_id, created_image_id?, creation_ref?, starts_at?, until?, clear? }
 	 */
 	router.post("/api/chat/challenges/organize/pins", async (req, res) => {
 		const userId = requireUser(req, res);
@@ -2519,102 +2521,73 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			}
 
 			const body = req.body && typeof req.body === "object" ? req.body : {};
-			const kind = String(body.kind || "open").trim().toLowerCase();
+			const pinKind = normalizeChallengePinKind(body.kind || "open");
 			const challengeId = String(body.challenge_id || body.challengeId || "").trim();
-			const createdImageId = Number(body.created_image_id ?? body.createdImageId);
+			const clear = body.clear === true || body.clear === 1 || body.clear === "1";
+			if (!pinKind) {
+				return res.status(400).json({
+					error: "Bad request",
+					message: "kind must be open, winners, or topic_vote"
+				});
+			}
 			if (!challengeId) {
 				return res.status(400).json({ error: "Bad request", message: "challenge_id required" });
+			}
+
+			if (clear) {
+				const removed = await removeChallengeEditorialPin({
+					queries,
+					kind: pinKind,
+					challengeId
+				});
+				if (!removed.ok) {
+					return res.status(400).json({ error: removed.error || "Could not clear pin" });
+				}
+				invalidateAndRebuildChallengeFeedSnapshotCache();
+				return res.status(200).json({ ok: true, removed: removed.removed });
+			}
+
+			let createdImageId = Number(body.created_image_id ?? body.createdImageId);
+			if (!Number.isFinite(createdImageId) || createdImageId <= 0) {
+				const ref = String(body.creation_ref || body.creationRef || "").trim();
+				if (ref) {
+					createdImageId = parseCreationIdFromChallengeHeroRef(ref);
+				}
 			}
 			if (!Number.isFinite(createdImageId) || createdImageId <= 0) {
 				return res.status(400).json({
 					error: "Bad request",
-					message: "created_image_id required (promo / winners creation)"
+					message: "created_image_id required (promo / winners / theme-vote creation)"
 				});
 			}
-			if (!queries.upsertPolicyKey?.run) {
-				return res.status(500).json({ error: "Policy storage unavailable." });
-			}
 
-			const doc = await loadEditorialPinPolicyDocument(queries);
-			const pinId = `challenge-${kind}-${challengeId}`;
-			const now = Date.now();
-			const startsAt = new Date(now).toISOString();
-			const untilMs = kind === "winners" ? now + 14 * 86400000 : now + 7 * 86400000;
-			const until = new Date(untilMs).toISOString();
-			const nextPin = {
-				id: pinId,
-				created_image_id: createdImageId,
-				enabled: true,
-				starts_at: startsAt,
-				until,
-				show_metadata: true,
-				extra_spacing: true,
-				surfaces: ["all"],
-				inject: {
-					slot: "min_index",
-					respect_challenge: true,
-					after_challenge_offset: 2
-				}
-			};
-			const pins = Array.isArray(doc.pins) ? [...doc.pins] : [];
-			const idx = pins.findIndex((p) => String(p?.id || "") === pinId);
-			if (idx >= 0) pins[idx] = { ...pins[idx], ...nextPin };
-			else pins.push(nextPin);
-
-			const parsed = parseEditorialPinPolicyDocument({
-				defaults: doc.defaults,
-				pins
-			});
-			const validated = validateEditorialPinPolicyDocument(parsed);
-			if (!validated.ok) {
-				return res.status(400).json({ error: validated.error });
-			}
-			const serialized = serializeEditorialPinPolicyDocument(validated.document);
-			await queries.upsertPolicyKey.run(
-				FEED_EDITORIAL_PINS_POLICY_KEY,
-				serialized,
-				"Sitewide editorial feed pins: inject creations on page 1 with placement and display knobs."
-			);
-			await bumpFeedVersionCounter(queries);
-
-			// Stamp creation meta so library/detail annotate like challenge submissions (trophy + locks).
-			try {
-				const row =
-					typeof queries?.selectCreatedImageByIdAnyUser?.get === "function"
-						? await queries.selectCreatedImageByIdAnyUser.get(createdImageId)
+			const startsAt =
+				typeof body.starts_at === "string"
+					? body.starts_at
+					: typeof body.startsAt === "string"
+						? body.startsAt
 						: null;
-				if (row) {
-					let prevMeta = row.meta;
-					if (typeof prevMeta === "string") {
-						try {
-							prevMeta = JSON.parse(prevMeta);
-						} catch {
-							prevMeta = {};
-						}
-					}
-					if (!prevMeta || typeof prevMeta !== "object" || Array.isArray(prevMeta)) {
-						prevMeta = {};
-					}
-					const nextMeta = upsertChallengeFeedPinInMeta(prevMeta, {
-						pin_id: pinId,
-						challenge_id: challengeId,
-						kind: kind === "winners" ? "winners" : "open",
-						until,
-						starts_at: startsAt
-					});
-					if (typeof queries?.updateCreatedImageMetaAnyUser?.run === "function") {
-						await queries.updateCreatedImageMetaAnyUser.run(createdImageId, nextMeta);
-					}
-				}
-			} catch (stampErr) {
-				console.warn(
-					"[POST /api/chat/challenges/organize/pins] meta stamp",
-					stampErr?.message || stampErr
-				);
+			const until =
+				typeof body.until === "string"
+					? body.until
+					: typeof body.until_at === "string"
+						? body.until_at
+						: null;
+
+			const upserted = await upsertChallengeEditorialPin({
+				queries,
+				kind: pinKind,
+				challengeId,
+				createdImageId,
+				startsAt,
+				until
+			});
+			if (!upserted.ok) {
+				return res.status(400).json({ error: upserted.error || "Could not upsert pin" });
 			}
 
 			invalidateAndRebuildChallengeFeedSnapshotCache();
-			return res.status(200).json({ ok: true, pin: nextPin, document: validated.document });
+			return res.status(200).json({ ok: true, pin: upserted.pin });
 		} catch (err) {
 			console.error("[POST /api/chat/challenges/organize/pins]", err);
 			return res.status(500).json({ error: "Server error", message: err?.message || "Failed" });
@@ -2768,7 +2741,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 	/**
 	 * POST /api/chat/challenges/organize/assign-creation
 	 * Body: { challenge_id, role: 'hero'|'results'|'topic_vote', created_image_id, remove? }
-	 * Posts a partial challenge_config message; existing sync stamps/unstamps creation meta.
+	 * Patches the single challenge_config message (full body) and drops any duplicate rows.
 	 */
 	router.post("/api/chat/challenges/organize/assign-creation", async (req, res) => {
 		const userId = requireUser(req, res);
@@ -2846,34 +2819,32 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 
 			// Assign writes the canonical field; remove blanks every alias the merged picker reads.
 			const fields = ORGANIZER_ASSIGN_ROLE_FIELDS[role];
-			const payload = { kind: "challenge_config", challenge_id: challengeId };
+			/** @type {Record<string, string>} */
+			const patch = {};
 			if (remove) {
-				for (const f of fields) payload[f] = "";
+				for (const f of fields) patch[f] = "";
 			} else {
-				payload[fields[0]] = `/creations/${createdImageId}`;
-				for (const f of fields.slice(1)) payload[f] = "";
+				patch[fields[0]] = `/creations/${createdImageId}`;
+				for (const f of fields.slice(1)) patch[f] = "";
 			}
 
-			const ins = await sb
-				.from("prsn_chat_messages")
-				.insert({
-					thread_id: ctx.threadId,
-					sender_id: userId,
-					body: JSON.stringify(payload),
-					meta: {}
-				})
-				.select("id")
-				.single();
-			if (ins.error) throw ins.error;
-			if (ins.data?.id != null) void broadcastRoomDirty(ctx.threadId, ins.data.id);
+			const persisted = await persistSingleChallengeConfigMessage({
+				sb,
+				threadId: ctx.threadId,
+				challengeId,
+				messageIds: row.entries.map((e) => e?.msg?.id),
+				merged,
+				patch
+			});
+			void broadcastRoomDirty(ctx.threadId, persisted.messageId);
 
 			invalidateAndRebuildChallengeFeedSnapshotCache();
 			try {
 				await syncChallengeOrganizerCreationRefsOnConfigWrite({
 					queries,
 					sb,
-					prevPayload: null,
-					nextPayload: payload
+					prevPayload: merged,
+					nextPayload: persisted.payload
 				});
 			} catch (syncErr) {
 				console.warn("[assign-creation] organizer ref sync", syncErr?.message || syncErr);
@@ -2883,7 +2854,9 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				ok: true,
 				challenge_id: challengeId,
 				role,
-				created_image_id: remove ? null : createdImageId
+				created_image_id: remove ? null : createdImageId,
+				config_message_id: persisted.messageId,
+				deleted_duplicate_ids: persisted.deletedIds
 			});
 		} catch (err) {
 			console.error("[POST /api/chat/challenges/organize/assign-creation]", err);
@@ -3088,10 +3061,11 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 		if (!body) {
 			return res.status(400).json({ error: "Bad request", message: "body required" });
 		}
-		if (body.length > MAX_MESSAGE_CHARS) {
+		// Absolute ceiling before we know the thread; refined after load for challenge configs.
+		if (body.length > MAX_MACHINE_CHANNEL_MESSAGE_CHARS) {
 			return res.status(400).json({
 				error: "Bad request",
-				message: `body must be at most ${MAX_MESSAGE_CHARS} characters`
+				message: `body must be at most ${MAX_MACHINE_CHANNEL_MESSAGE_CHARS} characters`
 			});
 		}
 
@@ -3107,6 +3081,13 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			if (thErr) throw thErr;
 			if (!threadRow) {
 				return res.status(404).json({ error: "Not found", message: "Thread not found" });
+			}
+			const maxBodyChars = maxChatMessageBodyChars(threadRow, body, tryParseChallengeJsonBody);
+			if (body.length > maxBodyChars) {
+				return res.status(400).json({
+					error: "Bad request",
+					message: `body must be at most ${maxBodyChars} characters`
+				});
 			}
 			if (
 				threadRow.type === "channel" &&
@@ -3149,11 +3130,53 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			body = challengeTrackResult.body;
 
 			body = await normalizeBodyForThreadStorage(sb, threadRow, userId, body);
-			if (body.length > MAX_MESSAGE_CHARS) {
-				return res.status(400).json({
-					error: "Bad request",
-					message: `body must be at most ${MAX_MESSAGE_CHARS} characters`
-				});
+			{
+				const maxBodyChars = maxChatMessageBodyChars(threadRow, body, tryParseChallengeJsonBody);
+				if (body.length > maxBodyChars) {
+					return res.status(400).json({
+						error: "Bad request",
+						message: `body must be at most ${maxBodyChars} characters`
+					});
+				}
+			}
+
+			// One challenge_config message per challenge_id — reject appends; clients must PATCH.
+			// #challenges is not a human announce surface — reject challenge_announce.
+			{
+				const posted = tryParseChallengeJsonBody(body);
+				const postedKind = String(posted?.kind || "").trim();
+				const isChallengesThread =
+					threadRow.type === "channel" &&
+					String(threadRow.channel_slug || "").trim().toLowerCase() === "challenges";
+				if (isChallengesThread && postedKind === "challenge_announce") {
+					return res.status(400).json({
+						error: "Bad request",
+						message:
+							"challenge_announce is not used in #challenges. Use the Announce tab / feed pins instead."
+					});
+				}
+				if (isChallengesThread && postedKind === "challenge_config") {
+					const newCid = String(posted?.challenge_id || "").trim();
+					if (newCid) {
+						const existing = await fetchThreadMessagesChronological(sb, threadId);
+						const hit = existing.find((m) => {
+							const p = tryParseChallengeJsonBody(m?.body);
+							return (
+								p &&
+								String(p.kind || "").trim() === "challenge_config" &&
+								String(p.challenge_id || "").trim() === newCid
+							);
+						});
+						if (hit) {
+							return res.status(409).json({
+								error: "Conflict",
+								message:
+									"A challenge_config message already exists for this challenge_id. Update that message instead of posting another.",
+								config_message_id: Number(hit.id) || null
+							});
+						}
+					}
+				}
 			}
 
 			const refRaw = req.body?.referenced_message_id;
@@ -3765,11 +3788,18 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				if (!b) {
 					return res.status(400).json({ error: "Bad request", message: "body must be non-empty" });
 				}
-				if (b.length > MAX_MESSAGE_CHARS) {
-					return res.status(400).json({
-						error: "Bad request",
-						message: `body must be at most ${MAX_MESSAGE_CHARS} characters`
-					});
+				{
+					const maxBodyChars = maxChatMessageBodyChars(
+						threadRow,
+						b,
+						tryParseChallengeJsonBody
+					);
+					if (b.length > maxBodyChars) {
+						return res.status(400).json({
+							error: "Bad request",
+							message: `body must be at most ${maxBodyChars} characters`
+						});
+					}
 				}
 				if (
 					threadRow.type === "channel" &&
@@ -3814,11 +3844,18 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 					userId,
 					challengeTrackResult.body
 				);
-				if (newBody.length > MAX_MESSAGE_CHARS) {
-					return res.status(400).json({
-						error: "Bad request",
-						message: `body must be at most ${MAX_MESSAGE_CHARS} characters`
-					});
+				{
+					const maxBodyChars = maxChatMessageBodyChars(
+						threadRow,
+						newBody,
+						tryParseChallengeJsonBody
+					);
+					if (newBody.length > maxBodyChars) {
+						return res.status(400).json({
+							error: "Bad request",
+							message: `body must be at most ${maxBodyChars} characters`
+						});
+					}
 				}
 			}
 
@@ -3880,6 +3917,40 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 					});
 				} catch (err) {
 					console.warn("[PATCH .../messages] organizer ref sync", err?.message || err);
+				}
+				// Drop any leftover duplicate challenge_config rows for this id.
+				try {
+					const nextParsed = tryParseChallengeJsonBody(newBody);
+					const cid = String(nextParsed?.challenge_id || "").trim();
+					if (cid) {
+						const rows = await fetchThreadMessagesChronological(sb, threadId);
+						const siblingIds = [];
+						for (const m of rows) {
+							const p = tryParseChallengeJsonBody(m?.body);
+							if (
+								!p ||
+								String(p.kind || "").trim() !== "challenge_config" ||
+								String(p.challenge_id || "").trim() !== cid
+							) {
+								continue;
+							}
+							const mid = Number(m?.id);
+							if (Number.isFinite(mid) && mid > 0 && mid !== messageId) {
+								siblingIds.push(mid);
+							}
+						}
+						if (siblingIds.length) {
+							const { error: delErr } = await sb
+								.from("prsn_chat_messages")
+								.delete()
+								.in("id", siblingIds)
+								.eq("thread_id", threadId);
+							if (delErr) throw delErr;
+							void broadcastRoomDirty(threadId, messageId);
+						}
+					}
+				} catch (err) {
+					console.warn("[PATCH .../messages] collapse duplicate configs", err?.message || err);
 				}
 			}
 

@@ -203,7 +203,7 @@ Send a message in a thread you belong to.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `body` | string | yes | Non-empty text after trim; **maximum 4000** characters |
+| `body` | string | yes | Non-empty text after trim; **maximum 4000** characters for normal chat. In `#challenges`, `challenge_config` / `challenges_global_config` bodies may be up to **65536** characters. |
 
 **Example:**
 

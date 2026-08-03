@@ -569,8 +569,49 @@ body.chat-page main.chat-page-outer {
 .chat-page-challenges-organizer-modal-panel .challenge-pane-organizer-modal-body > .challenge-pane-organizer-stats-view {
 	flex: 1 1 auto;
 	min-height: 0;
+	overflow-x: hidden;
 	overflow-y: auto;
 	-webkit-overflow-scrolling: touch;
+	display: flex;
+	flex-direction: column;
+}
+
+/* Results: tabs stay put; Stats/Payout panel scrolls underneath */
+.chat-page-challenges-organizer-modal-panel .challenge-pane-organizer-modal-body:has(> .challenge-pane-organizer-results-modal) {
+	overflow: hidden;
+}
+
+.chat-page-challenges-organizer-modal-panel .challenge-pane-organizer-modal-body > .challenge-pane-organizer-results-modal {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+
+.challenge-pane-organizer-results-modal > .challenges-organize-edit-tabs {
+	flex: 0 0 auto;
+	position: relative;
+	z-index: 1;
+	margin-bottom: 12px;
+	background: var(--surface);
+}
+
+.challenge-pane-organizer-results-panel {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-x: hidden;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
+}
+
+.challenge-pane-organizer-results-panel[data-challenge-results-panel='stats'] {
+	padding-bottom: 48px;
+}
+
+.challenge-pane-organizer-results-panel[hidden] {
+	display: none !important;
 }
 
 .challenge-pane-organizer-stats-view {

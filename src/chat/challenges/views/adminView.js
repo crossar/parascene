@@ -14,8 +14,15 @@ import {
 	resolveChallengePrizes,
 	formatCreditsLabel
 } from '../model/prizes.js';
+import {
+	rankStatsTopCreations,
+	rankTopSubmitters,
+	rankTopVoters
+} from '../model/ranking.js';
 import { renderOrganizeTemplatePickerHtml, renderOrganizeBoardHtml } from './organizeBoardView.js';
-import { clock3Icon, pencilIcon, trophyIcon } from '/icons/svg-strings.js';
+import { resolvePinSlotWindows } from '../model/pinSlots.js';
+import { clock3Icon, megaphoneIcon, pencilIcon, trophyIcon } from '/icons/svg-strings.js';
+import { renderChallengeHistoryThumbWrapHtml } from '../../../shared/challengeHistoryThumb.js';
 
 /** @param {object} latest @param {number} [nowMs] */
 function isChallengeReadyForResultsConfig(latest, nowMs = Date.now()) {
@@ -165,8 +172,9 @@ function renderDatetimeFieldsHtml(values) {
 	const start = String(v.submission_start_ymd || v.submission_start_at || '').slice(0, 10);
 	const end = String(v.submission_end_ymd || v.submission_end_at || '').slice(0, 10);
 	return `<div class="challenge-pane-admin-datetimes challenges-organize-day-fields">
-				<p class="challenge-pane-muted challenge-pane-admin-datetimes-label">Schedule (days only — local time)</p>
-				<div class="challenges-organize-day-fields-row">
+				<input type="hidden" name="track" value="${esc(String(v.track || 'monthly'))}" data-organize-track-field />
+				<div data-organize-calendar-mount></div>
+				<div class="challenges-organize-day-fields-row challenges-organize-day-fields-row--under-cal">
 					<label class="challenge-pane-label">Starts
 						<input type="date" name="schedule_start_ymd" class="challenge-pane-input" data-organize-start-ymd value="${esc(start)}" />
 					</label>
@@ -174,8 +182,6 @@ function renderDatetimeFieldsHtml(values) {
 						<input type="date" name="schedule_end_ymd" class="challenge-pane-input" data-organize-end-ymd value="${esc(end)}" />
 					</label>
 				</div>
-				<input type="hidden" name="track" value="${esc(String(v.track || 'monthly'))}" data-organize-track-field />
-				<div data-organize-calendar-mount></div>
 			</div>`;
 }
 
@@ -199,7 +205,7 @@ export function challengeConfigDatetimeLocals(cfg) {
 	};
 }
 
-const MODAL_FORM_LEAD = `<p class="challenge-pane-muted challenge-pane-admin-lead challenge-pane-organizer-modal-lead">Uses JSON configs in-thread. <strong>New challenge</strong> posts <code>challenge_config</code>; <strong>save changes</strong> updates the existing config message. <strong>Global settings</strong> manages <code>challenges_global_config</code>.</p>`;
+const MODAL_FORM_LEAD = `<p class="challenge-pane-muted challenge-pane-admin-lead challenge-pane-organizer-modal-lead">Uses JSON configs in-thread. <strong>New challenge</strong> posts one <code>challenge_config</code> message; <strong>save changes</strong> updates that same message. <strong>Global settings</strong> manages <code>challenges_global_config</code>.</p>`;
 
 /**
  * @param {{ monthly?: string[], weekly?: string[], suno?: string[] } | null | undefined} organizersByTrack
@@ -371,36 +377,100 @@ export function renderOrganizeSoftDeleteConfirmHtml(opts = {}) {
 }
 
 /**
- * Media modal: theme vote + hero + results creations.
+ * Announce tab: promo / winners / theme-vote creations + date windows.
+ * Saving upserts editorial pins via the existing pins route.
+ * @param {object} latest
+ */
+function renderOrganizerPinsSectionHtml(latest) {
+	const cfg = latest && typeof latest === 'object' ? latest : {};
+	const topicVote = pickChallengeTopicVoteCreationUrl(cfg);
+	const heroUrl = pickChallengeHeroImageUrl(cfg);
+	const resultsUrl = pickChallengeResultsCreationUrl(cfg);
+	const windows = resolvePinSlotWindows(cfg);
+	const challengeId =
+		cfg.challenge_id != null ? String(cfg.challenge_id).trim() : '';
+
+	const slot = (opts) => {
+		const {
+			label,
+			urlName,
+			urlValue,
+			urlPlaceholder,
+			hint,
+			startName,
+			untilName,
+			startValue,
+			untilValue
+		} = opts;
+		const thumb = renderChallengeHistoryThumbWrapHtml(urlValue, challengeId, esc).replace(
+			'class="challenge-pane-history-card-thumb-wrap"',
+			'class="challenge-pane-history-card-thumb-wrap challenges-organize-pin-thumb-wrap"'
+		);
+		return `<div class="challenges-organize-media-slot challenges-organize-pin-slot">
+			<label class="challenge-pane-label challenges-organize-pin-slot-label">${esc(label)}</label>
+			<p class="challenge-pane-muted challenge-pane-organizer-image-hint">${hint}</p>
+			<div class="challenges-organize-pin-slot-body">
+				<div class="challenges-organize-pin-thumb" aria-hidden="true">${thumb}</div>
+				<div class="challenges-organize-pin-slot-fields">
+					<input type="text" name="${esc(urlName)}" class="challenge-pane-input" maxlength="2000"
+						placeholder="${esc(urlPlaceholder)}" autocomplete="off" value="${esc(urlValue)}"
+						aria-label="${esc(label)}" data-organize-pin-url />
+					<div class="challenges-organize-day-fields-row challenges-organize-pin-window-row">
+						<label class="challenge-pane-label">Pin starts
+							<input type="date" name="${esc(startName)}" class="challenge-pane-input" value="${esc(startValue)}" />
+						</label>
+						<label class="challenge-pane-label">Pin ends
+							<input type="date" name="${esc(untilName)}" class="challenge-pane-input" value="${esc(untilValue)}" />
+						</label>
+					</div>
+				</div>
+			</div>
+		</div>`;
+	};
+
+	return `<div class="challenges-organize-media-fields challenges-organize-pin-fields" role="group" aria-label="Announce pins">
+			${slot({
+				label: 'Announce / hero',
+				urlName: 'hero_image_url',
+				urlValue: heroUrl,
+				urlPlaceholder: '/creations/123, share link, or image URL',
+				hint: 'Promo image while the challenge is live. Save upserts the open feed pin.',
+				startName: 'pin_open_start_ymd',
+				untilName: 'pin_open_until_ymd',
+				startValue: windows.open.start,
+				untilValue: windows.open.until
+			})}
+			${slot({
+				label: 'Next challenge — theme vote',
+				urlName: 'topic_vote_creation_url',
+				urlValue: topicVote,
+				urlPlaceholder: '/creations/123, share link, or image URL',
+				hint: 'Creation used to collect votes on what the <strong>next</strong> challenge should be about — not this one.',
+				startName: 'pin_topic_vote_start_ymd',
+				untilName: 'pin_topic_vote_until_ymd',
+				startValue: windows.topic_vote.start,
+				untilValue: windows.topic_vote.until
+			})}
+			${slot({
+				label: 'Results / highlights',
+				urlName: 'results_creation_url',
+				urlValue: resultsUrl,
+				urlPlaceholder: '/creations/123',
+				hint: 'Winners showcase after voting closes. Save upserts the winners feed pin.',
+				startName: 'pin_winners_start_ymd',
+				untilName: 'pin_winners_until_ymd',
+				startValue: windows.winners.start,
+				untilValue: windows.winners.until
+			})}
+		</div>`;
+}
+
+/**
+ * @deprecated Prefer renderOrganizerPinsSectionHtml — kept for legacy single-section forms.
  * @param {object} latest
  */
 function renderOrganizerMediaSectionHtml(latest) {
-	const topicVote = pickChallengeTopicVoteCreationUrl(latest);
-	const heroUrl = pickChallengeHeroImageUrl(latest);
-	const resultsUrl = pickChallengeResultsCreationUrl(latest);
-	return `<div class="challenges-organize-media-fields" role="group" aria-label="Challenge creations">
-			<div class="challenges-organize-media-slot">
-				<label class="challenge-pane-label">Announce / hero
-					<input type="text" name="hero_image_url" class="challenge-pane-input" maxlength="2000"
-						placeholder="/creations/123, share link, or image URL" autocomplete="off" value="${esc(heroUrl)}" />
-				</label>
-				<p class="challenge-pane-muted challenge-pane-organizer-image-hint">Promo image while the challenge is live.</p>
-			</div>
-			<div class="challenges-organize-media-slot">
-				<label class="challenge-pane-label">Results / highlights
-					<input type="text" name="results_creation_url" class="challenge-pane-input" maxlength="2000"
-						placeholder="/creations/123" autocomplete="off" value="${esc(resultsUrl)}" />
-				</label>
-				<p class="challenge-pane-muted challenge-pane-organizer-image-hint">Winners showcase after voting closes. Use Publish winners on the card when ready.</p>
-			</div>
-			<div class="challenges-organize-media-slot">
-				<label class="challenge-pane-label">Next challenge — theme vote
-					<input type="text" name="topic_vote_creation_url" class="challenge-pane-input" maxlength="2000"
-						placeholder="/creations/123, share link, or image URL" autocomplete="off" value="${esc(topicVote)}" />
-				</label>
-				<p class="challenge-pane-muted challenge-pane-organizer-image-hint">Creation used to collect votes on what the <strong>next</strong> challenge should be about — not this one.</p>
-			</div>
-		</div>`;
+	return renderOrganizerPinsSectionHtml(latest);
 }
 
 /**
@@ -435,7 +505,9 @@ export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 	const cfg = latest && typeof latest === 'object' ? latest : {};
 	const activeTabRaw = String(opts.activeTab || 'details').trim().toLowerCase();
 	const activeTab =
-		activeTabRaw === 'schedule' || activeTabRaw === 'prizes' ? activeTabRaw : 'details';
+		activeTabRaw === 'schedule' || activeTabRaw === 'prizes' || activeTabRaw === 'pins'
+			? activeTabRaw
+			: 'details';
 	const title = typeof cfg.title === 'string' ? cfg.title.trim() : '';
 	const details =
 		cfg.details == null
@@ -453,6 +525,7 @@ export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 	const topicVote = pickChallengeTopicVoteCreationUrl(cfg);
 	const heroUrl = pickChallengeHeroImageUrl(cfg);
 	const resultsUrl = pickChallengeResultsCreationUrl(cfg);
+	const pinWindows = resolvePinSlotWindows(cfg);
 
 	const tabBtn = (id, label, iconSvg) => {
 		const on = id === activeTab;
@@ -487,30 +560,43 @@ export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 		.map(([label, val]) => renderOrganizeViewField(label, val))
 		.join('');
 
+	const pinWindowLabel = (start, until) => {
+		if (!start && !until) return '';
+		if (start && until) return `${start} → ${until}`;
+		return start || until;
+	};
+
 	return `<div class="challenges-organize-view" data-challenges-organize-view>
 		<div class="challenges-organize-edit-tabs" role="tablist" aria-label="View challenge">
 			${tabBtn('details', 'Details', pencilIcon('challenges-organize-edit-tab-svg'))}
+			${tabBtn('pins', 'Announce', megaphoneIcon('challenges-organize-edit-tab-svg'))}
 			${tabBtn('schedule', 'Schedule', clock3Icon('challenges-organize-edit-tab-svg'))}
 			${tabBtn('prizes', 'Prizes', trophyIcon('challenges-organize-edit-tab-svg'))}
 		</div>
 		${panel(
 			'details',
 			`${renderOrganizeViewField('Title', title)}
-			${renderOrganizeViewField('Description', details)}
-			${renderOrganizeViewField('Announce / hero', heroUrl, { href: Boolean(heroUrl) })}
+			${renderOrganizeViewField('Description', details)}`
+		)}
+		${panel(
+			'pins',
+			`${renderOrganizeViewField('Announce / hero', heroUrl, { href: Boolean(heroUrl) })}
+			${renderOrganizeViewField('Open pin window', pinWindowLabel(pinWindows.open.start, pinWindows.open.until))}
+			${renderOrganizeViewField('Next challenge — theme vote', topicVote, { href: Boolean(topicVote) })}
+			${renderOrganizeViewField('Theme-vote pin window', pinWindowLabel(pinWindows.topic_vote.start, pinWindows.topic_vote.until))}
 			${renderOrganizeViewField('Results / highlights', resultsUrl, { href: Boolean(resultsUrl) })}
-			${renderOrganizeViewField('Next challenge — theme vote', topicVote, { href: Boolean(topicVote) })}`
+			${renderOrganizeViewField('Winners pin window', pinWindowLabel(pinWindows.winners.start, pinWindows.winners.until))}`
 		)}
 		${panel(
 			'schedule',
 			`${renderOrganizeViewField('Track', trackLabel)}
-			${renderOrganizeViewField('Starts', startYmd)}
-			${renderOrganizeViewField('Ends', endYmd)}
 			<input type="hidden" data-organize-start-ymd value="${esc(startYmd)}" />
 			<input type="hidden" data-organize-end-ymd value="${esc(endYmd)}" />
 			<input type="hidden" data-organize-track-field value="${esc(track)}" />
 			<input type="hidden" data-organize-view-challenge-id value="${esc(typeof cfg.challenge_id === 'string' || typeof cfg.challenge_id === 'number' ? String(cfg.challenge_id).trim() : '')}" />
-			<div data-organize-calendar-mount></div>`
+			<div data-organize-calendar-mount></div>
+			${renderOrganizeViewField('Starts', startYmd)}
+			${renderOrganizeViewField('Ends', endYmd)}`
 		)}
 		${panel(
 			'prizes',
@@ -523,7 +609,7 @@ export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 }
 
 /**
- * Shared Details / Schedule / Prizes tabbed form (create + edit).
+ * Shared Details / Announce / Schedule / Prizes tabbed form (create + edit).
  * @param {{
  *   formRole?: 'create' | 'edit',
  *   cfg?: object,
@@ -541,7 +627,9 @@ function renderChallengeOrganizerTabbedFormHtml(opts = {}) {
 	const cfg = opts.cfg && typeof opts.cfg === 'object' ? opts.cfg : {};
 	const activeTabRaw = String(opts.activeTab || 'details').trim().toLowerCase();
 	const activeTab =
-		activeTabRaw === 'schedule' || activeTabRaw === 'prizes' ? activeTabRaw : 'details';
+		activeTabRaw === 'schedule' || activeTabRaw === 'prizes' || activeTabRaw === 'pins'
+			? activeTabRaw
+			: 'details';
 	const submitLabel =
 		typeof opts.submitLabel === 'string' && opts.submitLabel.trim()
 			? opts.submitLabel.trim()
@@ -632,6 +720,7 @@ function renderChallengeOrganizerTabbedFormHtml(opts = {}) {
 			${toolbar}
 			<div class="challenges-organize-edit-tabs" role="tablist" aria-label="${esc(tablistLabel)}">
 				${tabBtn('details', 'Details', pencilIcon('challenges-organize-edit-tab-svg'))}
+				${tabBtn('pins', 'Announce', megaphoneIcon('challenges-organize-edit-tab-svg'))}
 				${tabBtn('schedule', 'Schedule', clock3Icon('challenges-organize-edit-tab-svg'))}
 				${tabBtn('prizes', 'Prizes', trophyIcon('challenges-organize-edit-tab-svg'))}
 			</div>
@@ -642,9 +731,9 @@ function renderChallengeOrganizerTabbedFormHtml(opts = {}) {
 				</label>
 				<label class="challenge-pane-label challenge-pane-organizer-details-field">Description
 					<textarea name="details" class="challenge-pane-input challenge-pane-admin-textarea challenge-pane-organizer-details-textarea" rows="8" maxlength="8000" placeholder="Rules, theme, etc.">${esc(details)}</textarea>
-				</label>
-				${renderOrganizerMediaSectionHtml(cfg)}`
+				</label>`
 			)}
+			${panel('pins', renderOrganizerPinsSectionHtml(cfg))}
 			${panel('schedule', renderDatetimeFieldsHtml(dt))}
 			${panel(
 				'prizes',
@@ -660,8 +749,8 @@ function renderChallengeOrganizerTabbedFormHtml(opts = {}) {
 
 /**
  * Section-scoped edit forms for the organize page.
- * Prefer `all` (tabbed Details / Schedule / Prizes). Legacy single-section keys still work.
- * @param {'all' | 'schedule' | 'prizes' | 'media' | 'details'} section
+ * Prefer `all` (tabbed Details / Announce / Schedule / Prizes). Legacy single-section keys still work.
+ * @param {'all' | 'schedule' | 'prizes' | 'media' | 'details' | 'pins'} section
  * @param {object} latest
  * @param {number | null | undefined} configMessageId
  * @param {{ activeTab?: string, allowedTracks?: string[] | null }} [opts]
@@ -881,18 +970,56 @@ export function renderChallengeOrganizerTableHtml(rows, icons) {
  *   excludedUserNames?: string[],
  *   loading?: boolean,
  *   error?: string | null,
+ *   showPayoutTab?: boolean,
+ *   activeTab?: 'stats' | 'payout',
  * }} vm
  */
 export function renderChallengeOrganizerStatsModalInnerHtml(vm) {
-	const WEIGHTED_RATING_MIN_VOTES = 15;
 	const loading = vm?.loading === true;
 	const error = typeof vm?.error === 'string' ? vm.error.trim() : '';
 	if (loading) {
-		return `<p class="challenge-pane-muted">Loading stats…</p>`;
+		return `<p class="challenge-pane-muted">Loading results…</p>`;
 	}
 	if (error) {
 		return `<p class="challenge-pane-form-error challenge-pane-organizer-stats-error" role="alert">${esc(error)}</p>`;
 	}
+
+	const showPayoutTab = vm?.showPayoutTab !== false;
+	const activeTab = vm?.activeTab === 'payout' && showPayoutTab ? 'payout' : 'stats';
+	const statsBody = renderChallengeOrganizerStatsBodyHtml(vm);
+
+	const tabBtn = (id, label) => {
+		const on = activeTab === id;
+		return `<button type="button" class="challenges-organize-edit-tab${on ? ' is-active' : ''}" role="tab" aria-selected="${on ? 'true' : 'false'}" data-challenge-results-tab="${esc(id)}" tabindex="${on ? 0 : -1}">
+			<span>${esc(label)}</span>
+		</button>`;
+	};
+
+	return `<div class="challenge-pane-organizer-results-modal" data-challenge-results-modal>
+		<div class="challenges-organize-edit-tabs" role="tablist" aria-label="Challenge results">
+			${tabBtn('stats', 'Stats')}
+			${showPayoutTab ? tabBtn('payout', 'Payout') : ''}
+		</div>
+		<div class="challenge-pane-organizer-results-panel" data-challenge-results-panel="stats"${activeTab === 'stats' ? '' : ' hidden'}>
+			${statsBody}
+		</div>
+		${
+			showPayoutTab
+				? `<div class="challenge-pane-organizer-results-panel" data-challenge-results-panel="payout"${activeTab === 'payout' ? '' : ' hidden'}>
+			<div data-organize-results-mount>
+				<p class="challenge-pane-muted">Loading payouts…</p>
+			</div>
+		</div>`
+				: ''
+		}
+	</div>`;
+}
+
+/**
+ * Stats tables only (reused when re-sorting / excluding without remounting payout).
+ * @param {object} vm
+ */
+export function renderChallengeOrganizerStatsBodyHtml(vm) {
 	const challengeTitle =
 		typeof vm?.challengeTitle === 'string' && vm.challengeTitle.trim()
 			? vm.challengeTitle.trim()
@@ -900,11 +1027,6 @@ export function renderChallengeOrganizerStatsModalInnerHtml(vm) {
 	const excludedUserNames = Array.isArray(vm?.excludedUserNames)
 		? vm.excludedUserNames
 		: [];
-	const excludedSet = new Set(
-		excludedUserNames
-			.map((name) => String(name || '').trim().replace(/^@+/, '').toLowerCase())
-			.filter(Boolean)
-	);
 	const excludedDisplayValue = excludedUserNames.join(', ');
 	const sortMode = vm?.sortMode === 'average' ? 'average' : 'weighted';
 	const topCreations = Array.isArray(vm?.topCreations) ? vm.topCreations : [];
@@ -929,50 +1051,12 @@ export function renderChallengeOrganizerStatsModalInnerHtml(vm) {
 			: fallbackTotals.voteCount > 0
 				? fallbackTotals.voteValue / fallbackTotals.voteCount
 				: 0;
-	const filteredTopCreations = topCreations.filter((row) => {
-		const creatorUserName =
-			row?.creatorUserName != null ? String(row.creatorUserName).trim().toLowerCase() : '';
-		return !creatorUserName || !excludedSet.has(creatorUserName);
-	});
-	const weightedRatingForRow = (row) => {
-		const voteValue = Number.isFinite(Number(row?.voteValue))
-			? Math.max(0, Math.floor(Number(row.voteValue)))
-			: 0;
-		const voteCount = Number.isFinite(Number(row?.voteCount))
-			? Math.max(0, Math.floor(Number(row.voteCount)))
-			: 0;
-		const averageVote = voteCount > 0 ? voteValue / voteCount : 0;
-		return (
-			(voteCount * averageVote + WEIGHTED_RATING_MIN_VOTES * globalAverage) /
-			(voteCount + WEIGHTED_RATING_MIN_VOTES)
-		);
-	};
-	const sortedTopCreations = [...filteredTopCreations].sort((a, b) => {
-		const aVoteCount = Number.isFinite(Number(a?.voteCount))
-			? Math.max(0, Math.floor(Number(a.voteCount)))
-			: 0;
-		const bVoteCount = Number.isFinite(Number(b?.voteCount))
-			? Math.max(0, Math.floor(Number(b.voteCount)))
-			: 0;
-		const aVoteValue = Number.isFinite(Number(a?.voteValue))
-			? Math.max(0, Math.floor(Number(a.voteValue)))
-			: 0;
-		const bVoteValue = Number.isFinite(Number(b?.voteValue))
-			? Math.max(0, Math.floor(Number(b.voteValue)))
-			: 0;
-		const aAverageVote = aVoteCount > 0 ? aVoteValue / aVoteCount : 0;
-		const bAverageVote = bVoteCount > 0 ? bVoteValue / bVoteCount : 0;
-		if (sortMode === 'weighted') {
-			const aWeightedRating = weightedRatingForRow(a);
-			const bWeightedRating = weightedRatingForRow(b);
-			if (bWeightedRating !== aWeightedRating) {
-				return bWeightedRating - aWeightedRating;
-			}
-		}
-		if (bAverageVote !== aAverageVote) {
-			return bAverageVote - aAverageVote;
-		}
-		return bVoteCount - aVoteCount;
+	// Canonical ranking (model/ranking.js) — same math the payout tab and
+	// publish-results validation use.
+	const sortedTopCreations = rankStatsTopCreations(topCreations, {
+		sortMode,
+		globalAverage,
+		excludedUserNames
 	});
 	const rowsHtml = sortedTopCreations
 		.slice(0, 10)
@@ -988,9 +1072,9 @@ export function renderChallengeOrganizerStatsModalInnerHtml(vm) {
 			const voteCount = Number.isFinite(Number(row?.voteCount))
 				? Math.max(0, Math.floor(Number(row.voteCount)))
 				: 0;
-			const averageVote = voteCount > 0 ? voteValue / voteCount : 0;
+			const averageVote = Number(row.averageVote);
 			const averageVoteDisplay = Number.isFinite(averageVote) ? averageVote.toFixed(2) : '0.00';
-			const weightedRating = weightedRatingForRow(row);
+			const weightedRating = Number(row.weightedRating);
 			const weightedRatingDisplay = Number.isFinite(weightedRating)
 				? weightedRating.toFixed(2)
 				: '0.00';
@@ -1035,6 +1119,7 @@ export function renderChallengeOrganizerStatsModalInnerHtml(vm) {
 			</tr>`;
 		})
 		.join('');
+
 	const bodyTable = rowsHtml
 		? `<table class="challenge-pane-organizer-stats-table">
 			<thead>
@@ -1053,10 +1138,7 @@ export function renderChallengeOrganizerStatsModalInnerHtml(vm) {
 		: `<p class="challenge-pane-muted challenge-pane-organizer-stats-empty">No submissions with votes yet.</p>`;
 
 	const topSubmitters = Array.isArray(vm?.topSubmitters) ? vm.topSubmitters : [];
-	const filteredTopSubmitters = topSubmitters.filter((row) => {
-		const userName = row?.userName != null ? String(row.userName).trim().toLowerCase() : '';
-		return !userName || !excludedSet.has(userName);
-	});
+	const filteredTopSubmitters = rankTopSubmitters(topSubmitters, { excludedUserNames });
 	const submitterRowsHtml = filteredTopSubmitters
 		.slice(0, 10)
 		.map((row, i) => {
@@ -1096,10 +1178,7 @@ export function renderChallengeOrganizerStatsModalInnerHtml(vm) {
 		: `<p class="challenge-pane-muted challenge-pane-organizer-stats-empty">No submissions yet.</p>`;
 
 	const topVoters = Array.isArray(vm?.topVoters) ? vm.topVoters : [];
-	const filteredTopVoters = topVoters.filter((row) => {
-		const userName = row?.userName != null ? String(row.userName).trim().toLowerCase() : '';
-		return !userName || !excludedSet.has(userName);
-	});
+	const filteredTopVoters = rankTopVoters(topVoters, { excludedUserNames });
 	const voterRowsHtml = filteredTopVoters
 		.slice(0, 10)
 		.map((row, i) => {
