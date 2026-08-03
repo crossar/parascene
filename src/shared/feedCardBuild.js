@@ -18,7 +18,11 @@ import {
 } from './chatFeedMobilePartition.js';
 import { addHiddenFeedItem, getHiddenFeedItems } from './feedHiddenItems.js';
 import { primeMediaElementForAudioLeveling } from './mediaAudioLeveling.js';
-import { renderChallengeHistoryThumbWrapHtml } from './challengeHistoryThumb.js';
+import {
+	hydrateChallengeHistoryThumbnails,
+	renderChallengeHistoryThumbWrapHtml
+} from './challengeHistoryThumb.js';
+import { challengesDetailsHref } from '../chat/challenges/model/detailsRoute.js';
 export {
 	addHiddenFeedItem,
 	getHiddenFeedItems,
@@ -28,6 +32,7 @@ export {
 	partitionFeedVideosForChatSpotlight
 };
 import {
+	audioClipMusicIcon,
 	clock3Icon,
 	eyeHiddenIcon,
 	pictureIcon,
@@ -617,6 +622,173 @@ function buildEngagementFeedCard(item, performShellNavigation = null) {
 			? item.payload
 			: {};
 
+	if (variant === "challenge_board") {
+		const kicker =
+			typeof payload.kicker === "string" && payload.kicker.trim()
+				? escapeHtmlFeedCardText(payload.kicker.trim())
+				: "Challenges";
+		const tracks = Array.isArray(payload.tracks) ? payload.tracks : [];
+		const ctaLabel = escapeHtmlFeedCardText(payload.ctaLabel || "Open challenges");
+		const rawCtaRoute = String(payload.ctaRoute || "/challenges").trim();
+		const ctaRoute = rawCtaRoute.startsWith("/help") ? getHelpHref(rawCtaRoute) : rawCtaRoute;
+		const rawChallengeTitleRoute = String(payload.challengeTitleRoute || "/challenges").trim();
+		const challengeTitleHref = rawChallengeTitleRoute.startsWith("/help")
+			? getHelpHref(rawChallengeTitleRoute)
+			: rawChallengeTitleRoute;
+
+		const socialProofHtmlFromLine = (socialProofLine, opts = {}) => {
+			if (!socialProofLine) return "";
+			const musicEntries = Boolean(opts.musicEntries);
+			const parts = socialProofLine
+				.split("•")
+				.map((s) => String(s || "").trim())
+				.filter(Boolean)
+				.slice(0, 3)
+				.map((part, idx) => {
+					const icon =
+						idx === 0
+							? musicEntries
+								? audioClipMusicIcon("feed-card-engagement-proof-icon")
+								: pictureIcon("feed-card-engagement-proof-icon")
+							: idx === 1
+								? personOutlined("feed-card-engagement-proof-icon")
+								: trophyIcon("feed-card-engagement-proof-icon");
+					const m = part.match(/^(\d[\d,]*)\s+(.+)$/);
+					if (m) {
+						return `<span class="feed-card-engagement-proof-item">${icon}<strong>${escapeHtmlFeedCardText(m[1])}</strong> ${escapeHtmlFeedCardText(m[2])}</span>`;
+					}
+					return `<span class="feed-card-engagement-proof-item">${icon}${escapeHtmlFeedCardText(part)}</span>`;
+				});
+			if (!parts.length) return "";
+			const proofSep = '<span class="feed-card-engagement-proof-sep" aria-hidden="true"></span>';
+			return parts.join(proofSep);
+		};
+
+		const tracksHtml = tracks
+			.map((track, idx) => {
+				const title = escapeHtmlFeedCardText(track?.title || "Community challenge");
+				const subtitle = track?.subtitle
+					? escapeHtmlFeedCardText(String(track.subtitle))
+					: "";
+				const statusChip = track?.statusChip
+					? escapeHtmlFeedCardText(String(track.statusChip))
+					: "";
+				const hook = track?.hook ? escapeHtmlFeedCardText(String(track.hook)) : "";
+				const heroImageUrl =
+					typeof track?.heroImageUrl === "string" && track.heroImageUrl.trim()
+						? escapeHtmlFeedCardText(track.heroImageUrl.trim())
+						: "";
+				const heroImageRef =
+					typeof track?.heroImageRef === "string" ? track.heroImageRef.trim() : "";
+				const challengeId =
+					typeof track?.challengeId === "string" ? track.challengeId.trim() : "";
+				const trackKey = String(track?.track || "").trim().toLowerCase();
+				const musicEntries = trackKey === "suno";
+				const trackHref = challengeId
+					? challengesDetailsHref(challengeId)
+					: challengeTitleHref;
+				const socialProofHtml = socialProofHtmlFromLine(
+					track?.socialProofLine ? String(track.socialProofLine) : "",
+					{ musicEntries }
+				);
+				const thumbBlock = heroImageUrl
+					? html`<div class="feed-card-engagement-thumb-wrap is-loading" data-engagement-board-thumb-wrap>
+							<span class="feed-card-engagement-thumb-placeholder" aria-hidden="true"></span>
+							<img class="feed-card-engagement-thumb" src="${heroImageUrl}" alt="" loading="lazy" decoding="async" data-engagement-board-thumb>
+						</div>`
+					: challengeId || heroImageRef
+						? renderChallengeHistoryThumbWrapHtml(
+								heroImageRef,
+								challengeId,
+								escapeHtmlFeedCardText
+							).replace(
+								'class="challenge-pane-history-card-thumb-wrap"',
+								'class="challenge-pane-history-card-thumb-wrap feed-card-challenge-board-thumb"'
+							)
+						: "";
+				const hasThumb = Boolean(thumbBlock);
+				const titleRow = html`<div class="feed-card-challenge-board-title-row">
+						<div class="feed-card-engagement-title">${title}</div>
+						${statusChip
+							? html`<div class="feed-card-engagement-status-chip">${clock3Icon("feed-card-engagement-status-chip-icon")}${statusChip}</div>`
+							: ""}
+					</div>`;
+				const titleCopy = html`<div class="feed-card-engagement-title-copy">
+						${titleRow}
+						${subtitle ? html`<div class="feed-card-engagement-subtitle">${subtitle}</div>` : ""}
+					</div>`;
+				const statsBlock = socialProofHtml
+					? html`<div class="feed-card-engagement-social-proof">${socialProofHtml}</div>`
+					: "";
+				const hookBlock = hook ? html`<div class="feed-card-engagement-hook">${hook}</div>` : "";
+				const main = html`<div class="feed-card-engagement-main">
+						${titleCopy}
+						${statsBlock}
+						${hasThumb ? "" : hookBlock}
+					</div>`;
+				return html`<a class="feed-card-challenge-board-track${idx === 0 ? " is-primary" : ""}" href="${trackHref}" data-challenge-board-track data-challenge-board-track-link data-challenge-id="${escapeHtmlFeedCardText(challengeId)}">
+					<div class="feed-card-engagement-content-row${hasThumb ? " feed-card-engagement-content-row-challenge-grid" : ""}">
+						${hasThumb ? html`${thumbBlock}${main}${hookBlock}` : html`${main}`}
+					</div>
+				</a>`;
+			})
+			.join("");
+
+		card.innerHTML = html`
+			<div class="feed-card-engagement-inner feed-card-engagement-inner-challenge feed-card-engagement-inner-challenge-board">
+				<div class="feed-card-engagement-kicker">${kicker}</div>
+				${tracksHtml}
+				<div class="feed-card-engagement-actions">
+					<a class="route-empty-button feed-card-engagement-cta" href="${ctaRoute}" data-engagement-board-cta>${trophyIcon("feed-card-engagement-cta-icon")}${ctaLabel}</a>
+				</div>
+			</div>
+		`;
+
+		const ctaEl = card.querySelector("[data-engagement-board-cta]");
+		if (ctaEl instanceof HTMLAnchorElement) {
+			ctaEl.addEventListener("click", (e) => {
+				const href = ctaEl.getAttribute("href") || "/challenges";
+				navigateEngagementFeedCardHref(href, e, performShellNavigation);
+			});
+		}
+		card.querySelectorAll("[data-challenge-board-track-link]").forEach((el) => {
+			if (!(el instanceof HTMLAnchorElement)) return;
+			el.addEventListener("click", (e) => {
+				const href = el.getAttribute("href") || "/challenges";
+				navigateEngagementFeedCardHref(href, e, performShellNavigation);
+			});
+		});
+		card.addEventListener("click", (e) => {
+			const raw = e.target;
+			const el = raw instanceof Element ? raw : raw?.parentElement;
+			if (!el || !(el instanceof Element)) return;
+			if (el.closest(".feed-card-engagement-actions")) return;
+			if (el.closest("a[href]")) return;
+			if (el.closest("button")) return;
+			navigateEngagementFeedCardHref(challengeTitleHref || "/challenges", e, performShellNavigation);
+		});
+
+		card.querySelectorAll("[data-engagement-board-thumb-wrap]").forEach((wrap) => {
+			if (!(wrap instanceof HTMLElement)) return;
+			const img = wrap.querySelector("[data-engagement-board-thumb]");
+			if (!(img instanceof HTMLImageElement)) return;
+			const markLoaded = () => {
+				wrap.classList.remove("is-loading", "is-error");
+				wrap.classList.add("is-loaded");
+			};
+			const markError = () => {
+				wrap.classList.remove("is-loading", "is-loaded");
+				wrap.classList.add("is-error");
+			};
+			img.addEventListener("load", markLoaded, { once: true });
+			img.addEventListener("error", markError, { once: true });
+			if (img.complete && img.naturalWidth > 0) markLoaded();
+		});
+		void hydrateChallengeHistoryThumbnails(card);
+
+		return card;
+	}
+
 	if (variant === "challenge_stats_inactive") {
 		const kicker =
 			typeof payload.kicker === "string" && payload.kicker.trim()
@@ -793,6 +965,8 @@ function buildEngagementFeedCard(item, performShellNavigation = null) {
 
 		const socialProofHtml = (() => {
 			if (!socialProofLine) return "";
+			const musicEntries =
+				String(payload.track || "").trim().toLowerCase() === "suno";
 			const parts = socialProofLine
 				.split("•")
 				.map((s) => String(s || "").trim())
@@ -801,7 +975,9 @@ function buildEngagementFeedCard(item, performShellNavigation = null) {
 				.map((part, idx) => {
 					const icon =
 						idx === 0
-							? pictureIcon('feed-card-engagement-proof-icon')
+							? musicEntries
+								? audioClipMusicIcon('feed-card-engagement-proof-icon')
+								: pictureIcon('feed-card-engagement-proof-icon')
 							: idx === 1
 								? personOutlined('feed-card-engagement-proof-icon')
 								: trophyIcon('feed-card-engagement-proof-icon');

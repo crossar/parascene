@@ -266,12 +266,12 @@ export function renderRewardsSection(cfg) {
 }
 
 /**
- * @param {{ details?: unknown }} cfg
+ * @param {object} cfg challenge_config
  */
 export function renderDetailsAndReward(cfg) {
 	let html = '';
 	if (cfg.details) {
-		html += `<section id="challenge-details" class="challenge-pane-section"><h3 class="challenge-pane-section-label">Details</h3><div class="challenge-pane-details user-text">${esc(String(cfg.details))}</div></section>`;
+		html += `<section class="challenge-pane-section challenge-pane-details-section"><h3 class="challenge-pane-section-label">Details</h3><div class="challenge-pane-details user-text">${esc(String(cfg.details))}</div></section>`;
 	}
 	html += renderRewardsSection(cfg);
 	html += renderHowToEnterSection();

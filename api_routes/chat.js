@@ -2678,6 +2678,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 	 * GET /api/chat/challenges/organize/assignable?creation_id=NNN
 	 * Challenges the viewer organizes, with current hero / results / topic_vote assignments,
 	 * for the creation-detail organizer panel.
+	 * Only eligible for the viewer's own unpublished creations (panel is owner-library only).
 	 */
 	router.get("/api/chat/challenges/organize/assignable", async (req, res) => {
 		const userId = requireUser(req, res);
@@ -2686,6 +2687,24 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 		if (!sb) return;
 
 		try {
+			const creationId = Number(req.query?.creation_id);
+			if (!Number.isFinite(creationId) || creationId <= 0) {
+				return res.status(400).json({ error: "Bad request", message: "creation_id required" });
+			}
+			const creation =
+				typeof queries?.selectCreatedImageByIdAnyUser?.get === "function"
+					? await queries.selectCreatedImageByIdAnyUser.get(creationId)
+					: null;
+			if (!creation) {
+				return res.status(404).json({ error: "Not found", message: "Creation not found" });
+			}
+			if (Number(creation.user_id) !== Number(userId)) {
+				return res.status(200).json({ ok: true, is_organizer: false, challenges: [] });
+			}
+			if (creation.published === true || creation.published === 1) {
+				return res.status(200).json({ ok: true, is_organizer: false, challenges: [] });
+			}
+
 			const ctx = await loadOrganizerAssignContext(sb, queries, userId);
 			if (!ctx.ok) {
 				if (ctx.status === 403) return res.status(200).json({ ok: true, is_organizer: false, challenges: [] });
@@ -2695,7 +2714,6 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				return res.status(200).json({ ok: true, is_organizer: false, challenges: [] });
 			}
 
-			const creationId = Number(req.query?.creation_id);
 			const now = Date.now();
 			const challenges = [];
 			for (const [challengeId, row] of ctx.byChallenge.entries()) {
@@ -2721,6 +2739,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 					title: String(merged.title || "").trim() || challengeId,
 					track: normalizedTrack,
 					phase,
+					accepts_submissions: phase === "submitting" || phase === "submit_and_vote",
 					newest_message_id: row.newestMessageId,
 					slots
 				});
@@ -2729,7 +2748,8 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			return res.status(200).json({
 				ok: true,
 				is_organizer: true,
-				creation_id: Number.isFinite(creationId) && creationId > 0 ? creationId : null,
+				creation_id: creationId,
+				thread_id: ctx.threadId,
 				challenges: challenges.slice(0, 12)
 			});
 		} catch (err) {
@@ -2797,6 +2817,18 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 						: null;
 				if (!creation) {
 					return res.status(404).json({ error: "Not found", message: "Creation not found" });
+				}
+				if (Number(creation.user_id) !== Number(userId)) {
+					return res.status(403).json({
+						error: "Forbidden",
+						message: "You can only assign your own creations as organizer media."
+					});
+				}
+				if (creation.published === true || creation.published === 1) {
+					return res.status(400).json({
+						error: "Bad request",
+						message: "Published creations can't be assigned as organizer media."
+					});
 				}
 				let creationMeta = creation.meta;
 				if (typeof creationMeta === "string") {

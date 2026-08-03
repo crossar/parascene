@@ -68,7 +68,9 @@ function isCurrentDocumentChatShell() {
 		pathname === '/explore' ||
 		pathname === '/creations' ||
 		pathname === '/challenges' ||
-		pathname === '/challenges/organize';
+		pathname === '/challenges/organize' ||
+		pathname === '/challenges/details' ||
+		pathname.startsWith('/challenges/details/');
 }
 
 class AppNavigationMobile extends HTMLElement {

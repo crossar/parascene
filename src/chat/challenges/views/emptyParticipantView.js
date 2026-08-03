@@ -117,11 +117,19 @@ function challengeStartsAtMs(payload) {
 }
 
 function pickNextChallengeSummary(configs = [], opts = {}) {
-	const excludeChallengeId =
-		typeof opts.excludeChallengeId === 'string' ? opts.excludeChallengeId.trim() : '';
+	const excludeIds = new Set();
+	if (typeof opts.excludeChallengeId === 'string' && opts.excludeChallengeId.trim()) {
+		excludeIds.add(opts.excludeChallengeId.trim());
+	}
+	if (Array.isArray(opts.excludeChallengeIds)) {
+		for (const id of opts.excludeChallengeIds) {
+			const s = String(id || '').trim();
+			if (s) excludeIds.add(s);
+		}
+	}
 	const upcoming = summarizeLatestChallengeConfigs(configs).filter((s) => {
 		const cid = typeof s.challenge_id === 'string' ? s.challenge_id.trim() : '';
-		if (excludeChallengeId && cid === excludeChallengeId) return false;
+		if (excludeIds.has(cid)) return false;
 		const phase = deriveChallengePhase(s.payload, Date.now());
 		if (phase !== 'pre_submit') return false;
 		return isChallengeListedForUpcoming(s.payload);
@@ -140,14 +148,22 @@ function pickNextChallengeSummary(configs = [], opts = {}) {
 
 /**
  * @param {{ msg: object, payload: object }[]} [configs]
- * @param {{ excludeChallengeId?: string }} [opts]
+ * @param {{ excludeChallengeId?: string, excludeChallengeIds?: string[] }} [opts]
  */
 function renderChallengeHistoryCards(configs = [], opts = {}) {
-	const excludeChallengeId =
-		typeof opts.excludeChallengeId === 'string' ? opts.excludeChallengeId.trim() : '';
+	const excludeIds = new Set();
+	if (typeof opts.excludeChallengeId === 'string' && opts.excludeChallengeId.trim()) {
+		excludeIds.add(opts.excludeChallengeId.trim());
+	}
+	if (Array.isArray(opts.excludeChallengeIds)) {
+		for (const id of opts.excludeChallengeIds) {
+			const s = String(id || '').trim();
+			if (s) excludeIds.add(s);
+		}
+	}
 	const summaries = summarizeLatestChallengeConfigs(configs).filter((s) => {
 		const cid = typeof s.challenge_id === 'string' ? s.challenge_id.trim() : '';
-		if (excludeChallengeId) return cid !== excludeChallengeId;
+		if (excludeIds.has(cid)) return false;
 		return true;
 	}).filter((s) => {
 		const challengeId =
@@ -205,7 +221,7 @@ function renderChallengeHistoryCards(configs = [], opts = {}) {
 
 /**
  * @param {{ msg: object, payload: object }[]} [configs]
- * @param {{ excludeChallengeId?: string }} [opts]
+ * @param {{ excludeChallengeId?: string, excludeChallengeIds?: string[] }} [opts]
  */
 export function renderNextChallengeSection(configs = [], opts = {}) {
 	const summary = pickNextChallengeSummary(configs, opts);
@@ -235,7 +251,7 @@ export function renderNextChallengeSection(configs = [], opts = {}) {
 
 /**
  * @param {{ msg: object, payload: object }[]} [configs]
- * @param {{ excludeChallengeId?: string }} [opts]
+ * @param {{ excludeChallengeId?: string, excludeChallengeIds?: string[] }} [opts]
  */
 export function renderPastChallengesSection(configs = [], opts = {}) {
 	const listHtml = renderChallengeHistoryCards(configs, opts);

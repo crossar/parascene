@@ -5,7 +5,11 @@ import {
 	tryParseChallengeJsonBody
 } from '../utils/challengeSubmitShared.js';
 import { deriveChallengePhase } from '../../src/chat/challenges/model/phases.js';
-import { pickParticipantFocusConfig } from '../../src/chat/challenges/model/participantSlice.js';
+import {
+	listActiveParticipantConfigs,
+	pickParticipantFocusConfig,
+	ACTIVE_PARTICIPANT_PHASES
+} from '../../src/chat/challenges/model/participantSlice.js';
 import {
 	mergeFullChallengeConfigForChallenge,
 	pickChallengeConfigTimestamp,
@@ -20,6 +24,7 @@ import {
 	resolveChallengePrizes,
 	totalPrizeCredits
 } from '../../src/chat/challenges/model/prizes.js';
+import { pickChallengeTrack, challengeTrackListRank } from '../../src/chat/challenges/model/tracks.js';
 import { CHALLENGE_SCORE_REACTION_KEYS } from '../../src/chat/challenges/constants.js';
 import { appendCreationIdToMediaUrl, getThumbnailUrl } from '../utils/url.js';
 import { verifyShareToken } from '../utils/shareLink.js';
@@ -278,6 +283,110 @@ export function pickFeedFocusChallengeSummary(configEntries, nowMs) {
 }
 
 /**
+ * Multi-track feed board: all active challenges + soonest listed upcoming per track
+ * that does not already have an active row. Cap 6.
+ *
+ * @param {{ msg: object, payload: object }[]} configEntries
+ * @param {number} nowMs
+ * @returns {{
+ *   challengeId: string,
+ *   title: string,
+ *   track: string,
+ *   phase: string,
+ *   sortKey: number,
+ *   endMs: number,
+ *   startMs: number | null,
+ *   effectivePayload: object
+ * }[]}
+ */
+export function listChallengeFeedBoardSummaries(configEntries, nowMs) {
+	const active = listActiveParticipantConfigs(configEntries, nowMs).map((row) => ({
+		challengeId: row.challengeId,
+		title:
+			typeof row.payload?.title === 'string' && row.payload.title.trim()
+				? row.payload.title.trim()
+				: 'Challenge',
+		track: pickChallengeTrack(row.payload),
+		phase: row.phase,
+		sortKey: row.sortKey,
+		endMs: row.endMs,
+		startMs: parseChallengeStartMs(row.payload),
+		effectivePayload: row.payload
+	}));
+
+	const activeIds = new Set(active.map((r) => r.challengeId));
+	const tracksWithActive = new Set(active.map((r) => r.track));
+
+	const summaries = summarizeLatestChallengeConfigs(configEntries).map((row) => {
+		const cid = String(row?.challenge_id || '').trim();
+		return {
+			...row,
+			effectivePayload: mergedChallengePayload(configEntries, cid)
+		};
+	});
+
+	/** @type {typeof active} */
+	const upcoming = [];
+	for (const row of summaries) {
+		const cid = String(row?.challenge_id || '').trim();
+		if (!cid || activeIds.has(cid)) continue;
+		const phase = deriveChallengePhase(row.effectivePayload, nowMs);
+		if (phase !== 'pre_submit') continue;
+		if (!isChallengeListedForUpcoming(row.effectivePayload)) continue;
+		const track = pickChallengeTrack(row.effectivePayload);
+		if (tracksWithActive.has(track)) continue;
+		const startMs = parseChallengeStartMs(row.effectivePayload);
+		upcoming.push({
+			challengeId: cid,
+			title:
+				typeof row.effectivePayload?.title === 'string' && row.effectivePayload.title.trim()
+					? row.effectivePayload.title.trim()
+					: typeof row.title === 'string' && row.title.trim()
+						? row.title.trim()
+						: 'Upcoming challenge',
+			track,
+			phase,
+			sortKey: row.sortKey,
+			endMs:
+				parseChallengeVotingEndMs(row.effectivePayload) ??
+				parseChallengeStartMs(row.effectivePayload) ??
+				Number.POSITIVE_INFINITY,
+			startMs,
+			effectivePayload: row.effectivePayload
+		});
+	}
+
+	upcoming.sort((a, b) => {
+		if (a.startMs == null && b.startMs == null) return b.sortKey - a.sortKey;
+		if (a.startMs == null) return 1;
+		if (b.startMs == null) return -1;
+		if (a.startMs !== b.startMs) return a.startMs - b.startMs;
+		return b.sortKey - a.sortKey;
+	});
+
+	/** One upcoming per track without an active challenge. */
+	const upcomingByTrack = new Map();
+	for (const row of upcoming) {
+		if (upcomingByTrack.has(row.track)) continue;
+		upcomingByTrack.set(row.track, row);
+	}
+
+	const board = [...active, ...upcomingByTrack.values()]
+		.sort((a, b) => {
+			const ta = challengeTrackListRank(a.track);
+			const tb = challengeTrackListRank(b.track);
+			if (ta !== tb) return ta - tb;
+			const aActive = ACTIVE_PARTICIPANT_PHASES.has(a.phase);
+			const bActive = ACTIVE_PARTICIPANT_PHASES.has(b.phase);
+			if (aActive !== bActive) return aActive ? -1 : 1;
+			if (a.endMs !== b.endMs) return a.endMs - b.endMs;
+			return b.sortKey - a.sortKey;
+		})
+		.slice(0, 6);
+	return board;
+}
+
+/**
  * Pick the round immediately before the feed focus challenge (sync; testable).
  *
  * @param {{ msg: object, payload: object }[]} configEntries
@@ -428,56 +537,62 @@ export async function buildChallengeFeedSnapshotShared(opts = {}) {
 		const messages = await fetchThreadMessagesChronological(sb, tid);
 		const configEntries = collectChallengeConfigEntries(messages);
 		const nowMs = Date.now();
+		let boardSummaries = listChallengeFeedBoardSummaries(configEntries, nowMs);
 		const focus = pickFeedFocusChallengeSummary(configEntries, nowMs);
-		const challengeId =
-			focus?.challenge_id != null ? String(focus.challenge_id).trim() : '';
-		if (!challengeId || !focus?.effectivePayload) {
+		if (
+			!boardSummaries.length &&
+			focus?.challenge_id &&
+			focus?.effectivePayload
+		) {
+			const cid = String(focus.challenge_id).trim();
+			const payload = focus.effectivePayload;
+			const phase = deriveChallengePhase(payload, nowMs);
+			boardSummaries = [
+				{
+					challengeId: cid,
+					title:
+						typeof payload?.title === 'string' && payload.title.trim()
+							? payload.title.trim()
+							: 'Challenge',
+					track: pickChallengeTrack(payload),
+					phase,
+					sortKey: 0,
+					endMs:
+						parseChallengeVotingEndMs(payload) ??
+						parseChallengeStartMs(payload) ??
+						Number.POSITIVE_INFINITY,
+					startMs: parseChallengeStartMs(payload),
+					effectivePayload: payload
+				}
+			];
+		}
+		const challengeId = boardSummaries[0]?.challengeId || '';
+		const focusPayload = boardSummaries[0]?.effectivePayload || null;
+
+		if (!challengeId || !focusPayload) {
 			return {
-				version: 1,
+				version: 2,
 				ok: true,
 				active: false,
+				boardRows: [],
+				boardSubmissions: {},
 				built_at: new Date().toISOString()
 			};
 		}
 
-		const effectiveCfg = focus.effectivePayload;
-		const phase = deriveChallengePhase(effectiveCfg, nowMs);
-		const active = !INACTIVE_FEED_PHASES.has(phase);
-
-		let submissionCount = 0;
-		let latestSubmissionMs = null;
-		let recentSubmissionCount24h = 0;
-		let latestSubmissionImageId = NaN;
-		const submitters = new Set();
-		/** @type {{ sender_id: number|null, created_at: string|null, created_image_id: number|null, reactions: object|null }[]} */
-		const submissions = [];
+		const boardIds = new Set(boardSummaries.map((r) => r.challengeId));
+		/** @type {Record<string, { sender_id: number|null, created_at: string|null, created_image_id: number|null, reactions: object|null }[]>} */
+		const boardSubmissions = {};
+		for (const id of boardIds) boardSubmissions[id] = [];
 
 		for (const m of messages) {
 			const p = tryParseChallengeJsonBody(m?.body);
 			if (!p || String(p.kind || '').trim() !== 'challenge_submission') continue;
 			const pc = p.challenge_id != null ? String(p.challenge_id).trim() : '';
-			if (pc !== challengeId) continue;
-
-			submissionCount += 1;
-			const createdMs = m?.created_at ? Date.parse(String(m.created_at)) : NaN;
-			if (Number.isFinite(createdMs)) {
-				latestSubmissionMs =
-					latestSubmissionMs == null || createdMs > latestSubmissionMs
-						? createdMs
-						: latestSubmissionMs;
-				if (latestSubmissionMs === createdMs) {
-					const imageId = p.created_image_id != null ? Number(p.created_image_id) : NaN;
-					latestSubmissionImageId = Number.isFinite(imageId) && imageId > 0 ? imageId : NaN;
-				}
-				if (nowMs - createdMs >= 0 && nowMs - createdMs <= 24 * 60 * 60 * 1000) {
-					recentSubmissionCount24h += 1;
-				}
-			}
+			if (!pc || !boardIds.has(pc)) continue;
 
 			const sid = m.sender_id != null ? Number(m.sender_id) : NaN;
-			if (Number.isFinite(sid) && sid > 0) submitters.add(sid);
-
-			submissions.push({
+			boardSubmissions[pc].push({
 				sender_id: Number.isFinite(sid) && sid > 0 ? sid : null,
 				created_at: m?.created_at != null ? String(m.created_at) : null,
 				created_image_id:
@@ -488,18 +603,68 @@ export async function buildChallengeFeedSnapshotShared(opts = {}) {
 			});
 		}
 
-		const { topPrize, totalRewardCredits } = prizeSummaryFromCfg(effectiveCfg);
-		const title =
-			typeof effectiveCfg.title === 'string' && effectiveCfg.title.trim()
-				? effectiveCfg.title.trim()
-				: 'Challenge';
-		const submissionStartAt = pickChallengeConfigTimestamp(effectiveCfg, 'submission_start_at');
-		const heroImageUrl = await resolveChallengeHeroImageUrl({
-			queries,
-			cfg: effectiveCfg,
-			latestSubmissionImageId
-		});
-		const heroImageRef = pickChallengeHeroImageUrl(effectiveCfg) || '';
+		/** @type {object[]} */
+		const boardRows = [];
+		for (const row of boardSummaries) {
+			const cid = row.challengeId;
+			const cfg = row.effectivePayload;
+			const subs = boardSubmissions[cid] || [];
+			const submitters = new Set();
+			let latestSubmissionMs = null;
+			let recentSubmissionCount24h = 0;
+			let latestSubmissionImageId = NaN;
+			for (const sub of subs) {
+				const sid = sub.sender_id != null ? Number(sub.sender_id) : NaN;
+				if (Number.isFinite(sid) && sid > 0) submitters.add(sid);
+				const createdMs = sub.created_at ? Date.parse(String(sub.created_at)) : NaN;
+				if (!Number.isFinite(createdMs)) continue;
+				if (latestSubmissionMs == null || createdMs > latestSubmissionMs) {
+					latestSubmissionMs = createdMs;
+					const imageId =
+						sub.created_image_id != null ? Number(sub.created_image_id) : NaN;
+					latestSubmissionImageId =
+						Number.isFinite(imageId) && imageId > 0 ? imageId : NaN;
+				}
+				if (nowMs - createdMs >= 0 && nowMs - createdMs <= 24 * 60 * 60 * 1000) {
+					recentSubmissionCount24h += 1;
+				}
+			}
+			const { topPrize, totalRewardCredits } = prizeSummaryFromCfg(cfg);
+			const submissionStartAt = pickChallengeConfigTimestamp(cfg, 'submission_start_at');
+			const submissionEndAt = pickChallengeConfigTimestamp(cfg, 'submission_end_at');
+			const votingEndAt = pickChallengeConfigTimestamp(cfg, 'voting_end_at');
+			const heroImageUrl = await resolveChallengeHeroImageUrl({
+				queries,
+				cfg,
+				latestSubmissionImageId
+			});
+			boardRows.push({
+				challengeId: cid,
+				title: row.title,
+				track: row.track,
+				phase: row.phase,
+				phaseSubtitle: phaseSubtitle(row.phase),
+				submissionCount: subs.length,
+				uniqueSubmitters: submitters.size,
+				topPrize,
+				totalRewardCredits,
+				submissionStartAt: typeof submissionStartAt === 'string' ? submissionStartAt : '',
+				submissionEndAt: typeof submissionEndAt === 'string' ? submissionEndAt : '',
+				votingEndAt: typeof votingEndAt === 'string' ? votingEndAt : '',
+				latestSubmissionMs,
+				recentSubmissionCount24h,
+				heroImageUrl: heroImageUrl || '',
+				heroImageRef: pickChallengeHeroImageUrl(cfg) || ''
+			});
+		}
+
+		const primary = boardRows[0];
+		const effectiveCfg = boardSummaries[0].effectivePayload;
+		const phase = primary?.phase || deriveChallengePhase(effectiveCfg, nowMs);
+		const active =
+			boardRows.some((r) => ACTIVE_PARTICIPANT_PHASES.has(r.phase)) ||
+			!INACTIVE_FEED_PHASES.has(phase);
+
 		const nextChallenge = await resolveNextChallengeSnapshot(
 			messages,
 			nowMs,
@@ -514,26 +679,28 @@ export async function buildChallengeFeedSnapshotShared(opts = {}) {
 		);
 
 		return {
-			version: 1,
+			version: 2,
 			ok: true,
 			built_at: new Date().toISOString(),
 			active,
 			phase,
 			challengeId,
-			title,
+			title: primary?.title || 'Challenge',
 			cfg: effectiveCfg,
-			submissionCount,
-			uniqueSubmitters: submitters.size,
-			topPrize,
-			submissionStartAt: typeof submissionStartAt === 'string' ? submissionStartAt : '',
-			latestSubmissionMs,
-			recentSubmissionCount24h,
-			heroImageUrl,
-			heroImageRef,
-			totalRewardCredits,
+			submissionCount: primary?.submissionCount ?? 0,
+			uniqueSubmitters: primary?.uniqueSubmitters ?? 0,
+			topPrize: primary?.topPrize ?? null,
+			submissionStartAt: primary?.submissionStartAt || '',
+			latestSubmissionMs: primary?.latestSubmissionMs ?? null,
+			recentSubmissionCount24h: primary?.recentSubmissionCount24h ?? 0,
+			heroImageUrl: primary?.heroImageUrl || '',
+			heroImageRef: primary?.heroImageRef || '',
+			totalRewardCredits: primary?.totalRewardCredits ?? null,
 			nextChallenge,
 			previousChallenge,
-			submissions
+			submissions: boardSubmissions[challengeId] || [],
+			boardRows,
+			boardSubmissions
 		};
 	} catch (err) {
 		console.warn('[feed] buildChallengeFeedSnapshotShared', err?.message || err);
@@ -554,8 +721,8 @@ export function applyChallengeViewerOverlay(shared, viewerUserId) {
 			: { ok: false, reason: 'cache_miss' };
 	}
 
-	if (shared.active === false && !shared.challengeId) {
-		return { ok: true, active: false };
+	if (shared.active === false && !shared.challengeId && !Array.isArray(shared.boardRows)) {
+		return { ok: true, active: false, boardRows: [] };
 	}
 
 	const viewerIdOk = Number.isFinite(Number(viewerUserId)) && Number(viewerUserId) > 0;
@@ -563,7 +730,11 @@ export function applyChallengeViewerOverlay(shared, viewerUserId) {
 	const nowMs = Date.now();
 	const cfg = shared.cfg;
 	const phase = cfg ? deriveChallengePhase(cfg, nowMs) : shared.phase;
-	const active = cfg ? !INACTIVE_FEED_PHASES.has(phase) : shared.active === true;
+	const active = Array.isArray(shared.boardRows)
+		? shared.boardRows.length > 0
+		: cfg
+			? !INACTIVE_FEED_PHASES.has(phase)
+			: shared.active === true;
 
 	let viewerHasEntered = false;
 	let unvotedEntries = 0;
@@ -574,6 +745,56 @@ export function applyChallengeViewerOverlay(shared, viewerUserId) {
 			unvotedEntries += 1;
 		}
 	}
+
+	const boardSubs =
+		shared.boardSubmissions && typeof shared.boardSubmissions === 'object'
+			? shared.boardSubmissions
+			: {};
+	const boardRowsRaw = Array.isArray(shared.boardRows) ? shared.boardRows : [];
+	const boardRows = boardRowsRaw.map((row) => {
+		const cid = String(row?.challengeId || '').trim();
+		const subs = Array.isArray(boardSubs[cid]) ? boardSubs[cid] : [];
+		let entered = false;
+		let unvoted = 0;
+		for (const sub of subs) {
+			const sid = sub?.sender_id != null ? Number(sub.sender_id) : NaN;
+			if (viewerIdOk && sid === uid) entered = true;
+			if (
+				viewerIdOk &&
+				sid !== uid &&
+				!viewerHasChallengeScoreReaction(sub?.reactions, uid)
+			) {
+				unvoted += 1;
+			}
+		}
+		const rowPhase = typeof row?.phase === 'string' ? row.phase : '';
+		const rowCfg = {
+			submission_start_at: row?.submissionStartAt,
+			submission_end_at: row?.submissionEndAt,
+			voting_end_at: row?.votingEndAt
+		};
+		return {
+			challengeId: cid,
+			title: typeof row?.title === 'string' ? row.title : 'Challenge',
+			track: typeof row?.track === 'string' ? row.track : 'monthly',
+			phase: rowPhase,
+			phaseSubtitle:
+				typeof row?.phaseSubtitle === 'string' && row.phaseSubtitle.trim()
+					? row.phaseSubtitle
+					: phaseSubtitle(rowPhase),
+			submissionCount: Number(row?.submissionCount) || 0,
+			uniqueSubmitters: Number(row?.uniqueSubmitters) || 0,
+			topPrize: row?.topPrize ?? null,
+			totalRewardCredits: row?.totalRewardCredits ?? null,
+			submissionStartAt: typeof row?.submissionStartAt === 'string' ? row.submissionStartAt : '',
+			highlightDeadlineMs: computeHighlightDeadlineMs(rowCfg, rowPhase, nowMs),
+			viewerHasEntered: entered,
+			hasUnvotedEntries: viewerIdOk ? unvoted > 0 : (Number(row?.submissionCount) || 0) > 0,
+			recentSubmissionCount24h: Number(row?.recentSubmissionCount24h) || 0,
+			heroImageUrl: typeof row?.heroImageUrl === 'string' ? row.heroImageUrl : '',
+			heroImageRef: typeof row?.heroImageRef === 'string' ? row.heroImageRef : ''
+		};
+	});
 
 	return {
 		ok: true,
@@ -595,6 +816,7 @@ export function applyChallengeViewerOverlay(shared, viewerUserId) {
 		heroImageRef: shared.heroImageRef,
 		totalRewardCredits: shared.totalRewardCredits,
 		nextChallenge: shared.nextChallenge,
-		previousChallenge: shared.previousChallenge
+		previousChallenge: shared.previousChallenge,
+		boardRows
 	};
 }

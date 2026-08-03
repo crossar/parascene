@@ -4,7 +4,7 @@ import {
 	applyChallengeViewerOverlay
 } from './challengeFeedSnapshotShared.js';
 
-export const CHALLENGE_FEED_SNAPSHOT_REDIS_KEY = 'feed-beta:challenge-snapshot:v2';
+export const CHALLENGE_FEED_SNAPSHOT_REDIS_KEY = 'feed-beta:challenge-snapshot:v3';
 export const CHALLENGE_FEED_SNAPSHOT_REBUILD_LOCK_KEY = 'feed-beta:challenge-snapshot:rebuild-lock';
 
 /** Rebuilt on write invalidation; TTL is a safety net. */
@@ -12,6 +12,23 @@ export const CHALLENGE_FEED_SNAPSHOT_TTL_SEC = 20 * 60;
 export const CHALLENGE_FEED_SNAPSHOT_REBUILD_LOCK_TTL_SEC = 30;
 
 const MEM_TTL_MS = 45_000;
+
+/** Shared snapshot schema version written by `buildChallengeFeedSnapshotShared`. */
+export const CHALLENGE_FEED_SNAPSHOT_VERSION = 2;
+
+/**
+ * @param {unknown} raw
+ * @returns {boolean}
+ */
+export function isChallengeFeedSnapshotCachePayload(raw) {
+	return Boolean(
+		raw &&
+			typeof raw === 'object' &&
+			!Array.isArray(raw) &&
+			Number(/** @type {{ version?: unknown }} */ (raw).version) ===
+				CHALLENGE_FEED_SNAPSHOT_VERSION
+	);
+}
 
 /** @type {{ at: number, snapshot: object|null, dirty: boolean }} */
 let mem = { at: 0, snapshot: null, dirty: false };
@@ -74,7 +91,7 @@ export async function loadChallengeFeedSnapshotSharedCached() {
 	if (r) {
 		try {
 			const raw = await r.get(CHALLENGE_FEED_SNAPSHOT_REDIS_KEY);
-			if (raw && typeof raw === 'object' && raw.version === 1) {
+			if (isChallengeFeedSnapshotCachePayload(raw)) {
 				mem = { at: now, snapshot: raw, dirty: false };
 				return raw;
 			}

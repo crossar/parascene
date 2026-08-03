@@ -4043,6 +4043,26 @@ body.view-nsfw .creation-detail-image-wrapper.nsfw::after {
 	color: var(--color-red-fg, #d66);
 }
 
+.creation-detail-organizer-submit {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-top: 4px;
+	padding-top: 12px;
+	border-top: 1px dashed color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+
+.creation-detail-organizer-submit-title {
+	margin: 0;
+	font-size: 0.8125rem;
+	font-weight: 600;
+	color: var(--text);
+}
+
+.creation-detail-organizer-submit-btn {
+	align-self: flex-start;
+}
+
 .creation-detail-challenge-submit-cta {
 	display: flex;
 	flex-direction: column;

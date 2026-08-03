@@ -17,6 +17,13 @@ import {
 } from '../../shared/userText.js';
 import { hydrateChallengeHistoryThumbnails } from '../../shared/challengeHistoryThumb.js';
 import { createChallengeVoteModal, buildVoteSlidesNewestFirst } from './challengeVoteModal.js';
+import { challengeTrackListRank, pickChallengeTrack } from './model/tracks.js';
+import {
+	challengesDetailsHref,
+	isChallengesDetailsPathname,
+	parseChallengesDetailsPath
+} from './model/detailsRoute.js';
+import { esc } from './constants.js';
 
 /**
  * @param {object | null} data — GET /api/create/images/:id
@@ -34,6 +41,7 @@ function imageUrlFromCreationPayload(data) {
 	if (mediaType === 'video') {
 		return thumb || url || null;
 	}
+	// Challenges page heroes: full-quality media URL (not thumbnail/fit).
 	return url || thumb || null;
 }
 
@@ -42,81 +50,91 @@ function imageUrlFromCreationPayload(data) {
  * @param {Element | null | undefined} rootEl
  */
 async function hydrateChallengeHeroImage(rootEl) {
-	const wrap = rootEl?.querySelector?.('[data-challenge-hero-pending]');
-	if (!(wrap instanceof HTMLElement)) return;
+	const wraps = rootEl?.querySelectorAll?.('[data-challenge-hero-pending]');
+	if (!wraps?.length) return;
 
-	const raw = wrap.getAttribute('data-challenge-hero-ref') || '';
-	const img = wrap.querySelector('[data-challenge-hero-img]');
-	const fallback = wrap.querySelector('[data-challenge-hero-fallback]');
-	const placeholder = wrap.querySelector('[data-challenge-hero-placeholder]');
+	await Promise.all(
+		[...wraps].map(async (wrap) => {
+			if (!(wrap instanceof HTMLElement)) return;
 
-	const showFallback = (message) => {
-		wrap.removeAttribute('data-challenge-hero-pending');
-		wrap.classList.remove(
-			'challenge-pane-hero-image-wrap--pending',
-			'challenge-pane-hero-image-wrap--loading'
-		);
-		wrap.classList.add('challenge-pane-hero-image-wrap--error');
-		if (img instanceof HTMLImageElement) {
-			img.removeAttribute('src');
-			img.hidden = true;
-		}
-		if (placeholder instanceof HTMLElement) placeholder.hidden = true;
-		if (fallback instanceof HTMLElement) {
-			fallback.hidden = false;
-			fallback.textContent = message;
-		}
-	};
+			const raw = wrap.getAttribute('data-challenge-hero-ref') || '';
+			const img = wrap.querySelector('[data-challenge-hero-img]');
+			const fallback = wrap.querySelector('[data-challenge-hero-fallback]');
+			const placeholder = wrap.querySelector('[data-challenge-hero-placeholder]');
 
-	let src = null;
-	const challengeId = wrap.getAttribute('data-challenge-id') || '';
-	const challengeOpts = challengeId ? { challengeId } : null;
-	const cref = parseHeroCreationOrShareRef(raw);
-	if (cref?.kind === 'creation') {
-		const data = await fetchCreationEmbedPayload(cref.creationId, cref.shareOpts, challengeOpts);
-		src = imageUrlFromCreationPayload(data);
-	} else {
-		src = parseHeroDirectMediaUrl(raw);
-	}
+			const showFallback = (message) => {
+				wrap.removeAttribute('data-challenge-hero-pending');
+				wrap.classList.remove(
+					'challenge-pane-hero-image-wrap--pending',
+					'challenge-pane-hero-image-wrap--loading'
+				);
+				wrap.classList.add('challenge-pane-hero-image-wrap--error');
+				if (img instanceof HTMLImageElement) {
+					img.removeAttribute('src');
+					img.hidden = true;
+				}
+				if (placeholder instanceof HTMLElement) placeholder.hidden = true;
+				if (fallback instanceof HTMLElement) {
+					fallback.hidden = false;
+					fallback.textContent = message;
+				}
+			};
 
-	if (!src || !(img instanceof HTMLImageElement)) {
-		showFallback('Could not load challenge image.');
-		return;
-	}
+			let src = null;
+			const challengeId = wrap.getAttribute('data-challenge-id') || '';
+			const challengeOpts = challengeId ? { challengeId } : null;
+			const cref = parseHeroCreationOrShareRef(raw);
+			if (cref?.kind === 'creation') {
+				const data = await fetchCreationEmbedPayload(
+					cref.creationId,
+					cref.shareOpts,
+					challengeOpts
+				);
+				src = imageUrlFromCreationPayload(data);
+			} else {
+				src = parseHeroDirectMediaUrl(raw);
+			}
 
-	wrap.classList.add('challenge-pane-hero-image-wrap--loading');
-	if (fallback instanceof HTMLElement) fallback.hidden = true;
+			if (!src || !(img instanceof HTMLImageElement)) {
+				showFallback('Could not load challenge image.');
+				return;
+			}
 
-	const revealLoaded = () => {
-		wrap.removeAttribute('data-challenge-hero-pending');
-		wrap.classList.remove(
-			'challenge-pane-hero-image-wrap--pending',
-			'challenge-pane-hero-image-wrap--loading',
-			'challenge-pane-hero-image-wrap--error'
-		);
-		wrap.classList.add('challenge-pane-hero-image-wrap--loaded');
-		if (placeholder instanceof HTMLElement) placeholder.hidden = true;
-		img.hidden = false;
-	};
+			wrap.classList.add('challenge-pane-hero-image-wrap--loading');
+			if (fallback instanceof HTMLElement) fallback.hidden = true;
 
-	img.addEventListener(
-		'load',
-		() => {
-			if (img.naturalWidth > 0) revealLoaded();
-		},
-		{ once: true }
+			const revealLoaded = () => {
+				wrap.removeAttribute('data-challenge-hero-pending');
+				wrap.classList.remove(
+					'challenge-pane-hero-image-wrap--pending',
+					'challenge-pane-hero-image-wrap--loading',
+					'challenge-pane-hero-image-wrap--error'
+				);
+				wrap.classList.add('challenge-pane-hero-image-wrap--loaded');
+				if (placeholder instanceof HTMLElement) placeholder.hidden = true;
+				img.hidden = false;
+			};
+
+			img.addEventListener(
+				'load',
+				() => {
+					if (img.naturalWidth > 0) revealLoaded();
+				},
+				{ once: true }
+			);
+			img.addEventListener(
+				'error',
+				() => {
+					showFallback('Could not load challenge image.');
+				},
+				{ once: true }
+			);
+			img.src = src;
+			if (img.complete && img.naturalWidth > 0) {
+				revealLoaded();
+			}
+		})
 	);
-	img.addEventListener(
-		'error',
-		() => {
-			showFallback('Could not load challenge image.');
-		},
-		{ once: true }
-	);
-	img.src = src;
-	if (img.complete && img.naturalWidth > 0) {
-		revealLoaded();
-	}
 }
 
 function consumeAutoOpenVoteIntentFromUrl() {
@@ -124,35 +142,55 @@ function consumeAutoOpenVoteIntentFromUrl() {
 		const u = new URL(window.location.href);
 		const open = String(u.searchParams.get('open') || '').trim().toLowerCase();
 		const action = String(u.searchParams.get('challenge_action') || '').trim().toLowerCase();
+		const challengeIdParam = String(u.searchParams.get('challenge_id') || '').trim();
 		const shouldOpen = open === 'vote' || action === 'vote';
-		if (!shouldOpen) return false;
+		if (!shouldOpen) return { open: false, challengeId: '' };
 		u.searchParams.delete('open');
 		u.searchParams.delete('challenge_action');
+		u.searchParams.delete('challenge_id');
 		const next = `${u.pathname}${u.search}${u.hash}`;
 		history.replaceState(history.state, '', next);
-		return true;
+		return { open: true, challengeId: challengeIdParam };
 	} catch {
-		return false;
+		return { open: false, challengeId: '' };
+	}
+}
+
+/**
+ * Deep-link: `/challenges/details/:challengeId` (or legacy `?challenge_id=…`)
+ * opens that track’s detail when multiple challenges are live.
+ * Vote intents use query params and are handled above.
+ * @returns {string}
+ */
+function consumeFocusChallengeIdFromUrl() {
+	try {
+		const u = new URL(window.location.href);
+		const open = String(u.searchParams.get('open') || '').trim().toLowerCase();
+		const action = String(u.searchParams.get('challenge_action') || '').trim().toLowerCase();
+		if (open === 'vote' || action === 'vote') return '';
+
+		const path = (u.pathname || '/').replace(/\/+$/, '') || '/';
+		const fromPath = parseChallengesDetailsPath(path);
+		if (fromPath?.challengeId) return fromPath.challengeId;
+
+		const challengeIdParam = String(u.searchParams.get('challenge_id') || '').trim();
+		if (!challengeIdParam) return '';
+
+		// Legacy query deep-link → path form.
+		u.pathname = challengesDetailsHref(challengeIdParam);
+		u.searchParams.delete('challenge_id');
+		const next = `${u.pathname}${u.search}${u.hash}`;
+		history.replaceState(history.state, '', next);
+		return challengeIdParam;
+	} catch {
+		return '';
 	}
 }
 
 /**
  * @param {ReturnType<typeof buildChallengesChannelModel>} model
- * @param {{
- *   viewerId: number | null,
- * }} opts
  */
-function renderOrganizeEntryCta() {
-	return `<section class="challenge-pane-section challenge-pane-organize-entry">
-	<a href="/challenges/organize" class="challenge-pane-organize-entry-btn" data-chat-challenges-organizer-open>
-		<span class="challenge-pane-organize-entry-btn-label">Organize</span>
-	</a>
-</section>`;
-}
-
-export function renderChallengesPaneHtml(model, opts) {
-	let html = '<div class="challenge-pane">';
-	const showOrganize = Boolean(opts?.showOrganizeEntry);
+function liveChallengeItems(model) {
 	const activeChallenges = Array.isArray(model.participant?.activeChallenges)
 		? model.participant.activeChallenges
 		: [];
@@ -163,74 +201,217 @@ export function renderChallengesPaneHtml(model, opts) {
 			? String(focusConfig.challenge_id).trim()
 			: '';
 
-	const live =
-		activeChallenges.length > 0
-			? activeChallenges
-			: focusConfig &&
-				  (focusPhase === 'submitting' ||
-						focusPhase === 'voting' ||
-						focusPhase === 'submit_and_vote')
-				? [
-						{
-							challengeId: focusId,
-							latestConfig: focusConfig,
-							phase: focusPhase,
-							rankedSubmissions: model.participant.rankedSubmissions || []
-						}
-					]
-				: [];
-
-	if (!live.length) {
-		if (showOrganize) {
-			html += renderOrganizeEntryCta();
-		}
-		if (!focusConfig) {
-			html += renderEmptyParticipantPane(model.raw.configs);
-			html += '</div>';
-			return html;
-		}
-		html += renderEmptyParticipantPane(model.raw.configs);
-		html += '</div>';
-		return html;
+	if (activeChallenges.length > 0) return activeChallenges;
+	if (
+		focusConfig &&
+		(focusPhase === 'submitting' ||
+			focusPhase === 'voting' ||
+			focusPhase === 'submit_and_vote')
+	) {
+		return [
+			{
+				challengeId: focusId,
+				latestConfig: focusConfig,
+				phase: focusPhase,
+				rankedSubmissions: model.participant.rankedSubmissions || []
+			}
+		];
 	}
+	return [];
+}
 
-	html += `<div class="challenge-pane-active-list">`;
-	let organizePlaced = false;
-	for (const item of live) {
+function renderOrganizeEntryCta() {
+	return `<section class="challenge-pane-section challenge-pane-organize-entry">
+	<a href="/challenges/organize" class="challenge-pane-organize-entry-btn" data-chat-challenges-organizer-open>
+		<span class="challenge-pane-organize-entry-btn-label">Organize</span>
+	</a>
+</section>`;
+}
+
+/**
+ * Legacy single-challenge pane: full hero / vote / details / submissions (no summary board).
+ * @param {object} item
+ * @param {{ viewerId: number | null, nowMs: number, showOrganize?: boolean }} opts
+ */
+function renderLegacySingleChallengePane(item, opts) {
+	const latestConfig = item.latestConfig;
+	const phase = item.phase;
+	const rankedSubmissions = item.rankedSubmissions || [];
+	const challengeId =
+		latestConfig && latestConfig.challenge_id != null
+			? String(latestConfig.challenge_id).trim()
+			: item.challengeId || '';
+	const heroVm = participantHeroViewModel(latestConfig, rankedSubmissions);
+	const track = pickChallengeTrack(latestConfig);
+	let html = `<div class="challenge-pane-active-list">`;
+	html += `<section class="challenge-pane-active-card" data-challenge-id="${esc(challengeId)}">`;
+	html += renderHeroSection({
+		title: heroVm.title,
+		phase,
+		track,
+		stats: heroVm.stats,
+		countdownHtml: renderChallengeCountdowns(latestConfig, phase, opts.nowMs)
+	});
+	html += renderChallengeHeroImage(latestConfig, heroVm.title);
+	html += renderChallengeVoteHeroCta({
+		phase,
+		viewerId: opts.viewerId ?? null,
+		ranked: rankedSubmissions
+	});
+	if (opts.showOrganize) {
+		html += renderOrganizeEntryCta();
+	}
+	html += renderDetailsAndReward(latestConfig);
+	html += renderSubmissionsSection({
+		phase,
+		viewerId: opts.viewerId ?? null,
+		ranked: rankedSubmissions
+	});
+	html += `</section></div>`;
+	return html;
+}
+
+/**
+ * Full detail view for one challenge when drilling in from the multi-track stack.
+ * @param {object} item
+ * @param {{ viewerId: number | null, nowMs: number }} opts
+ */
+function renderChallengeDetailView(item, opts) {
+	const latestConfig = item.latestConfig;
+	const phase = item.phase;
+	const rankedSubmissions = item.rankedSubmissions || [];
+	const challengeId =
+		latestConfig && latestConfig.challenge_id != null
+			? String(latestConfig.challenge_id).trim()
+			: item.challengeId || '';
+	const heroVm = participantHeroViewModel(latestConfig, rankedSubmissions);
+	const track = pickChallengeTrack(latestConfig);
+
+	let html = `<div class="challenge-pane-detail" data-challenge-detail data-challenge-id="${esc(challengeId)}">`;
+	html += `<section class="challenge-pane-active-card" data-challenge-id="${esc(challengeId)}">`;
+	html += renderHeroSection({
+		title: heroVm.title,
+		phase,
+		track,
+		stats: heroVm.stats,
+		countdownHtml: renderChallengeCountdowns(latestConfig, phase, opts.nowMs)
+	});
+	html += renderChallengeHeroImage(latestConfig, heroVm.title);
+	html += renderChallengeVoteHeroCta({
+		phase,
+		viewerId: opts.viewerId ?? null,
+		ranked: rankedSubmissions
+	});
+	html += renderDetailsAndReward(latestConfig);
+	html += renderSubmissionsSection({
+		phase,
+		viewerId: opts.viewerId ?? null,
+		ranked: rankedSubmissions
+	});
+	html += `</section></div>`;
+	return html;
+}
+
+/**
+ * Stacked-card actions: same purple Vote hero CTA as full detail, then muted More Info.
+ * @param {{
+ *   phase: string,
+ *   challengeId: string,
+ *   viewerId: number | null,
+ *   ranked: object[]
+ * }} opts
+ */
+function renderStackedChallengeActions(opts) {
+	const phase = String(opts.phase || '');
+	const challengeId = String(opts.challengeId || '').trim();
+	const viewerId = opts.viewerId ?? null;
+	const ranked = Array.isArray(opts.ranked) ? opts.ranked : [];
+
+	let html = '';
+	html += renderChallengeVoteHeroCta({
+		phase,
+		viewerId,
+		ranked,
+		forceHeroBadge: true
+	});
+	html += `<section class="challenge-pane-section challenge-pane-stack-more-info">
+		<a class="challenge-pane-stack-details-btn" href="${esc(challengesDetailsHref(challengeId))}" data-chat-challenge-details-open>More Info</a>
+	</section>`;
+	return html;
+}
+
+/**
+ * Multi-track: stacked pared-down cards (hero + image + Vote/More Info).
+ * Full rewards / how-to / submissions live in the detail drill-in. Monthly first.
+ * @param {object[]} liveItems
+ * @param {{ viewerId: number | null, nowMs: number, showOrganize?: boolean }} opts
+ */
+function renderStackedChallengePane(liveItems, opts) {
+	const items = [...(Array.isArray(liveItems) ? liveItems : [])].sort((a, b) => {
+		const ta = challengeTrackListRank(pickChallengeTrack(a?.latestConfig));
+		const tb = challengeTrackListRank(pickChallengeTrack(b?.latestConfig));
+		if (ta !== tb) return ta - tb;
+		return String(a?.challengeId || '').localeCompare(String(b?.challengeId || ''));
+	});
+
+	let html = `<div class="challenge-pane-active-list challenge-pane-active-list--stacked">`;
+	if (opts.showOrganize) {
+		html += renderOrganizeEntryCta();
+	}
+	for (const item of items) {
 		const latestConfig = item.latestConfig;
 		const phase = item.phase;
 		const rankedSubmissions = item.rankedSubmissions || [];
 		const challengeId =
 			latestConfig && latestConfig.challenge_id != null
 				? String(latestConfig.challenge_id).trim()
-				: item.challengeId || '';
+				: String(item.challengeId || '').trim();
 		const heroVm = participantHeroViewModel(latestConfig, rankedSubmissions);
-		html += `<section class="challenge-pane-active-card" data-challenge-id="${challengeId}">`;
+		const track = pickChallengeTrack(latestConfig);
+		html += `<section class="challenge-pane-active-card" data-challenge-id="${esc(challengeId)}">`;
 		html += renderHeroSection({
 			title: heroVm.title,
 			phase,
+			track,
 			stats: heroVm.stats,
-			countdownHtml: renderChallengeCountdowns(latestConfig, phase, model.nowMs)
+			countdownHtml: renderChallengeCountdowns(latestConfig, phase, opts.nowMs)
 		});
 		html += renderChallengeHeroImage(latestConfig, heroVm.title);
-		html += renderChallengeVoteHeroCta({
+		html += renderStackedChallengeActions({
 			phase,
-			viewerId: opts.viewerId ?? null,
-			ranked: rankedSubmissions
-		});
-		if (showOrganize && !organizePlaced) {
-			html += renderOrganizeEntryCta();
-			organizePlaced = true;
-		}
-		html += renderDetailsAndReward(latestConfig);
-		html += renderSubmissionsSection({
-			phase,
+			challengeId,
 			viewerId: opts.viewerId ?? null,
 			ranked: rankedSubmissions
 		});
 		html += `</section>`;
 	}
 	html += `</div>`;
+	return html;
+}
+
+/**
+ * @param {ReturnType<typeof buildChallengesChannelModel>} model
+ * @param {{
+ *   viewerId: number | null,
+ *   showOrganizeEntry?: boolean,
+ *   detailChallengeId?: string | null
+ * }} opts
+ */
+export function renderChallengesPaneHtml(model, opts) {
+	let html = '<div class="challenge-pane">';
+	const showOrganize = Boolean(opts?.showOrganizeEntry);
+	const live = liveChallengeItems(model);
+	const detailId =
+		typeof opts?.detailChallengeId === 'string' ? opts.detailChallengeId.trim() : '';
+
+	if (!live.length) {
+		if (showOrganize) {
+			html += renderOrganizeEntryCta();
+		}
+		html += renderEmptyParticipantPane(model.raw.configs);
+		html += '</div>';
+		return html;
+	}
 
 	const excludeIds = live
 		.map((x) =>
@@ -239,11 +420,56 @@ export function renderChallengesPaneHtml(model, opts) {
 				: String(x.challengeId || '').trim()
 		)
 		.filter(Boolean);
+
+	// One active challenge → legacy full card.
+	if (live.length === 1) {
+		html += renderLegacySingleChallengePane(live[0], {
+			viewerId: opts.viewerId ?? null,
+			nowMs: model.nowMs,
+			showOrganize
+		});
+		html += renderNextChallengeSection(model.raw.configs, {
+			excludeChallengeIds: excludeIds
+		});
+		html += renderPastChallengesSection(model.raw.configs, {
+			excludeChallengeIds: excludeIds
+		});
+		html += '</div>';
+		return html;
+	}
+
+	// Detail drill-in from stacked card.
+	if (detailId) {
+		const detailItem =
+			live.find((x) => {
+				const cid =
+					x.latestConfig?.challenge_id != null
+						? String(x.latestConfig.challenge_id).trim()
+						: String(x.challengeId || '').trim();
+				return cid === detailId;
+			}) || null;
+		if (detailItem) {
+			if (showOrganize) html += renderOrganizeEntryCta();
+			html += renderChallengeDetailView(detailItem, {
+				viewerId: opts.viewerId ?? null,
+				nowMs: model.nowMs
+			});
+			html += '</div>';
+			return html;
+		}
+	}
+
+	// 2+ active → stacked pared cards (monthly first).
+	html += renderStackedChallengePane(live, {
+		viewerId: opts.viewerId ?? null,
+		nowMs: model.nowMs,
+		showOrganize
+	});
 	html += renderNextChallengeSection(model.raw.configs, {
-		excludeChallengeId: excludeIds[0] || ''
+		excludeChallengeIds: excludeIds
 	});
 	html += renderPastChallengesSection(model.raw.configs, {
-		excludeChallengeId: excludeIds[0] || ''
+		excludeChallengeIds: excludeIds
 	});
 
 	html += '</div>';
@@ -260,19 +486,30 @@ function countUnvotedSubmissions(ranked, viewerId) {
 	return ranked.filter((r) => r.messageId && !r.viewerVote).length;
 }
 
-function syncVoteTabChrome(root, ranked, viewerId, phase) {
+/**
+ * Sync vote badge chrome scoped to a challenge card / detail root.
+ * @param {Element} scope
+ * @param {object[]} rankedPeers
+ * @param {number | null} viewerId
+ * @param {string} phase
+ */
+function syncVoteTabChrome(scope, rankedPeers, viewerId, phase) {
 	if (!phaseUsesModalVoteOnly(phase)) return;
 
-	const voteTab = root.querySelector('[data-challenge-action-tab="vote"]');
-	const badge = root.querySelector('[data-challenge-vote-tab-badge]');
-	const openBtn = root.querySelector('[data-challenge-vote-open]');
+	const voteTab = scope.querySelector('[data-challenge-action-tab="vote"]');
+	const badge = scope.querySelector('[data-challenge-vote-tab-badge]');
+	const openBtn = scope.querySelector('[data-challenge-vote-open]');
 	const hasVoteTab = voteTab instanceof HTMLButtonElement;
 	const ariaHost =
-		hasVoteTab && voteTab instanceof HTMLElement ? voteTab : openBtn instanceof HTMLButtonElement ? openBtn : null;
+		hasVoteTab && voteTab instanceof HTMLElement
+			? voteTab
+			: openBtn instanceof HTMLButtonElement
+				? openBtn
+				: null;
 
-	const submissionRows = ranked.filter((r) => r.messageId);
+	const submissionRows = rankedPeers.filter((r) => r.messageId);
 	const total = submissionRows.length;
-	const unvoted = countUnvotedSubmissions(ranked, viewerId);
+	const unvoted = countUnvotedSubmissions(rankedPeers, viewerId);
 	const vid = Number(viewerId);
 	const allDone = total > 0 && unvoted === 0 && Number.isFinite(vid) && vid > 0;
 
@@ -282,7 +519,15 @@ function syncVoteTabChrome(root, ranked, viewerId, phase) {
 	}
 
 	if (openBtn instanceof HTMLButtonElement) {
-		openBtn.classList.toggle('challenge-pane-vote-hero-btn--inactive', allDone);
+		// Stacked board keeps the filled purple Vote CTA (same as full-detail active).
+		const stackedBoard =
+			Boolean(scope.closest?.('.challenge-pane-active-list--stacked')) &&
+			!scope.closest?.('[data-challenge-detail]');
+		if (stackedBoard) {
+			openBtn.classList.remove('challenge-pane-vote-hero-btn--inactive');
+		} else {
+			openBtn.classList.toggle('challenge-pane-vote-hero-btn--inactive', allDone);
+		}
 		if (!hasVoteTab) {
 			openBtn.classList.toggle('challenge-pane-vote-hero-btn--queue', unvoted > 1);
 		}
@@ -317,78 +562,242 @@ function syncVoteTabChrome(root, ranked, viewerId, phase) {
  *   toggleReaction: (messageId: number, emojiKey: string) => Promise<{ ok?: boolean, data?: { added?: boolean } }>,
  *   reactionIconHtml: (key: string, className?: string) => string,
  *   showOrganizeEntry?: boolean,
+ *   onDetailsChrome?: (info: { challengeId: string, title: string } | null) => void,
  * }} opts
  */
 export async function mountChallengesPane(opts) {
-	const { root, viewerId, messages, reload, toggleReaction } = opts;
+	const { root, viewerId, messages, toggleReaction, threadId } = opts;
+	const onDetailsChrome =
+		typeof opts.onDetailsChrome === 'function' ? opts.onDetailsChrome : null;
 
 	const model = buildChallengesChannelModel(messages, {
 		viewerId,
 		nowMs: Date.now()
 	});
 
-	const ranked = model.participant.rankedSubmissions;
-	const rankedPeers = rankedSubmissionsForPeerVoting(ranked, viewerId);
-	const phase = model.participant.phase;
+	const live = liveChallengeItems(model);
+	const isMultiTrack = live.length > 1;
 
-	root.innerHTML = renderChallengesPaneHtml(model, {
-		viewerId,
-		showOrganizeEntry: Boolean(opts.showOrganizeEntry)
-	});
+	/** @type {string} */
+	let detailChallengeId = '';
 
-	void hydrateChallengeHeroImage(root);
-	void hydrateChallengeHistoryThumbnails(root);
+	const findLiveItem = (challengeId) => {
+		const cid = String(challengeId || '').trim();
+		if (!cid) return null;
+		return (
+			live.find((x) => {
+				const id =
+					x.latestConfig?.challenge_id != null
+						? String(x.latestConfig.challenge_id).trim()
+						: String(x.challengeId || '').trim();
+				return id === cid;
+			}) || null
+		);
+	};
+
+	const focusFromUrl = consumeFocusChallengeIdFromUrl();
+	if (isMultiTrack && focusFromUrl && findLiveItem(focusFromUrl)) {
+		detailChallengeId = focusFromUrl;
+	} else if (
+		typeof window !== 'undefined' &&
+		isChallengesDetailsPathname(window.location?.pathname) &&
+		(!focusFromUrl || !findLiveItem(focusFromUrl))
+	) {
+		// Missing / unknown challenge on details route → fall back to the board.
+		try {
+			const u = new URL(window.location.href);
+			u.pathname = '/challenges';
+			u.searchParams.delete('challenge_id');
+			history.replaceState(history.state, '', `${u.pathname}${u.search}${u.hash}`);
+		} catch {
+			// ignore
+		}
+	}
+
+	const syncDetailsChrome = () => {
+		if (!onDetailsChrome) return;
+		const onDetailsPath =
+			typeof window !== 'undefined' && isChallengesDetailsPathname(window.location?.pathname);
+		if (!onDetailsPath) {
+			onDetailsChrome(null);
+			return;
+		}
+		const cid = detailChallengeId || focusFromUrl;
+		const item = findLiveItem(cid) || (live.length === 1 ? live[0] : null);
+		if (!item) {
+			onDetailsChrome(null);
+			return;
+		}
+		const itemId =
+			item.latestConfig?.challenge_id != null
+				? String(item.latestConfig.challenge_id).trim()
+				: String(item.challengeId || '').trim();
+		const peers = rankedSubmissionsForPeerVoting(item.rankedSubmissions || [], viewerId);
+		const title = item.latestConfig
+			? participantHeroViewModel(item.latestConfig, peers).title
+			: '';
+		onDetailsChrome({ challengeId: itemId, title });
+	};
+
+	const focusChallengeId =
+		!detailChallengeId && focusFromUrl && findLiveItem(focusFromUrl) ? focusFromUrl : '';
+
+	const render = () => {
+		const effectiveDetailId = isMultiTrack ? detailChallengeId : '';
+		root.innerHTML = renderChallengesPaneHtml(model, {
+			viewerId,
+			showOrganizeEntry: Boolean(opts.showOrganizeEntry),
+			detailChallengeId: effectiveDetailId
+		});
+		syncDetailsChrome();
+		void hydrateChallengeHeroImage(root);
+		void hydrateChallengeHistoryThumbnails(root);
+
+		for (const item of live) {
+			const cid =
+				item.latestConfig?.challenge_id != null
+					? String(item.latestConfig.challenge_id).trim()
+					: String(item.challengeId || '').trim();
+			if (!cid) continue;
+			const scope =
+				root.querySelector(`[data-challenge-id="${CSS.escape(cid)}"]`) || root;
+			const peers = rankedSubmissionsForPeerVoting(
+				item.rankedSubmissions || [],
+				viewerId
+			);
+			syncVoteTabChrome(scope, peers, viewerId, item.phase);
+		}
+
+		if (!effectiveDetailId && focusChallengeId) {
+			const card = root.querySelector(
+				`.challenge-pane-active-card[data-challenge-id="${CSS.escape(focusChallengeId)}"]`
+			);
+			if (card instanceof HTMLElement) {
+				card.classList.add('is-focused');
+				try {
+					card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+				} catch {
+					card.scrollIntoView();
+				}
+			}
+		}
+	};
 
 	const voteModal = createChallengeVoteModal({
 		toggleReaction,
 		onAfterVote: () => {
-			syncVoteTabChrome(root, rankedPeers, viewerId, phase);
+			if (detailChallengeId) {
+				const item = findLiveItem(detailChallengeId);
+				if (item) {
+					const scope =
+						root.querySelector(
+							`[data-challenge-detail][data-challenge-id="${CSS.escape(detailChallengeId)}"]`
+						) || root;
+					syncVoteTabChrome(
+						scope,
+						rankedSubmissionsForPeerVoting(item.rankedSubmissions || [], viewerId),
+						viewerId,
+						item.phase
+					);
+				}
+				return;
+			}
+			for (const item of live) {
+				const cid =
+					item.latestConfig?.challenge_id != null
+						? String(item.latestConfig.challenge_id).trim()
+						: String(item.challengeId || '').trim();
+				if (!cid) continue;
+				const scope =
+					root.querySelector(`[data-challenge-id="${CSS.escape(cid)}"]`) || root;
+				syncVoteTabChrome(
+					scope,
+					rankedSubmissionsForPeerVoting(item.rankedSubmissions || [], viewerId),
+					viewerId,
+					item.phase
+				);
+			}
 		}
 	});
 
-	const tryOpenVoteModal = () => {
-		if (!phaseUsesModalVoteOnly(phase)) return;
-		const slides = buildVoteSlidesNewestFirst(rankedPeers);
-		const challengeTitle = model.participant.latestConfig
-			? participantHeroViewModel(model.participant.latestConfig, rankedPeers).title
+	const tryOpenVoteModalForChallenge = (challengeId) => {
+		const item = findLiveItem(challengeId) || (live.length === 1 ? live[0] : null);
+		if (!item) return false;
+		if (!phaseUsesModalVoteOnly(item.phase)) return false;
+		const peers = rankedSubmissionsForPeerVoting(item.rankedSubmissions || [], viewerId);
+		const slides = buildVoteSlidesNewestFirst(peers);
+		const challengeTitle = item.latestConfig
+			? participantHeroViewModel(item.latestConfig, peers).title
 			: '';
 		voteModal.open(slides, { challengeTitle });
+		return true;
 	};
 
-	syncVoteTabChrome(root, rankedPeers, viewerId, phase);
+	const captureSubmitContext = async (challengeId) => {
+		const cid = String(challengeId || '').trim();
+		const tid = Number(threadId);
+		try {
+			const mod = await import('/shared/challengeSubmitContext.js');
+			mod.captureChallengeSubmitThread?.(tid, cid || undefined);
+		} catch {
+			// ignore
+		}
+	};
+
+	render();
 
 	const onRootClick = async (e) => {
+		const voteOpen = e.target?.closest?.('[data-challenge-vote-open]');
+		if (voteOpen instanceof HTMLElement) {
+			e.preventDefault();
+			e.stopPropagation();
+			const cid =
+				voteOpen.getAttribute('data-challenge-id') ||
+				voteOpen.closest?.('[data-challenge-id]')?.getAttribute('data-challenge-id') ||
+				detailChallengeId ||
+				'';
+			tryOpenVoteModalForChallenge(cid);
+			return;
+		}
+
+		const submitCta = e.target?.closest?.('[data-challenge-submit-cta]');
+		if (submitCta instanceof HTMLElement) {
+			const cid =
+				submitCta.getAttribute('data-challenge-id') ||
+				submitCta.closest?.('[data-challenge-id]')?.getAttribute('data-challenge-id') ||
+				'';
+			await captureSubmitContext(cid);
+			return;
+		}
+
 		const tabBtn = e.target?.closest?.('[data-challenge-action-tab]');
 		if (tabBtn instanceof HTMLButtonElement) {
 			if (tabBtn.disabled) return;
 			const id = tabBtn.getAttribute('data-challenge-action-tab');
 			if (id !== 'submit' && id !== 'vote') return;
-			for (const t of root.querySelectorAll('[data-challenge-action-tab]')) {
+			const detailRoot = tabBtn.closest('[data-challenge-detail]') || tabBtn.closest('[data-challenge-id]') || root;
+			for (const t of detailRoot.querySelectorAll('[data-challenge-action-tab]')) {
 				if (!(t instanceof HTMLButtonElement)) continue;
 				const tid = t.getAttribute('data-challenge-action-tab');
 				const sel = tid === id;
 				t.setAttribute('aria-selected', sel ? 'true' : 'false');
 				t.classList.toggle('is-active', sel);
 			}
-			for (const p of root.querySelectorAll('[data-challenge-action-panel]')) {
+			for (const p of detailRoot.querySelectorAll('[data-challenge-action-panel]')) {
 				if (!(p instanceof HTMLElement)) continue;
 				const pid = p.getAttribute('data-challenge-action-panel');
 				const show = pid === id;
 				p.hidden = !show;
 				p.classList.toggle('is-active', show);
 			}
-			return;
-		}
-
-		const voteOpen = e.target?.closest?.('[data-challenge-vote-open]');
-		if (voteOpen instanceof HTMLButtonElement) {
-			tryOpenVoteModal();
 		}
 	};
 
 	root.addEventListener('click', onRootClick);
-	if (consumeAutoOpenVoteIntentFromUrl()) {
-		tryOpenVoteModal();
+
+	const voteIntent = consumeAutoOpenVoteIntentFromUrl();
+	if (voteIntent.open) {
+		tryOpenVoteModalForChallenge(voteIntent.challengeId || live[0]?.challengeId || '');
 	}
 
 	return {
@@ -402,9 +811,11 @@ export async function mountChallengesPane(opts) {
 
 /**
  * Open vote modal without mounting the full Challenges pane (used by feed CTA).
+ * Prefer an explicit challengeId when provided; otherwise focus challenge.
  * @param {{
  *   messages: object[],
  *   viewerId: number | null,
+ *   challengeId?: string | null,
  *   toggleReaction: (messageId: number, emojiKey: string) => Promise<{ ok?: boolean, data?: { added?: boolean } }>,
  *   onAfterVote?: () => void,
  * }} opts
@@ -420,13 +831,33 @@ export function openChallengeVoteModalFromMessages(opts) {
 		viewerId,
 		nowMs: Date.now()
 	});
-	const rankedPeers = rankedSubmissionsForPeerVoting(model.participant.rankedSubmissions, viewerId);
-	const phase = model.participant.phase;
+	const live = liveChallengeItems(model);
+	const wantId = typeof opts?.challengeId === 'string' ? opts.challengeId.trim() : '';
+	const item =
+		(wantId
+			? live.find((x) => {
+					const id =
+						x.latestConfig?.challenge_id != null
+							? String(x.latestConfig.challenge_id).trim()
+							: String(x.challengeId || '').trim();
+					return id === wantId;
+				})
+			: null) ||
+		live[0] ||
+		null;
+
+	const ranked =
+		item?.rankedSubmissions || model.participant.rankedSubmissions || [];
+	const phase = item?.phase || model.participant.phase;
+	const rankedPeers = rankedSubmissionsForPeerVoting(ranked, viewerId);
 	if (!phaseUsesModalVoteOnly(phase)) return false;
 	const slides = buildVoteSlidesNewestFirst(rankedPeers);
 
-	const challengeTitle = model.participant.latestConfig
-		? participantHeroViewModel(model.participant.latestConfig, rankedPeers).title
+	const challengeTitle = (item?.latestConfig || model.participant.latestConfig)
+		? participantHeroViewModel(
+				item?.latestConfig || model.participant.latestConfig,
+				rankedPeers
+			).title
 		: '';
 	const voteModal = createChallengeVoteModal({
 		toggleReaction,

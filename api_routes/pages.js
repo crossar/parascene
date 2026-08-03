@@ -1591,7 +1591,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 	});
 
 	// Challenge organizer is served by the chat SPA (same shell as /challenges).
-	// Catch-all below maps /challenges/organize → chat.html.
+	// Catch-all below maps /challenges/organize and /challenges/details/* → chat.html.
 
 	// Try page (unauthenticated). try.html includes global.css and entry.js itself; do not inject common head to avoid loading them twice.
 	router.get("/try", async (req, res) => {
@@ -1718,6 +1718,8 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			req.path === "/challenges" ||
 			req.path === "/challenges/" ||
 			req.path === "/challenges/organize" ||
+			req.path === "/challenges/details" ||
+			req.path.startsWith("/challenges/details/") ||
 			req.path === "/chat" ||
 			req.path === "/chat/" ||
 			req.path.startsWith("/chat/")
@@ -1739,7 +1741,9 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			if (
 				req.path === "/challenges" ||
 				req.path === "/challenges/" ||
-				req.path === "/challenges/organize"
+				req.path === "/challenges/organize" ||
+				req.path === "/challenges/details" ||
+				req.path.startsWith("/challenges/details/")
 			) {
 				sidebarPath = "/chat/c/challenges";
 			}

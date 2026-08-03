@@ -29,6 +29,38 @@
 	gap: 32px;
 }
 
+.challenges-organize-pin-fields-intro {
+	margin: 0 0 4px;
+}
+
+.challenges-organize-pin-slot-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.challenges-organize-pin-enable {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: var(--fg);
+	cursor: pointer;
+	user-select: none;
+}
+
+.challenges-organize-pin-enable input {
+	margin: 0;
+}
+
+.challenges-organize-pin-slot.is-pin-disabled .challenges-organize-pin-window-row {
+	opacity: 0.45;
+}
+
 .challenges-organize-media-slot .challenge-pane-organizer-image-hint {
 	margin: 6px 0 0;
 }
@@ -1071,6 +1103,43 @@
 .challenge-pane-active-card:last-child {
 	border-bottom: none;
 	padding-bottom: 0;
+}
+
+.challenge-pane-active-card.is-focused {
+	scroll-margin-top: 16px;
+}
+
+.challenge-pane-stack-more-info {
+	margin-top: -6px;
+}
+
+.challenge-pane-stack-details-btn {
+	box-sizing: border-box;
+	width: 100%;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 44px;
+	padding: 12px 22px;
+	border-radius: 12px;
+	border: 1px solid var(--border, #333);
+	background: var(--surface-muted, transparent);
+	color: var(--text-muted, var(--muted, #888));
+	font-size: 1.0625rem;
+	font-weight: 600;
+	line-height: 1.2;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.challenge-pane-stack-details-btn:hover {
+	color: var(--text);
+	border-color: var(--text-muted, #666);
+}
+
+.challenge-pane-stack-details-btn:focus-visible {
+	outline: 2px solid var(--accent, #5eead4);
+	outline-offset: 3px;
 }
 
 /* Results modal (Stats | Payout) — tabs fixed; only the active panel scrolls */

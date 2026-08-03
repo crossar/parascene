@@ -391,10 +391,17 @@ export function mountChallengesOrganizerTools(host, opts) {
 
 	/**
 	 * Announce-tab creation thumbs: hydrate on open; refresh when the URL input changes.
+	 * Also toggles pin date fields when "Pin to feed" is checked/unchecked.
 	 * @param {HTMLElement} modalBody
 	 */
 	const bindOrganizePinThumbs = (modalBody) => {
 		if (!(modalBody instanceof HTMLElement)) return;
+		const syncPinEnableUi = (checkbox) => {
+			if (!(checkbox instanceof HTMLInputElement)) return;
+			const slot = checkbox.closest('.challenges-organize-pin-slot');
+			if (!(slot instanceof HTMLElement)) return;
+			slot.classList.toggle('is-pin-disabled', !checkbox.checked);
+		};
 		const syncThumbFromInput = (input) => {
 			if (!(input instanceof HTMLInputElement)) return;
 			const slot = input.closest('.challenges-organize-pin-slot');
@@ -425,7 +432,16 @@ export function mountChallengesOrganizerTools(host, opts) {
 				if (!t.hasAttribute('data-organize-pin-url')) return;
 				syncThumbFromInput(t);
 			});
+			modalBody.addEventListener('change', (e) => {
+				const t = e.target;
+				if (!(t instanceof HTMLInputElement)) return;
+				if (!t.hasAttribute('data-organize-pin-enable')) return;
+				syncPinEnableUi(t);
+			});
 		}
+		modalBody.querySelectorAll('[data-organize-pin-enable]').forEach((el) => {
+			if (el instanceof HTMLInputElement) syncPinEnableUi(el);
+		});
 		void hydrateChallengeHistoryThumbnails(modalBody);
 	};
 
@@ -1146,6 +1162,12 @@ export function mountChallengesOrganizerTools(host, opts) {
 			}
 			postSucceeded = true;
 			if (shouldSyncPins && !isGlobalForm && challengeId) {
+				const pinEnabled = (name) => {
+					const v = fd.get(name);
+					if (v == null) return false;
+					const s = String(v).trim().toLowerCase();
+					return s === '1' || s === 'on' || s === 'true' || s === 'yes';
+				};
 				const ops = buildPinSyncOps(challengeId, {
 					heroRef,
 					resultsRef,
@@ -1156,37 +1178,61 @@ export function mountChallengesOrganizerTools(host, opts) {
 					winnersUntil: String(fd.get('pin_winners_until_ymd') || '').trim(),
 					topicStart: String(fd.get('pin_topic_vote_start_ymd') || '').trim(),
 					topicUntil: String(fd.get('pin_topic_vote_until_ymd') || '').trim(),
+					openEnabled: pinEnabled('pin_open_enabled'),
+					winnersEnabled: pinEnabled('pin_winners_enabled'),
+					topicEnabled: pinEnabled('pin_topic_vote_enabled'),
 					localStartOfDayToIso,
 					localEndOfDayToIso
 				});
-				await Promise.all(
-					ops.map(async (op) => {
-						const body = op.clear
-							? {
-									kind: op.kind,
-									challenge_id: challengeId,
-									clear: true
-								}
-							: {
-									kind: op.kind,
-									challenge_id: challengeId,
-									created_image_id: op.created_image_id,
-									creation_ref: op.creation_ref,
-									starts_at: op.starts_at,
-									until: op.until
-								};
-						try {
-							await fetch('/api/chat/challenges/organize/pins', {
-								method: 'POST',
-								credentials: 'include',
-								headers: { 'Content-Type': 'application/json' },
-								body: JSON.stringify(body)
-							});
-						} catch {
-							/* pin sync is best-effort; config already saved */
+				/** @type {string[]} */
+				const pinSyncErrors = [];
+				for (const op of ops) {
+					const body = op.clear
+						? {
+								kind: op.kind,
+								challenge_id: challengeId,
+								clear: true
+							}
+						: {
+								kind: op.kind,
+								challenge_id: challengeId,
+								created_image_id: op.created_image_id,
+								creation_ref: op.creation_ref,
+								starts_at: op.starts_at,
+								until: op.until
+							};
+					try {
+						const pinRes = await fetch('/api/chat/challenges/organize/pins', {
+							method: 'POST',
+							credentials: 'include',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify(body)
+						});
+						if (!pinRes.ok) {
+							const data = await pinRes.json().catch(() => ({}));
+							const msg =
+								typeof data?.error === 'string' && data.error.trim()
+									? data.error.trim()
+									: typeof data?.message === 'string' && data.message.trim()
+										? data.message.trim()
+										: `Could not sync ${op.kind} pin.`;
+							pinSyncErrors.push(msg);
 						}
-					})
-				);
+					} catch {
+						pinSyncErrors.push(`Could not sync ${op.kind} pin.`);
+					}
+				}
+				if (pinSyncErrors.length) {
+					setFormError(pinSyncErrors[0]);
+					if (successEl instanceof HTMLElement) {
+						successEl.hidden = false;
+						successEl.textContent =
+							'Challenge saved, but a pin window conflicted — adjust Announce dates.';
+					}
+					if (r.message) upsertLocalMessage(r.message);
+					await opts.reload();
+					return;
+				}
 			}
 			if (successEl instanceof HTMLElement) {
 				successEl.hidden = false;

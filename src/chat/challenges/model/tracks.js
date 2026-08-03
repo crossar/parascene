@@ -18,6 +18,18 @@ export const CHALLENGE_TRACK_LABELS = {
 	suno: 'Music'
 };
 
+/** Display order for multi-track lists (feed board, /challenges summary). Lower = first. */
+export const CHALLENGE_TRACK_LIST_ORDER = { monthly: 0, weekly: 1, suno: 2 };
+
+/**
+ * @param {unknown} track
+ * @returns {number}
+ */
+export function challengeTrackListRank(track) {
+	const key = String(track || '').trim().toLowerCase();
+	return CHALLENGE_TRACK_LIST_ORDER[key] ?? 9;
+}
+
 /**
  * @typedef {object} ChallengeTrackTemplate
  * @property {ChallengeTrack} track

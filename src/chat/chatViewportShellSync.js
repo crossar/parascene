@@ -42,6 +42,8 @@ export function initChatViewportShellSync() {
 			path === '/creations' ||
 			path === '/challenges' ||
 			path === '/challenges/organize' ||
+			path === '/challenges/details' ||
+			path.startsWith('/challenges/details/') ||
 			path === '/explore' ||
 			path === '/comments' ||
 			path === '/feed' ||

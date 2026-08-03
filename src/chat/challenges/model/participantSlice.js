@@ -5,6 +5,7 @@ import { CHALLENGE_SCORE_REACTION_KEYS } from '../constants.js';
 import { weightedScoreFromReactions } from '../constants.js';
 import { summarizeLatestChallengeConfigs } from './organizerSummaries.js';
 import { mergeFullChallengeConfigForChallenge } from '../challengeAdmin.js';
+import { challengeTrackListRank, pickChallengeTrack } from './tracks.js';
 
 /** Phases where the main challenge pane shows submissions / voting UI. */
 export const ACTIVE_PARTICIPANT_PHASES = new Set(['submitting', 'voting', 'submit_and_vote']);
@@ -81,6 +82,9 @@ export function listActiveParticipantConfigs(configEntries, nowMs) {
 	}
 
 	active.sort((a, b) => {
+		const ta = challengeTrackListRank(pickChallengeTrack(a.payload));
+		const tb = challengeTrackListRank(pickChallengeTrack(b.payload));
+		if (ta !== tb) return ta - tb;
 		if (a.endMs !== b.endMs) return a.endMs - b.endMs;
 		return b.sortKey - a.sortKey;
 	});

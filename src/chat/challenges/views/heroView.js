@@ -1,9 +1,20 @@
 import { challengePhaseDisplayLabel } from '../model/phases.js';
 import { esc } from '../constants.js';
-import { peopleOutlined, pictureIcon, thumbsUpStrokeIcon } from '/icons/svg-strings.js';
+import {
+	audioClipMusicIcon,
+	peopleOutlined,
+	pictureIcon,
+	thumbsUpStrokeIcon
+} from '/icons/svg-strings.js';
 
 /**
- * @param {{ title: string, phase: string, countdownHtml?: string, stats?: { key?: string, label: string, value: string }[] }} vm
+ * @param {{
+ *   title: string,
+ *   phase: string,
+ *   track?: string,
+ *   countdownHtml?: string,
+ *   stats?: { key?: string, label: string, value: string }[]
+ * }} vm
  */
 export function renderHeroSection(vm) {
 	const phaseLabel = esc(challengePhaseDisplayLabel(vm.phase));
@@ -11,10 +22,11 @@ export function renderHeroSection(vm) {
 		typeof vm.countdownHtml === 'string' && vm.countdownHtml.trim()
 			? vm.countdownHtml
 			: '';
+	const track = typeof vm.track === 'string' ? vm.track : '';
 	const statsList = Array.isArray(vm.stats) ? vm.stats : [];
 	const statsHtml = statsList.length
 		? `<div class="challenge-pane-hero-stats" aria-label="Challenge stats">${statsList
-			.map((row) => `<div class="challenge-pane-hero-stat">${heroStatIconSvg(row?.key)}<span class="challenge-pane-hero-stat-copy"><span class="challenge-pane-hero-stat-value">${esc(row?.value ?? '—')}</span><span class="challenge-pane-hero-stat-label">${esc(row?.label ?? '')}</span></span></div>`)
+			.map((row) => `<div class="challenge-pane-hero-stat">${heroStatIconSvg(row?.key, track)}<span class="challenge-pane-hero-stat-copy"><span class="challenge-pane-hero-stat-value">${esc(row?.value ?? '—')}</span><span class="challenge-pane-hero-stat-label">${esc(row?.label ?? '')}</span></span></div>`)
 			.join('')}</div>`
 		: '';
 	return `<section class="challenge-pane-hero">
@@ -29,13 +41,20 @@ export function renderHeroSection(vm) {
 
 const HERO_STAT_ICON_CLASS = 'challenge-pane-hero-stat-svg';
 
-function heroStatIconSvg(key) {
+/**
+ * @param {string | undefined} key
+ * @param {string} [track]
+ */
+function heroStatIconSvg(key, track) {
 	const wrap = (inner) => `<span class="challenge-pane-hero-stat-icon" aria-hidden="true">${inner}</span>`;
 	if (key === 'creators') {
 		return wrap(peopleOutlined(HERO_STAT_ICON_CLASS));
 	}
 	if (key === 'votes') {
 		return wrap(thumbsUpStrokeIcon(HERO_STAT_ICON_CLASS));
+	}
+	if ((key === 'entries' || key === 'tracks') && track === 'suno') {
+		return wrap(audioClipMusicIcon(HERO_STAT_ICON_CLASS));
 	}
 	return wrap(pictureIcon(HERO_STAT_ICON_CLASS));
 }

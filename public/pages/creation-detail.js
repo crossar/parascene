@@ -2246,10 +2246,11 @@ function organizerAssignPhaseLabel(phase) {
 
 /**
  * Challenge-organizer panel on creation detail: assign this creation as one of the
- * three organizer media slots (hero / results / theme vote) on a challenge the viewer
- * organizes, with current assignments shown so overrides are deliberate.
+ * three organizer media slots (hero / results / theme vote), plus a separate section
+ * to submit it as a normal challenge entry on a challenge the viewer organizes.
  *
- * Renders nothing for non-organizers (endpoint answers is_organizer: false).
+ * Caller must only invoke for the owner's unpublished creations. Renders nothing for
+ * non-organizers (endpoint answers is_organizer: false).
  */
 async function mountChallengeOrganizerAssignPanel(detailContent, creationId, { isChallengeEntry = false } = {}) {
 	const host = detailContent?.querySelector?.('[data-organizer-assign]');
@@ -2268,12 +2269,17 @@ async function mountChallengeOrganizerAssignPanel(detailContent, creationId, { i
 	if (!data || data.ok !== true || data.is_organizer !== true) return;
 	const challenges = Array.isArray(data.challenges) ? data.challenges : [];
 	if (challenges.length === 0) return;
+	const threadId = Number(data.thread_id);
 	// Render can lose the race with a page re-render; bail if the host left the DOM.
 	if (!host.isConnected) return;
 
 	const esc = organizerAssignEscape;
 	const cid = Number(creationId);
 	let selectedChallengeId = String(challenges[0].challenge_id);
+	const acceptingChallenges = challenges.filter((c) => c.accepts_submissions === true);
+	let selectedSubmitChallengeId = acceptingChallenges.length
+		? String(acceptingChallenges[0].challenge_id)
+		: '';
 
 	const trophySvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8"></path><path d="M12 17v4"></path><path d="M7 4h10v5a5 5 0 0 1-10 0V4z"></path><path d="M7 8H5a2 2 0 0 1-2-2V5h4"></path><path d="M17 8h2a2 2 0 0 0 2-2V5h-4"></path></svg>`;
 
@@ -2281,6 +2287,25 @@ async function mountChallengeOrganizerAssignPanel(detailContent, creationId, { i
 		return (
 			challenges.find((c) => String(c.challenge_id) === selectedChallengeId) || challenges[0]
 		);
+	}
+
+	function selectedSubmitChallenge() {
+		return (
+			acceptingChallenges.find((c) => String(c.challenge_id) === selectedSubmitChallengeId) ||
+			acceptingChallenges[0] ||
+			null
+		);
+	}
+
+	function creationIsOrganizerMediaAnywhere() {
+		return challenges.some((ch) => {
+			const slots = ch?.slots && typeof ch.slots === 'object' ? ch.slots : {};
+			return ORGANIZER_ASSIGN_ROLES.some(({ role }) => {
+				const slot = slots[role] && typeof slots[role] === 'object' ? slots[role] : {};
+				const assignedId = Number(slot.creation_id);
+				return Number.isFinite(assignedId) && assignedId > 0 && assignedId === cid;
+			});
+		});
 	}
 
 	function renderRows() {
@@ -2326,6 +2351,14 @@ async function mountChallengeOrganizerAssignPanel(detailContent, creationId, { i
 		statusEl.classList.toggle('creation-detail-organizer-assign-status-error', Boolean(isError));
 	}
 
+	function setSubmitStatus(message, isError) {
+		const statusEl = host.querySelector('[data-organizer-submit-status]');
+		if (!(statusEl instanceof HTMLElement)) return;
+		statusEl.textContent = message || '';
+		statusEl.hidden = !message;
+		statusEl.classList.toggle('creation-detail-organizer-assign-status-error', Boolean(isError));
+	}
+
 	const optionsHtml = challenges
 		.map((c) => {
 			const phase = organizerAssignPhaseLabel(c.phase);
@@ -2333,6 +2366,44 @@ async function mountChallengeOrganizerAssignPanel(detailContent, creationId, { i
 			return `<option value="${esc(String(c.challenge_id))}">${esc(label)}</option>`;
 		})
 		.join('');
+
+	const submitOptionsHtml = acceptingChallenges
+		.map((c) => {
+			const phase = organizerAssignPhaseLabel(c.phase);
+			const label = `${c.title}${phase ? ` — ${phase}` : ''}`;
+			return `<option value="${esc(String(c.challenge_id))}">${esc(label)}</option>`;
+		})
+		.join('');
+
+	const mediaLocked = creationIsOrganizerMediaAnywhere();
+	let submitSectionHtml;
+	if (isChallengeEntry) {
+		submitSectionHtml = `<div class="creation-detail-organizer-submit" data-organizer-submit>
+			<p class="creation-detail-organizer-submit-title">Submit as entry</p>
+			<p class="creation-detail-organizer-assign-blocked">This creation is already a challenge entry.</p>
+		</div>`;
+	} else if (mediaLocked) {
+		submitSectionHtml = `<div class="creation-detail-organizer-submit" data-organizer-submit>
+			<p class="creation-detail-organizer-submit-title">Submit as entry</p>
+			<p class="creation-detail-organizer-assign-blocked">Remove it from hero / results / theme vote first — organizer media can’t also be an entry.</p>
+		</div>`;
+	} else if (!acceptingChallenges.length) {
+		submitSectionHtml = `<div class="creation-detail-organizer-submit" data-organizer-submit>
+			<p class="creation-detail-organizer-submit-title">Submit as entry</p>
+			<p class="creation-detail-organizer-assign-hint">None of your challenges are accepting submissions right now.</p>
+		</div>`;
+	} else {
+		submitSectionHtml = `<div class="creation-detail-organizer-submit" data-organizer-submit>
+			<p class="creation-detail-organizer-submit-title">Submit as entry</p>
+			<p class="creation-detail-organizer-assign-hint">Enter this creation in a challenge you organize. Same rules as a normal participant entry.</p>
+			<label class="creation-detail-organizer-assign-select-label">
+				<span>Challenge</span>
+				<select class="creation-detail-organizer-assign-select" data-organizer-submit-challenge>${submitOptionsHtml}</select>
+			</label>
+			<button type="button" class="btn-outlined creation-detail-organizer-assign-btn creation-detail-organizer-submit-btn" data-organizer-submit-action>Submit this creation</button>
+			<p class="creation-detail-organizer-assign-status" data-organizer-submit-status role="status" hidden></p>
+		</div>`;
+	}
 
 	host.innerHTML = `
 		<div class="creation-detail-organizer-assign-header">
@@ -2349,6 +2420,7 @@ async function mountChallengeOrganizerAssignPanel(detailContent, creationId, { i
 		</label>
 		<div class="creation-detail-organizer-assign-rows" data-organizer-assign-rows></div>
 		<p class="creation-detail-organizer-assign-status" data-organizer-assign-status role="status" hidden></p>
+		${submitSectionHtml}
 	`;
 	host.hidden = false;
 	renderRows();
@@ -2362,7 +2434,60 @@ async function mountChallengeOrganizerAssignPanel(detailContent, creationId, { i
 		});
 	}
 
+	const submitSelect = host.querySelector('[data-organizer-submit-challenge]');
+	if (submitSelect instanceof HTMLSelectElement) {
+		submitSelect.addEventListener('change', () => {
+			selectedSubmitChallengeId = submitSelect.value;
+			setSubmitStatus('');
+		});
+	}
+
 	host.addEventListener('click', async (e) => {
+		const submitBtn =
+			e.target instanceof Element ? e.target.closest('[data-organizer-submit-action]') : null;
+		if (submitBtn instanceof HTMLButtonElement && !submitBtn.disabled) {
+			const ch = selectedSubmitChallenge();
+			if (!ch) return;
+			if (!Number.isFinite(threadId) || threadId <= 0) {
+				setSubmitStatus('Could not resolve the Challenges channel.', true);
+				return;
+			}
+			if (
+				!window.confirm(
+					`Submit this creation as an entry to “${ch.title}”? It will stay unpublished and count as your challenge entry.`
+				)
+			) {
+				return;
+			}
+			submitBtn.disabled = true;
+			setSubmitStatus('');
+			try {
+				const res = await fetch(`/api/create/images/${encodeURIComponent(String(cid))}/challenge-submit`, {
+					method: 'POST',
+					credentials: 'include',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						thread_id: threadId,
+						challenge_id: ch.challenge_id
+					})
+				});
+				const out = await res.json().catch(() => ({}));
+				if (!res.ok) {
+					setSubmitStatus(out?.message || out?.error || 'Could not submit to the challenge.', true);
+					submitBtn.disabled = false;
+					return;
+				}
+				if (typeof showToast === 'function') {
+					showToast(`Submitted to ${ch.title}`);
+				}
+				refreshAfterMutation('challenge-organizer-submit', { creationId: cid });
+			} catch (err) {
+				setSubmitStatus(err?.message || 'Could not submit to the challenge.', true);
+				submitBtn.disabled = false;
+			}
+			return;
+		}
+
 		const btn = e.target instanceof Element ? e.target.closest('[data-organizer-assign-action]') : null;
 		if (!(btn instanceof HTMLButtonElement) || btn.disabled) return;
 		const action = btn.getAttribute('data-organizer-assign-action');
@@ -4538,7 +4663,8 @@ async function loadCreation() {
 						</button>
 					</div>
 					<div class="creation-detail-challenge-submit-modal-body">
-						<p class="creation-detail-challenge-submit-modal-section-label">Current challenge</p>
+						<p class="creation-detail-challenge-submit-modal-section-label">Challenge</p>
+						<div data-challenge-submit-modal-picker-host></div>
 						<h4 class="creation-detail-challenge-submit-modal-challenge-title" data-challenge-submit-modal-challenge-title></h4>
 						<div class="creation-detail-challenge-submit-modal-challenge-details user-text" data-challenge-submit-modal-challenge-details></div>
 						<p class="creation-detail-challenge-submit-modal-verify">Please confirm this creation fits the challenge theme and rules before you submit.</p>
@@ -4581,7 +4707,7 @@ async function loadCreation() {
 			${organizerBannerHtml}
 			${feedPinBannerHtml}
 			${challengeDetailBannerHtml}
-			<section class="creation-detail-organizer-assign" data-organizer-assign hidden></section>
+			${isOwner && !isPublished ? html`<section class="creation-detail-organizer-assign" data-organizer-assign hidden></section>` : ''}
 			${renderCreationDetailActionStrip(stripData, escapeHtml)}
 			${renderCreationDetailMoreMenu(menuData, escapeHtml)}
 			${groupLeadDescriptionHtml}
@@ -5838,20 +5964,46 @@ async function loadCreation() {
 		const challengeSubmitModalError = detailContent.querySelector('[data-challenge-submit-modal-error]');
 		const challengeSubmitModalTitleSlot = detailContent.querySelector('[data-challenge-submit-modal-challenge-title]');
 		const challengeSubmitModalDetailsSlot = detailContent.querySelector('[data-challenge-submit-modal-challenge-details]');
+		const challengeSubmitModalPickerHost = detailContent.querySelector('[data-challenge-submit-modal-picker-host]');
 
 		let challengeSubmitModalEscapeHandler = null;
+		/** @type {string} */
+		let challengeSubmitSelectedId = '';
 
-		function populateChallengeSubmitModal() {
-			const ch = lastCreationMeta?.challenge_submit?.challenge;
-			const safeTitle =
-				typeof ch?.title === 'string' && ch.title.trim()
-					? ch.title.trim()
-					: 'Challenge';
+		async function loadChallengeSubmitPickerMod() {
+			const v = getAssetVersionParam();
+			const qs = getImportQuery(v);
+			return import(`/shared/challengeSubmitPicker.js${qs}`);
+		}
+
+		async function populateChallengeSubmitModal() {
+			const v = getAssetVersionParam();
+			const qs = getImportQuery(v);
+			const [pickerMod, ctxMod] = await Promise.all([
+				loadChallengeSubmitPickerMod(),
+				import(`/shared/challengeSubmitContext.js${qs}`)
+			]);
+			const options = pickerMod.listChallengeSubmitOptions(lastCreationMeta?.challenge_submit);
+			const ctx = ctxMod.readChallengeSubmitContext?.() || null;
+			challengeSubmitSelectedId = pickerMod.resolveChallengeSubmitSelection(
+				options,
+				ctx?.challengeId
+			);
+			const selected = pickerMod.findChallengeSubmitOption(options, challengeSubmitSelectedId);
+			const safeTitle = selected?.title || 'Challenge';
+			if (challengeSubmitModalPickerHost instanceof HTMLElement) {
+				challengeSubmitModalPickerHost.innerHTML = pickerMod.renderChallengeSubmitPickerHtml(
+					options,
+					challengeSubmitSelectedId
+				);
+				challengeSubmitModalPickerHost.hidden = options.length <= 1;
+			}
 			if (challengeSubmitModalTitleSlot) {
+				challengeSubmitModalTitleSlot.hidden = options.length > 1;
 				challengeSubmitModalTitleSlot.textContent = safeTitle;
 			}
 			if (challengeSubmitModalDetailsSlot) {
-				const d = typeof ch?.details === 'string' ? ch.details.trim() : '';
+				const d = typeof selected?.details === 'string' ? selected.details.trim() : '';
 				if (d) {
 					challengeSubmitModalDetailsSlot.innerHTML = processUserText(d);
 					if (typeof hydrateRichUserTextEmbeds === 'function') {
@@ -5868,7 +6020,7 @@ async function loadCreation() {
 
 		function openChallengeSubmitModal() {
 			if (!(challengeSubmitModal instanceof HTMLElement)) return;
-			populateChallengeSubmitModal();
+			void populateChallengeSubmitModal();
 			if (challengeSubmitModalError instanceof HTMLElement) {
 				challengeSubmitModalError.textContent = '';
 				challengeSubmitModalError.hidden = true;
@@ -5941,7 +6093,53 @@ async function loadCreation() {
 						: '';
 				const fromCtxChallenge =
 					typeof ctx?.challengeId === 'string' ? ctx.challengeId.trim() : '';
-				const challengeSubmitChallengeId = fromApiChallenge || fromCtxChallenge || '';
+				const pickerRadio =
+					challengeSubmitModal instanceof HTMLElement
+						? challengeSubmitModal.querySelector(
+								'input[data-challenge-submit-picker-radio]:checked'
+							)
+						: null;
+				const fromPicker =
+					pickerRadio instanceof HTMLInputElement ? pickerRadio.value.trim() : '';
+				let challengeSubmitChallengeId =
+					fromPicker || challengeSubmitSelectedId || fromCtxChallenge || fromApiChallenge || '';
+
+				const pickerMod = await loadChallengeSubmitPickerMod();
+				const options = pickerMod.listChallengeSubmitOptions(lastCreationMeta?.challenge_submit);
+				if (
+					challengeSubmitChallengeId &&
+					options.length &&
+					!options.some((o) => o.challenge_id === challengeSubmitChallengeId)
+				) {
+					// Stale context — fall back to picker / first eligible.
+					challengeSubmitChallengeId = pickerMod.resolveChallengeSubmitSelection(options, '');
+					challengeSubmitSelectedId = challengeSubmitChallengeId;
+					if (challengeSubmitModalPickerHost instanceof HTMLElement) {
+						challengeSubmitModalPickerHost.innerHTML =
+							pickerMod.renderChallengeSubmitPickerHtml(options, challengeSubmitChallengeId);
+						challengeSubmitModalPickerHost.hidden = options.length <= 1;
+					}
+					if (options.length > 1) {
+						const msg = 'That challenge is no longer accepting submissions — pick another.';
+						if (challengeSubmitModalError instanceof HTMLElement) {
+							challengeSubmitModalError.textContent = msg;
+							challengeSubmitModalError.hidden = false;
+						}
+						return;
+					}
+				}
+				if (!challengeSubmitChallengeId && options.length > 1) {
+					const msg = 'Choose which challenge to enter.';
+					if (challengeSubmitModalError instanceof HTMLElement) {
+						challengeSubmitModalError.textContent = msg;
+						challengeSubmitModalError.hidden = false;
+					}
+					return;
+				}
+				if (!challengeSubmitChallengeId && options.length === 1) {
+					challengeSubmitChallengeId = options[0].challenge_id;
+				}
+
 				const res = await fetch(`/api/create/images/${creationId}/challenge-submit`, {
 					method: 'POST',
 					credentials: 'include',
@@ -5956,6 +6154,14 @@ async function loadCreation() {
 				const data = await res.json().catch(() => ({}));
 				if (!res.ok) {
 					const errMsg = data?.error || data?.message || 'Could not submit to challenge';
+					const needsPick =
+						/multiple challenges/i.test(String(errMsg)) ||
+						/choose which challenge/i.test(String(errMsg)) ||
+						/not accepting submissions/i.test(String(errMsg));
+					if (needsPick && options.length > 1) {
+						challengeSubmitSelectedId = '';
+						await populateChallengeSubmitModal();
+					}
 					if (challengeSubmitModalError instanceof HTMLElement) {
 						challengeSubmitModalError.textContent = errMsg;
 						challengeSubmitModalError.hidden = false;
@@ -5991,9 +6197,12 @@ async function loadCreation() {
 			});
 		}
 
-		void mountChallengeOrganizerAssignPanel(detailContent, creationId, {
-			isChallengeEntry: hasChallengeSubmission
-		});
+		// Organizer assign UI + fetch: only on the viewer's own unpublished creations.
+		if (isOwner && !isPublished) {
+			void mountChallengeOrganizerAssignPanel(detailContent, creationId, {
+				isChallengeEntry: hasChallengeSubmission
+			});
+		}
 
 		const challengeWithdrawBtn = detailContent.querySelector('[data-challenge-withdraw-btn]');
 		if (challengeWithdrawBtn instanceof HTMLButtonElement) {
@@ -6044,6 +6253,37 @@ async function loadCreation() {
 		if (challengeSubmitModal instanceof HTMLElement) {
 			challengeSubmitModal.addEventListener('click', (e) => {
 				if (e.target === challengeSubmitModal) closeChallengeSubmitModal();
+			});
+			challengeSubmitModal.addEventListener('change', (e) => {
+				const t = e.target;
+				if (!(t instanceof HTMLInputElement) || !t.matches('[data-challenge-submit-picker-radio]')) {
+					return;
+				}
+				challengeSubmitSelectedId = t.value.trim();
+				void (async () => {
+					const pickerMod = await loadChallengeSubmitPickerMod();
+					const options = pickerMod.listChallengeSubmitOptions(
+						lastCreationMeta?.challenge_submit
+					);
+					const selected = pickerMod.findChallengeSubmitOption(
+						options,
+						challengeSubmitSelectedId
+					);
+					if (challengeSubmitModalDetailsSlot instanceof HTMLElement) {
+						const d = typeof selected?.details === 'string' ? selected.details.trim() : '';
+						if (d) {
+							challengeSubmitModalDetailsSlot.innerHTML = processUserText(d);
+							if (typeof hydrateRichUserTextEmbeds === 'function') {
+								hydrateRichUserTextEmbeds(challengeSubmitModalDetailsSlot);
+							} else {
+								hydrateUserTextLinks(challengeSubmitModalDetailsSlot);
+							}
+						} else {
+							challengeSubmitModalDetailsSlot.innerHTML =
+								'<p class="creation-detail-challenge-submit-modal-no-details">No additional description was provided for this challenge.</p>';
+						}
+					}
+				})();
 			});
 		}
 

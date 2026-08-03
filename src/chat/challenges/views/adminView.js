@@ -400,14 +400,24 @@ function renderOrganizerPinsSectionHtml(latest) {
 			startName,
 			untilName,
 			startValue,
-			untilValue
+			untilValue,
+			enabledName,
+			enabled
 		} = opts;
+		const pinOn = enabled !== false;
 		const thumb = renderChallengeHistoryThumbWrapHtml(urlValue, challengeId, esc).replace(
 			'class="challenge-pane-history-card-thumb-wrap"',
 			'class="challenge-pane-history-card-thumb-wrap challenges-organize-pin-thumb-wrap"'
 		);
-		return `<div class="challenges-organize-media-slot challenges-organize-pin-slot">
-			<label class="challenge-pane-label challenges-organize-pin-slot-label">${esc(label)}</label>
+		return `<div class="challenges-organize-media-slot challenges-organize-pin-slot${pinOn ? '' : ' is-pin-disabled'}">
+			<div class="challenges-organize-pin-slot-heading">
+				<label class="challenge-pane-label challenges-organize-pin-slot-label">${esc(label)}</label>
+				<label class="challenges-organize-pin-enable">
+					<input type="checkbox" name="${esc(enabledName)}" value="1"${pinOn ? ' checked' : ''}
+						data-organize-pin-enable />
+					<span>Pin to feed</span>
+				</label>
+			</div>
 			<p class="challenge-pane-muted challenge-pane-organizer-image-hint">${hint}</p>
 			<div class="challenges-organize-pin-slot-body">
 				<div class="challenges-organize-pin-thumb" aria-hidden="true">${thumb}</div>
@@ -429,16 +439,19 @@ function renderOrganizerPinsSectionHtml(latest) {
 	};
 
 	return `<div class="challenges-organize-media-fields challenges-organize-pin-fields" role="group" aria-label="Announce pins">
+			<p class="challenge-pane-muted challenges-organize-pin-fields-intro">Creation URLs stay on the challenge even when pinning is off. Uncheck <em>Pin to feed</em> to skip or clear that editorial pin (useful for short challenges).</p>
 			${slot({
 				label: 'Announce / hero',
 				urlName: 'hero_image_url',
 				urlValue: heroUrl,
 				urlPlaceholder: '/creations/123, share link, or image URL',
-				hint: 'Promo image while the challenge is live. Save upserts the open feed pin.',
+				hint: 'Promo image while the challenge is live. With pin on, save upserts the open feed pin.',
 				startName: 'pin_open_start_ymd',
 				untilName: 'pin_open_until_ymd',
 				startValue: windows.open.start,
-				untilValue: windows.open.until
+				untilValue: windows.open.until,
+				enabledName: 'pin_open_enabled',
+				enabled: windows.open.enabled
 			})}
 			${slot({
 				label: 'Next challenge — theme vote',
@@ -449,18 +462,22 @@ function renderOrganizerPinsSectionHtml(latest) {
 				startName: 'pin_topic_vote_start_ymd',
 				untilName: 'pin_topic_vote_until_ymd',
 				startValue: windows.topic_vote.start,
-				untilValue: windows.topic_vote.until
+				untilValue: windows.topic_vote.until,
+				enabledName: 'pin_topic_vote_enabled',
+				enabled: windows.topic_vote.enabled
 			})}
 			${slot({
 				label: 'Results / highlights',
 				urlName: 'results_creation_url',
 				urlValue: resultsUrl,
 				urlPlaceholder: '/creations/123',
-				hint: 'Winners showcase after voting closes. Save upserts the winners feed pin.',
+				hint: 'Winners showcase after voting closes. With pin on, save upserts the winners feed pin.',
 				startName: 'pin_winners_start_ymd',
 				untilName: 'pin_winners_until_ymd',
 				startValue: windows.winners.start,
-				untilValue: windows.winners.until
+				untilValue: windows.winners.until,
+				enabledName: 'pin_winners_enabled',
+				enabled: windows.winners.enabled
 			})}
 		</div>`;
 }
@@ -560,8 +577,11 @@ export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 		.map(([label, val]) => renderOrganizeViewField(label, val))
 		.join('');
 
-	const pinWindowLabel = (start, until) => {
-		if (!start && !until) return '';
+	const pinWindowLabel = (slot) => {
+		if (!slot || !slot.enabled) return 'Off (not pinned to feed)';
+		const start = slot.start || '';
+		const until = slot.until || '';
+		if (!start && !until) return 'On (no dates)';
 		if (start && until) return `${start} → ${until}`;
 		return start || until;
 	};
@@ -581,11 +601,11 @@ export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 		${panel(
 			'pins',
 			`${renderOrganizeViewField('Announce / hero', heroUrl, { href: Boolean(heroUrl) })}
-			${renderOrganizeViewField('Open pin window', pinWindowLabel(pinWindows.open.start, pinWindows.open.until))}
+			${renderOrganizeViewField('Open pin', pinWindowLabel(pinWindows.open))}
 			${renderOrganizeViewField('Next challenge — theme vote', topicVote, { href: Boolean(topicVote) })}
-			${renderOrganizeViewField('Theme-vote pin window', pinWindowLabel(pinWindows.topic_vote.start, pinWindows.topic_vote.until))}
+			${renderOrganizeViewField('Theme-vote pin', pinWindowLabel(pinWindows.topic_vote))}
 			${renderOrganizeViewField('Results / highlights', resultsUrl, { href: Boolean(resultsUrl) })}
-			${renderOrganizeViewField('Winners pin window', pinWindowLabel(pinWindows.winners.start, pinWindows.winners.until))}`
+			${renderOrganizeViewField('Winners pin', pinWindowLabel(pinWindows.winners))}`
 		)}
 		${panel(
 			'schedule',

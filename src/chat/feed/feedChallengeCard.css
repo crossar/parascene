@@ -150,6 +150,12 @@
 	grid-row: 1;
 }
 
+.feed-card-engagement-content-row-challenge-grid > .feed-card-challenge-board-thumb,
+.feed-card-engagement-content-row-challenge-grid > .challenge-pane-history-card-thumb-wrap {
+	grid-column: 1;
+	grid-row: 1;
+}
+
 .feed-card-engagement-content-row-challenge-grid > .feed-card-engagement-main {
 	grid-column: 2;
 	grid-row: 1;
@@ -635,7 +641,8 @@ a.feed-card-engagement-title.feed-card-engagement-title-link:hover {
 	opacity: 0.86;
 }
 
-.feed-card-engagement-actions-dual .feed-card-engagement-cta::before {
+.feed-card-engagement-actions-dual .feed-card-engagement-cta::before,
+.feed-card-engagement-cta:has(.feed-card-engagement-cta-icon)::before {
 	content: none;
 }
 
@@ -856,4 +863,68 @@ a.feed-card-engagement-title.feed-card-engagement-title-link:hover {
 	.feed-card-engagement-details {
 		font-size: 0.84rem;
 	}
+}
+
+.feed-card-engagement-inner-challenge-board {
+	gap: 16px;
+}
+
+.feed-card-challenge-board-track {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin: 0;
+	padding: 8px 8px 8px 0;
+	margin-left: -8px;
+	margin-right: -8px;
+	padding-left: 8px;
+	border: 0;
+	text-decoration: none;
+	color: inherit;
+	cursor: pointer;
+	border-radius: 10px;
+	outline: none;
+}
+
+.feed-card-challenge-board-track:hover {
+	background: color-mix(in srgb, #ffffff 7%, transparent);
+}
+
+.feed-card-challenge-board-track:focus-visible {
+	box-shadow: 0 0 0 2px color-mix(in srgb, #ffffff 55%, transparent);
+}
+
+.feed-card-challenge-board-track + .feed-card-challenge-board-track {
+	padding-top: 16px;
+	border-top: 1px solid color-mix(in srgb, #ffffff 16%, transparent);
+}
+
+.feed-card-challenge-board-title-row {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+	min-width: 0;
+}
+
+.feed-card-challenge-board-title-row .feed-card-engagement-title {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.feed-card-challenge-board-title-row .feed-card-engagement-status-chip {
+	flex: 0 0 auto;
+	margin-top: 1px;
+}
+
+.feed-card-engagement-inner-challenge-board .feed-card-challenge-board-thumb,
+.feed-card-engagement-inner-challenge-board .challenge-pane-history-card-thumb-wrap.feed-card-challenge-board-thumb {
+	width: 86px;
+	height: 86px;
+	flex: 0 0 86px;
+	border-radius: 14px;
+}
+
+.feed-card-engagement-inner-challenge-board > .feed-card-engagement-actions {
+	margin-top: 2px;
 }

@@ -9,8 +9,13 @@
  * feels woven into feed life instead of a single static promo shape.
  */
 
+import { CHALLENGE_TRACK_LABELS, challengeTrackListRank } from '../../src/chat/challenges/model/tracks.js';
+
 /** Within this window before highlight deadline, eligible viewers see the card in slot 1. */
 const CHALLENGE_FEED_URGENT_BEFORE_MS = 72 * 60 * 60 * 1000;
+/** Just-opened window for headline priority. */
+const CHALLENGE_FEED_JUST_OPENED_MS = 48 * 60 * 60 * 1000;
+
 function formatEndsInSummary(deadlineMs, nowMs) {
 	if (!Number.isFinite(deadlineMs) || deadlineMs <= nowMs) return "";
 	const sec = Math.floor((deadlineMs - nowMs) / 1000);
@@ -35,20 +40,21 @@ function formatStartsInSummary(startMs, nowMs) {
 	return "Starts soon";
 }
 
+function trackLabel(track) {
+	const key = String(track || "").trim().toLowerCase();
+	return CHALLENGE_TRACK_LABELS[key] || "Challenge";
+}
+
+function phaseIsActive(phase) {
+	return phase === "submitting" || phase === "voting" || phase === "submit_and_vote";
+}
+
+function phaseIsVote(phase) {
+	return phase === "voting" || phase === "submit_and_vote";
+}
+
 /**
- * Dual CTAs: Vote or View → /challenges, Create → /create.
- * Filled vs outline (text): client uses `feed-card-engagement-cta` (filled) vs
- * `feed-card-engagement-cta--outline` when the matching `*Outlined` field is true.
- *
- * Snapshot: `hasUnvotedEntries` = viewer still has others’ entries they have not scored yet.
- * `viewerHasEntered` = viewer submitted to this challenge.
- *
- * Matrix:
- * - Has unvoted → primary **Vote** (filled). Secondary **Create**: outline if already entered,
- *   else filled; if both would be filled (not entered yet), **Create** becomes outline so Vote wins.
- * - No unvoted left (caught up, or only own/no peers’ entries to score) → primary **Create**
- *   (filled), secondary **View Entries** (text). Vote / View Entries still opens the in-feed modal
- *   whenever the challenge is in a voting phase (same as “Vote”).
+ * Dual CTAs for the single-challenge legacy feed card.
  */
 function pickChallengeDualCtaPayload(snapshot) {
 	const phase = typeof snapshot?.phase === "string" ? snapshot.phase : "";
@@ -119,14 +125,6 @@ function pickChallengeFeedSlot(snapshot, nowMs) {
 	const phase = typeof snapshot?.phase === "string" ? snapshot.phase : "";
 	const votingOpen = phase === "voting" || phase === "submit_and_vote";
 
-	/*
-	 * Rule:
-	 * - High (slot 1) when urgent/personal/newly active.
-	 * - Moderate (slot 2/3) when live but non-urgent.
-	 * - Lower (slot 5-8) when stale after recent engagement.
-	 *
-	 * Not yet wired here: friend-entered, own-entry-votes, and "since last visit" diffs.
-	 */
 	const shouldBoostTop =
 		(!entered && (nearDeadline || recentMotion || votingOpen)) ||
 		(nearDeadline && hasUnvotedEntries) ||
@@ -136,83 +134,152 @@ function pickChallengeFeedSlot(snapshot, nowMs) {
 	const staleForViewer = entered && !hasUnvotedEntries && !recentMotion && !nearDeadline;
 	if (staleForViewer) return "after_fifth";
 
-	// Teaching/discovery baseline: slot 2 or 3.
 	return entered ? "after_second" : "after_first";
 }
 
-/** Tip items shown in the newbie feed to explain following and other features */
-export const NEWBIE_FEED_TIPS = [
-	{
-		id: "tip-create",
-		title: "Create new images",
-		message: "Use the create flow to generate new images. Pick a method, add your ideas, and publish to your profile.",
-		cta: "Create",
-		ctaRoute: "/create"
-	},
-	{
-		id: "tip-share",
-		title: "Share your creations",
-		message: "Your published work lives in Creations. Open any creation to get a shareable link, copy it, or share to social.",
-		cta: "My creations",
-		ctaRoute: "/creations"
-	},
-	{
-		id: "tip-explore",
-		title: "Explore other creators",
-		message: "Discover what others are making. Follow creators you like and their new posts will show up in your feed.",
-		cta: "Explore",
-		ctaRoute: "/explore"
-	},
-	{
-		id: "tip-connect-chat",
-		title: "Chat with others",
-		message: "Open hashtag channels and DMs in the app under Connect. It’s the home for text chat here.",
-		cta: "Chat",
-		ctaRoute: "/chat"
-	},
-	// {
-	// 	id: "tip-discord",
-	// 	title: "Join our Discord",
-	// 	message: "For voice, events, and the wider community outside the app, join our Discord server.",
-	// 	cta: "Join Discord",
-	// 	ctaRoute: "https://discord.gg/pqzWstTb8f",
-	// 	ctaTarget: "_blank"
-	// },
-	{
-		id: "tip-help",
-		title: "Help & docs",
-		message: "Learn how everything works—creating, sharing, following, and more. Check the help section when you need it.",
-		cta: "Help",
-		ctaRoute: "/help"
-	}
-];
+/**
+ * Headline priority (lower = better): ends-soon+can-act → just-opened → unvoted → not-entered → soonest.
+ * @param {object} row
+ * @param {number} nowMs
+ * @returns {{ priority: number, chip: string, headline: string, deadlineMs: number|null }}
+ */
+export function scoreChallengeBoardHeadline(row, nowMs) {
+	const phase = typeof row?.phase === "string" ? row.phase : "";
+	const title =
+		typeof row?.title === "string" && row.title.trim() ? row.title.trim() : "Challenge";
+	const track = trackLabel(row?.track);
+	const deadlineMs = Number.isFinite(row?.highlightDeadlineMs)
+		? Number(row.highlightDeadlineMs)
+		: null;
+	const startMs = row?.submissionStartAt ? Date.parse(String(row.submissionStartAt)) : NaN;
+	const canSubmit =
+		phase === "submitting" || phase === "submit_and_vote";
+	const canVote = phaseIsVote(phase);
+	const canAct =
+		(canSubmit && !row?.viewerHasEntered) || (canVote && row?.hasUnvotedEntries);
+	const endsSoon =
+		deadlineMs != null &&
+		deadlineMs > nowMs &&
+		deadlineMs - nowMs <= CHALLENGE_FEED_URGENT_BEFORE_MS;
+	const justOpened =
+		phaseIsActive(phase) &&
+		Number.isFinite(startMs) &&
+		nowMs >= startMs &&
+		nowMs - startMs <= CHALLENGE_FEED_JUST_OPENED_MS;
 
-/** Insert tip items every N non-tip rows in the newbie feed (unchanged behavior). */
-export const NEWBIE_FEED_TIP_INTERVAL = 10;
+	const endsChip = deadlineMs != null ? formatEndsInSummary(deadlineMs, nowMs) : "";
+	const startsChip = Number.isFinite(startMs) ? formatStartsInSummary(startMs, nowMs) : "";
+
+	if (endsSoon && canAct) {
+		return {
+			priority: 1,
+			chip: (endsChip || "Ending soon").toUpperCase(),
+			headline: `${track}: ${title} — act before it ends`,
+			deadlineMs
+		};
+	}
+	if (justOpened) {
+		return {
+			priority: 2,
+			chip: "JUST OPENED",
+			headline: `${track}: ${title} just opened`,
+			deadlineMs
+		};
+	}
+	if (canVote && row?.hasUnvotedEntries) {
+		return {
+			priority: 3,
+			chip: (endsChip || "Voting open").toUpperCase(),
+			headline: `${track}: ${title} — voting open`,
+			deadlineMs
+		};
+	}
+	if (canSubmit && !row?.viewerHasEntered) {
+		return {
+			priority: 4,
+			chip: (endsChip || "Open").toUpperCase(),
+			headline: `${track}: ${title} — you haven’t entered`,
+			deadlineMs
+		};
+	}
+	if (phase === "pre_submit") {
+		return {
+			priority: 6,
+			chip: (startsChip || "Starts soon").toUpperCase(),
+			headline: `${track}: ${title} ${startsChip ? startsChip.toLowerCase() : "starts soon"}`,
+			deadlineMs: Number.isFinite(startMs) ? startMs : deadlineMs
+		};
+	}
+	return {
+		priority: 5,
+		chip: (endsChip || (phaseIsActive(phase) ? "Live" : "Challenge")).toUpperCase(),
+		headline: `${track}: ${title}`,
+		deadlineMs
+	};
+}
 
 /**
- * One virtual row built from `pullChallengeFeedSnapshot()` when `active` is true.
- * @param {{
- *   active: boolean,
- *   challengeId: string,
- *   title?: string,
- *   submissionCount?: number,
- *   uniqueSubmitters?: number,
- *   topPrize?: string | null,
- *   totalRewardCredits?: number | null,
- *   phaseSubtitle?: string,
- *   phase?: string,
- *   viewerHasEntered?: boolean,
- *   highlightDeadlineMs?: number | null,
- *   latestSubmissionMs?: number | null,
- *   hasUnvotedEntries?: boolean,
- *   recentSubmissionCount24h?: number,
- *   heroImageUrl?: string
- * }} snapshot
- * Payload CTAs (dual): challengeVoteLabel, challengeVoteOutlined, challengeVoteAction, challengeEnterLabel, challengeEnterOutlined (routes default client-side to /challenges and /create).
+ * @param {object[]} boardRows
+ * @param {number} nowMs
+ */
+export function pickChallengeBoardHeadline(boardRows, nowMs) {
+	const rows = Array.isArray(boardRows) ? boardRows : [];
+	if (!rows.length) return null;
+	let best = null;
+	for (const row of rows) {
+		const scored = scoreChallengeBoardHeadline(row, nowMs);
+		const trackRank = challengeTrackListRank(row?.track);
+		const deadline = Number.isFinite(scored.deadlineMs)
+			? scored.deadlineMs
+			: Number.POSITIVE_INFINITY;
+		const candidate = { row, scored, trackRank, deadline };
+		if (!best) {
+			best = candidate;
+			continue;
+		}
+		if (candidate.scored.priority !== best.scored.priority) {
+			if (candidate.scored.priority < best.scored.priority) best = candidate;
+			continue;
+		}
+		if (candidate.deadline !== best.deadline) {
+			if (candidate.deadline < best.deadline) best = candidate;
+			continue;
+		}
+		if (candidate.trackRank < best.trackRank) best = candidate;
+	}
+	return best;
+}
+
+function pickChallengeBoardSlot(headline, nowMs) {
+	if (!headline) return "after_first";
+	const priority = headline.scored?.priority;
+	if (priority === 1 || priority === 2 || priority === 3) return "top";
+	const deadlineMs = headline.scored?.deadlineMs;
+	const near =
+		Number.isFinite(deadlineMs) &&
+		deadlineMs > nowMs &&
+		deadlineMs - nowMs <= CHALLENGE_FEED_URGENT_BEFORE_MS;
+	if (near) return "top";
+	return "after_first";
+}
+
+/**
+ * Count board rows that are currently open for submit/vote (not upcoming/ended).
+ * @param {object[]} boardRows
+ */
+export function countActiveChallengeBoardRows(boardRows) {
+	return (Array.isArray(boardRows) ? boardRows : []).filter((row) => {
+		const phase = typeof row?.phase === "string" ? row.phase : "";
+		return phase === "submitting" || phase === "voting" || phase === "submit_and_vote";
+	}).length;
+}
+
+/**
+ * Legacy single-challenge engagement card (challenge_stats / challenge_stats_inactive).
+ * @param {object} snapshot
  * @returns {object[]}
  */
-export function buildChallengeEngagementVirtualRows(snapshot) {
+function buildLegacyChallengeEngagementVirtualRows(snapshot) {
 	if (!snapshot?.active || typeof snapshot.challengeId !== "string" || !snapshot.challengeId.trim()) {
 		return [];
 	}
@@ -424,6 +491,20 @@ export function buildChallengeEngagementVirtualRows(snapshot) {
 		typeof snapshot.heroImageUrl === "string" && snapshot.heroImageUrl.trim()
 			? snapshot.heroImageUrl.trim()
 			: "";
+	const trackFromBoard = (() => {
+		const rows = Array.isArray(snapshot?.boardRows) ? snapshot.boardRows : [];
+		const cid =
+			typeof snapshot?.challengeId === "string" ? snapshot.challengeId.trim() : "";
+		const match = cid
+			? rows.find((r) => String(r?.challengeId || "").trim() === cid)
+			: null;
+		const raw = match?.track ?? rows[0]?.track;
+		return typeof raw === "string" ? raw.trim().toLowerCase() : "";
+	})();
+	const track =
+		typeof snapshot.track === "string" && snapshot.track.trim()
+			? snapshot.track.trim().toLowerCase()
+			: trackFromBoard;
 
 	return [
 		{
@@ -434,6 +515,7 @@ export function buildChallengeEngagementVirtualRows(snapshot) {
 			created_at: new Date().toISOString(),
 			payload: {
 				kicker: "Challenge",
+				track,
 				title:
 					typeof snapshot.title === "string" && snapshot.title.trim()
 						? snapshot.title.trim()
@@ -454,6 +536,201 @@ export function buildChallengeEngagementVirtualRows(snapshot) {
 		}
 	];
 }
+
+/**
+ * Social-proof line from a board row (same shape as legacy challenge_stats).
+ * @param {object} row
+ * @returns {string}
+ */
+function socialProofLineFromBoardRow(row) {
+	const entries = Number(row?.submissionCount) || 0;
+	const creators = Number(row?.uniqueSubmitters) || 0;
+	const entriesLabel = entries === 1 ? "entry" : "entries";
+	const creatorsLabel = creators === 1 ? "creator" : "creators";
+	const totalCreditsRaw = row?.totalRewardCredits;
+	const totalCredits =
+		typeof totalCreditsRaw === "number" &&
+		Number.isFinite(totalCreditsRaw) &&
+		totalCreditsRaw > 0
+			? Math.round(totalCreditsRaw)
+			: null;
+	const rawPrize =
+		typeof row?.topPrize === "string" && row.topPrize.trim() ? row.topPrize.trim() : null;
+	const prizePart =
+		totalCredits != null
+			? `${totalCredits.toLocaleString("en-US")} credits`
+			: rawPrize && rawPrize.length > 140
+				? `${rawPrize.slice(0, 137)}…`
+				: rawPrize || null;
+	return [`${entries} ${entriesLabel}`, `${creators} ${creatorsLabel}`, prizePart]
+		.filter(Boolean)
+		.join(" • ");
+}
+
+/**
+ * One stacked section = same fields as a single-track challenge_stats card (no CTAs).
+ * @param {object} row
+ * @param {number} nowMs
+ * @param {{ statusChip?: string }} [opts]
+ */
+function boardTrackPayloadFromRow(row, nowMs, opts = {}) {
+	const heroImageRef =
+		typeof row?.heroImageRef === "string" && row.heroImageRef.trim()
+			? row.heroImageRef.trim()
+			: "";
+	const heroImageUrl =
+		typeof row?.heroImageUrl === "string" && row.heroImageUrl.trim()
+			? row.heroImageUrl.trim()
+			: "";
+	return {
+		challengeId: String(row?.challengeId || "").trim(),
+		track:
+			typeof row?.track === "string" && row.track.trim()
+				? row.track.trim().toLowerCase()
+				: "monthly",
+		title:
+			typeof row?.title === "string" && row.title.trim()
+				? row.title.trim()
+				: "Community challenge",
+		subtitle:
+			typeof row?.phaseSubtitle === "string" && row.phaseSubtitle.trim()
+				? row.phaseSubtitle.trim()
+				: "",
+		statusChip:
+			(typeof opts.statusChip === "string" && opts.statusChip.trim()) ||
+			pickChallengeStatusChip(row, nowMs),
+		socialProofLine: socialProofLineFromBoardRow(row),
+		hook: pickChallengeHook(row, nowMs),
+		heroImageUrl,
+		heroImageRef
+	};
+}
+
+/**
+ * Multi-track card: stacked single-track sections (monthly first), no per-track CTAs.
+ * @param {object[]} boardRows
+ * @param {object} snapshot
+ * @returns {object[]}
+ */
+function buildMultiTrackChallengeBoardRows(boardRows, snapshot) {
+	const nowMs = Date.now();
+	const headlinePick = pickChallengeBoardHeadline(boardRows, nowMs);
+	const primary = headlinePick?.row || boardRows[0] || null;
+	const slot = pickChallengeBoardSlot(headlinePick, nowMs);
+	const primaryId =
+		(typeof primary?.challengeId === "string" && primary.challengeId.trim()) ||
+		(typeof snapshot?.challengeId === "string" ? snapshot.challengeId.trim() : "") ||
+		"board";
+	const headlineId =
+		typeof headlinePick?.row?.challengeId === "string"
+			? headlinePick.row.challengeId.trim()
+			: "";
+
+	const ordered = [...(Array.isArray(boardRows) ? boardRows : [])].sort((a, b) => {
+		const ta = challengeTrackListRank(a?.track);
+		const tb = challengeTrackListRank(b?.track);
+		if (ta !== tb) return ta - tb;
+		const da = Number.isFinite(a?.highlightDeadlineMs)
+			? Number(a.highlightDeadlineMs)
+			: Number.POSITIVE_INFINITY;
+		const db = Number.isFinite(b?.highlightDeadlineMs)
+			? Number(b.highlightDeadlineMs)
+			: Number.POSITIVE_INFINITY;
+		if (da !== db) return da - db;
+		return String(a?.challengeId || "").localeCompare(String(b?.challengeId || ""));
+	});
+
+	const tracks = ordered.map((row) => {
+		const cid = String(row?.challengeId || "").trim();
+		return boardTrackPayloadFromRow(row, nowMs, {
+			statusChip:
+				headlineId && cid === headlineId && headlinePick?.scored?.chip
+					? headlinePick.scored.chip
+					: undefined
+		});
+	});
+
+	return [
+		{
+			type: "engagement",
+			variant: "challenge_board",
+			id: `engagement:challenge_board:${primaryId}`,
+			slot,
+			created_at: new Date().toISOString(),
+			payload: {
+				kicker: "Challenges",
+				tracks,
+				ctaLabel: "Open challenges",
+				ctaRoute: "/challenges",
+				challengeTitleRoute: "/challenges"
+			}
+		}
+	];
+}
+
+/**
+ * Feed engagement: legacy single-challenge card unless 2+ tracks are actively open.
+ * @param {object} snapshot
+ * @returns {object[]}
+ */
+export function buildChallengeEngagementVirtualRows(snapshot) {
+	const boardRows = Array.isArray(snapshot?.boardRows) ? snapshot.boardRows : [];
+	const activeCount = countActiveChallengeBoardRows(boardRows);
+	if (activeCount >= 2) {
+		return buildMultiTrackChallengeBoardRows(boardRows, snapshot);
+	}
+	return buildLegacyChallengeEngagementVirtualRows(snapshot);
+}
+
+/** Tip items shown in the newbie feed to explain following and other features */
+export const NEWBIE_FEED_TIPS = [
+	{
+		id: "tip-create",
+		title: "Create new images",
+		message: "Use the create flow to generate new images. Pick a method, add your ideas, and publish to your profile.",
+		cta: "Create",
+		ctaRoute: "/create"
+	},
+	{
+		id: "tip-share",
+		title: "Share your creations",
+		message: "Your published work lives in Creations. Open any creation to get a shareable link, copy it, or share to social.",
+		cta: "My creations",
+		ctaRoute: "/creations"
+	},
+	{
+		id: "tip-explore",
+		title: "Explore other creators",
+		message: "Discover what others are making. Follow creators you like and their new posts will show up in your feed.",
+		cta: "Explore",
+		ctaRoute: "/explore"
+	},
+	{
+		id: "tip-connect-chat",
+		title: "Chat with others",
+		message: "Open hashtag channels and DMs in the app under Connect. It’s the home for text chat here.",
+		cta: "Chat",
+		ctaRoute: "/chat"
+	},
+	// {
+	// 	id: "tip-discord",
+	// 	title: "Join our Discord",
+	// 	message: "For voice, events, and the wider community outside the app, join our Discord server.",
+	// 	cta: "Join Discord",
+	// 	ctaRoute: "https://discord.gg/pqzWstTb8f",
+	// 	ctaTarget: "_blank"
+	// },
+	{
+		id: "tip-help",
+		title: "Help & docs",
+		message: "Learn how everything works—creating, sharing, following, and more. Check the help section when you need it.",
+		cta: "Help",
+		ctaRoute: "/help"
+	}
+];
+
+/** Insert tip items every N non-tip rows in the newbie feed (unchanged behavior). */
+export const NEWBIE_FEED_TIP_INTERVAL = 10;
 
 /** Chat slot-pack page one: middle of first between-spotlight strip (after 4v + 1st non-video). */
 export const SLOT_PACK_FIRST_ENGAGEMENT_INSERT_INDEX = 5;

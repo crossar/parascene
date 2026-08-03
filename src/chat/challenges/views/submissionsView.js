@@ -48,6 +48,7 @@ function phaseShowsVoteUiInModalOnly(phase) {
  *   phase: string,
  *   viewerId: number | null,
  *   ranked: object[],
+ *   forceHeroBadge?: boolean,
  * }} vm
  */
 export function renderChallengeVoteHeroCta(vm) {
@@ -57,7 +58,8 @@ export function renderChallengeVoteHeroCta(vm) {
 	const voteDisabled = peerRanked.length === 0;
 	const showSubmitTab =
 		vm.phase !== 'submitting' && vm.phase !== 'submit_and_vote';
-	const badgeOnHero = !showSubmitTab;
+	// Stacked board has no Vote tab — always put the unvoted badge on the hero button.
+	const badgeOnHero = Boolean(vm.forceHeroBadge) || !showSubmitTab;
 
 	const vid = Number(vm.viewerId);
 	const signedIn = Number.isFinite(vid) && vid > 0;

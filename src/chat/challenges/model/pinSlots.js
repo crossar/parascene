@@ -71,9 +71,30 @@ function defaultTopicVoteWindow(cfg) {
 }
 
 /**
+ * Whether a pin slot is enabled for feed upsert (default true when unset).
+ * @param {object | null | undefined} cfg
+ * @param {ChallengePinSlotKind} kind
+ * @returns {boolean}
+ */
+export function isChallengePinSlotEnabled(cfg, kind) {
+	const c = cfg && typeof cfg === 'object' ? cfg : {};
+	const key =
+		kind === 'open'
+			? 'pin_open_enabled'
+			: kind === 'winners'
+				? 'pin_winners_enabled'
+				: kind === 'topic_vote'
+					? 'pin_topic_vote_enabled'
+					: '';
+	if (!key) return true;
+	if (c[key] === false || c[key] === 0 || c[key] === '0' || c[key] === 'false') return false;
+	return true;
+}
+
+/**
  * Resolve display/edit windows for the three Pins slots (config override → schedule defaults).
  * @param {object | null | undefined} cfg
- * @returns {Record<ChallengePinSlotKind, { start: string, until: string }>}
+ * @returns {Record<ChallengePinSlotKind, { start: string, until: string, enabled: boolean }>}
  */
 export function resolvePinSlotWindows(cfg) {
 	const c = cfg && typeof cfg === 'object' ? cfg : {};
@@ -101,38 +122,63 @@ export function resolvePinSlotWindows(cfg) {
 		(topicStart ? addDaysYmd(topicStart, CHALLENGE_OPEN_PIN_DAYS - 1) : '');
 
 	return {
-		open: { start: openStart, until: openUntil },
-		winners: { start: winnersStart, until: winnersUntil },
-		topic_vote: { start: topicStart, until: topicUntil }
+		open: {
+			start: openStart,
+			until: openUntil,
+			enabled: isChallengePinSlotEnabled(c, 'open')
+		},
+		winners: {
+			start: winnersStart,
+			until: winnersUntil,
+			enabled: isChallengePinSlotEnabled(c, 'winners')
+		},
+		topic_vote: {
+			start: topicStart,
+			until: topicUntil,
+			enabled: isChallengePinSlotEnabled(c, 'topic_vote')
+		}
 	};
 }
 
 /**
  * Calendar dots: prefer Announce-tab overrides, else schedule defaults.
+ * Disabled slots are omitted (no feed pin window).
  * @param {object | null | undefined} merged
  * @returns {{ kind: 'open' | 'winners' | 'topic_vote', start: string, end: string }[]}
  */
 export function pinWindowsForCalendar(merged) {
 	const windows = resolvePinSlotWindows(merged);
 	const out = [];
-	if (windows.open.start && windows.open.until) {
+	if (windows.open.enabled && windows.open.start && windows.open.until) {
 		out.push({ kind: 'open', start: windows.open.start, end: windows.open.until });
 	}
-	if (windows.topic_vote.start && windows.topic_vote.until) {
+	if (windows.topic_vote.enabled && windows.topic_vote.start && windows.topic_vote.until) {
 		out.push({
 			kind: 'topic_vote',
 			start: windows.topic_vote.start,
 			end: windows.topic_vote.until
 		});
 	}
-	if (windows.winners.start && windows.winners.until) {
+	if (windows.winners.enabled && windows.winners.start && windows.winners.until) {
 		out.push({ kind: 'winners', start: windows.winners.start, end: windows.winners.until });
 	}
 	return out;
 }
 
 /**
- * Apply Pins-tab form values onto a challenge_config payload (URLs + YMD windows).
+ * @param {FormData} fd
+ * @param {string} name
+ * @returns {boolean}
+ */
+function formCheckboxEnabled(fd, name) {
+	const v = fd.get(name);
+	if (v == null) return false;
+	const s = String(v).trim().toLowerCase();
+	return s === '1' || s === 'on' || s === 'true' || s === 'yes';
+}
+
+/**
+ * Apply Pins-tab form values onto a challenge_config payload (URLs + YMD windows + enabled flags).
  * @param {object} payload
  * @param {FormData} fd
  * @param {{
@@ -152,6 +198,13 @@ export function applyPinSlotsToPayload(payload, fd, refs) {
 	else delete payload.results_creation_url;
 	if (topicVoteRef) payload.topic_vote_creation_url = topicVoteRef;
 	else delete payload.topic_vote_creation_url;
+
+	const openEnabled = formCheckboxEnabled(fd, 'pin_open_enabled');
+	const winnersEnabled = formCheckboxEnabled(fd, 'pin_winners_enabled');
+	const topicEnabled = formCheckboxEnabled(fd, 'pin_topic_vote_enabled');
+	payload.pin_open_enabled = openEnabled;
+	payload.pin_winners_enabled = winnersEnabled;
+	payload.pin_topic_vote_enabled = topicEnabled;
 
 	const openStart = ymdOrEmpty(fd.get('pin_open_start_ymd'));
 	const openUntil = ymdOrEmpty(fd.get('pin_open_until_ymd'));
@@ -191,6 +244,7 @@ export function parseCreationIdFromPinRef(raw) {
 
 /**
  * Build pin sync ops from form refs + windows (for POST organize/pins after config save).
+ * Disabled slots always clear any existing feed pin (creation URL may still be kept on config).
  * @param {string} challengeId
  * @param {{
  *   heroRef: string,
@@ -202,27 +256,43 @@ export function parseCreationIdFromPinRef(raw) {
  *   winnersUntil: string,
  *   topicStart: string,
  *   topicUntil: string,
+ *   openEnabled?: boolean,
+ *   winnersEnabled?: boolean,
+ *   topicEnabled?: boolean,
  *   localStartOfDayToIso: (ymd: string) => string,
  *   localEndOfDayToIso: (ymd: string) => string
  * }} opts
  * @returns {{ kind: ChallengePinSlotKind, clear: boolean, created_image_id?: number, creation_ref?: string, starts_at?: string, until?: string }[]}
  */
 export function buildPinSyncOps(_challengeId, opts) {
-	/** @type {{ kind: ChallengePinSlotKind, ref: string, start: string, until: string }[]} */
+	/** @type {{ kind: ChallengePinSlotKind, ref: string, start: string, until: string, enabled: boolean }[]} */
 	const slots = [
-		{ kind: 'open', ref: opts.heroRef, start: opts.openStart, until: opts.openUntil },
-		{ kind: 'winners', ref: opts.resultsRef, start: opts.winnersStart, until: opts.winnersUntil },
+		{
+			kind: 'open',
+			ref: opts.heroRef,
+			start: opts.openStart,
+			until: opts.openUntil,
+			enabled: opts.openEnabled !== false
+		},
+		{
+			kind: 'winners',
+			ref: opts.resultsRef,
+			start: opts.winnersStart,
+			until: opts.winnersUntil,
+			enabled: opts.winnersEnabled !== false
+		},
 		{
 			kind: 'topic_vote',
 			ref: opts.topicVoteRef,
 			start: opts.topicStart,
-			until: opts.topicUntil
+			until: opts.topicUntil,
+			enabled: opts.topicEnabled !== false
 		}
 	];
 
 	return slots.map((slot) => {
 		const ref = typeof slot.ref === 'string' ? slot.ref.trim() : '';
-		if (!ref) {
+		if (!slot.enabled || !ref) {
 			return { kind: slot.kind, clear: true };
 		}
 		const imageId = parseCreationIdFromPinRef(ref);

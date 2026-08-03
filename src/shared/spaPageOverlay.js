@@ -176,7 +176,17 @@ function isOverlayLanePath(pathname) {
 	if (p === '/create') {
 		return Boolean(window.history?.state?.[HISTORY_FLAG]);
 	}
-	if (p === '/' || p === '/index.html' || p === '/feed' || p === '/explore' || p === '/creations' || p === '/challenges' || p === '/challenges/organize') {
+	if (
+		p === '/' ||
+		p === '/index.html' ||
+		p === '/feed' ||
+		p === '/explore' ||
+		p === '/creations' ||
+		p === '/challenges' ||
+		p === '/challenges/organize' ||
+		p === '/challenges/details' ||
+		p.startsWith('/challenges/details/')
+	) {
 		return true;
 	}
 	if (/^\/chat\/c\/(feed|explore|creations|comments)(\/|$)/.test(p)) return true;
@@ -665,7 +675,15 @@ export function routeSpaPageOverlayFromEmbed(href, options = {}) {
 		return;
 	}
 
-	if (path === '/creations' || path === '/feed' || path === '/explore' || path === '/challenges' || path === '/challenges/organize') {
+	if (
+		path === '/creations' ||
+		path === '/feed' ||
+		path === '/explore' ||
+		path === '/challenges' ||
+		path === '/challenges/organize' ||
+		path === '/challenges/details' ||
+		path.startsWith('/challenges/details/')
+	) {
 		dismissEntireSpaPageOverlay();
 		return;
 	}

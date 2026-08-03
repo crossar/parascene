@@ -1394,7 +1394,7 @@ function isChallengeEngagementFeedRow(item) {
 	if (!item || typeof item !== "object") return false;
 	if (item.type !== "engagement") return false;
 	const v = typeof item.variant === "string" ? item.variant.trim().toLowerCase() : "";
-	return v === "challenge_stats" || v === "contest_stats";
+	return v === "challenge_stats" || v === "challenge_stats_inactive" || v === "challenge_board" || v === "contest_stats";
 }
 
 /**

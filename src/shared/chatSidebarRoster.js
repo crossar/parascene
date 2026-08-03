@@ -612,7 +612,12 @@ export function parseChatSidebarPathname(pathname) {
 	if (p === '/creations') {
 		return { kind: 'channel', slug: 'creations' };
 	}
-	if (p === '/challenges' || p === '/challenges/organize') {
+	if (
+		p === '/challenges' ||
+		p === '/challenges/organize' ||
+		p === '/challenges/details' ||
+		p.startsWith('/challenges/details/')
+	) {
 		return { kind: 'channel', slug: 'challenges' };
 	}
 	if (p === '/prompt-library') {

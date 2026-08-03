@@ -1,7 +1,6 @@
 /**
  * Challenge lifecycle side effects — pins and feed invalidation so routes stay
- * thin. Currently implements pin upsert/remove and `onResultsPublished`;
- * `onChallengeOpened` / `onVotingClosed` attach here later (plan phase 6).
+ * thin. Pin upsert/remove, overlap exclusivity, and `onResultsPublished`.
  * #challenges is machine-readable only — do not post `challenge_announce`.
  */
 
@@ -41,9 +40,59 @@ function windowDaysForPinKind(pinKind) {
 }
 
 /**
+ * True when two half-open-ish ISO windows overlap (inclusive endpoints).
+ * @param {string} aStart
+ * @param {string} aUntil
+ * @param {string} bStart
+ * @param {string} bUntil
+ */
+export function challengePinWindowsOverlap(aStart, aUntil, bStart, bUntil) {
+	const a0 = Date.parse(aStart);
+	const a1 = Date.parse(aUntil);
+	const b0 = Date.parse(bStart);
+	const b1 = Date.parse(bUntil);
+	if (![a0, a1, b0, b1].every(Number.isFinite)) return false;
+	return a0 <= b1 && b0 <= a1;
+}
+
+/**
+ * Find another challenge-* editorial pin whose window overlaps the candidate.
+ * Same pin id is ignored (upsert of self). Non-challenge pins ignored.
+ *
+ * @param {object[]} pins
+ * @param {{ id: string, starts_at: string, until: string }} candidate
+ * @returns {{ pin: object, message: string } | null}
+ */
+export function findOverlappingChallengeEditorialPin(pins, candidate) {
+	const candId = String(candidate?.id || "").trim();
+	const candStart = String(candidate?.starts_at || "").trim();
+	const candUntil = String(candidate?.until || "").trim();
+	if (!candId || !candStart || !candUntil) return null;
+	const list = Array.isArray(pins) ? pins : [];
+	for (const pin of list) {
+		const id = String(pin?.id || "").trim();
+		if (!id || id === candId) continue;
+		if (!id.startsWith("challenge-")) continue;
+		if (pin?.enabled === false) continue;
+		const otherStart = String(pin?.starts_at || "").trim();
+		const otherUntil = String(pin?.until || "").trim();
+		if (!otherStart || !otherUntil) continue;
+		if (!challengePinWindowsOverlap(candStart, candUntil, otherStart, otherUntil)) continue;
+		const startLabel = otherStart.slice(0, 10);
+		const untilLabel = otherUntil.slice(0, 10);
+		return {
+			pin,
+			message: `Pin window overlaps ${id} (${startLabel} → ${untilLabel}). Only one challenge pin may be active at a time — adjust the dates.`
+		};
+	}
+	return null;
+}
+
+/**
  * Upsert a timed challenge editorial pin (`challenge-{kind}-{challengeId}`)
  * and stamp the creation's meta (trophy annotation + publish/delete locks).
  * Same behavior as the organize pins route, with explicit window control.
+ * Rejects when the window overlaps another challenge-* pin (one active at a time).
  *
  * @param {{
  *   queries: object,
@@ -106,6 +155,10 @@ export async function upsertChallengeEditorialPin({
 		}
 	};
 	const pins = Array.isArray(doc.pins) ? [...doc.pins] : [];
+	const overlap = findOverlappingChallengeEditorialPin(pins, nextPin);
+	if (overlap) {
+		return { ok: false, error: overlap.message };
+	}
 	const idx = pins.findIndex((p) => String(p?.id || "") === pinId);
 	if (idx >= 0) pins[idx] = { ...pins[idx], ...nextPin };
 	else pins.push(nextPin);

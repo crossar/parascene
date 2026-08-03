@@ -11,8 +11,8 @@ Phases below are numbered in **ship order**. Phase 1 is song creations (Suno pos
 - Clock drives phases (unchanged). Pins + feed freshness fire from config (existing pin system). Card **Results** → Stats | Payout is the human payout path. Close voting may stay a card action; promo / winners / theme-vote pins are driven by dated slots on a dedicated **Announce** edit tab (creation URL + window), not one-off card Announce clicks. Organizer promo/winners creations used as editorial pins stay unpublished (feed can still show them while the pin is active).
 - Prizes: structured numeric `prizes` on config (main 1st/2nd/3rd + optional top submitters/voters) is the single source of truth. Card copy is generated from the numbers ("400 credits"). Free-text `reward_first/second/third/participation` are RETIRED — existing configs were migrated in place (`db/maintenance/migrate-challenge-prizes.js`, 2026-08-02; backup jsonl beside it) and all legacy read paths removed. Only `reward_custom` stays free text. Participation prize *details* revealed only at results.
 - Prize structures are per-challenge config, inherited from the most recent same-track challenge by **submission start date**. Only the first challenge of a track needs full definition (track presets).
-- Feed keeps one engagement card. Focus = soonest deadline among active. "+N more open" chip when concurrent. `/challenges` lane is the canonical multi-track surface.
-- Submit: context carries intent, confirm always names the target, picker when ambiguous, server rejects ambiguous submits. Media eligibility per track (`accepted_media`, phase 8).
+- Feed keeps one engagement card — a **status board** (headline by urgency + stacked track sections when 2+ open). At most one active challenge per track; pin windows exclusive (one challenge pin active at a time). `/challenges` multi-track = **stacked pared legacy cards** (hero + image + Vote + More Info); single active keeps the full legacy pane.
+- Submit: context carries intent, confirm always names the target, picker when ambiguous, server rejects ambiguous submits (phase 7). Media eligibility per track (`accepted_media`, phase 8).
 - Minimal song creations: paste Suno link → completed playable creation (cover + embed). Music track rides on this later (phase 9).
 - Music remix source (optional Suno URL on config + Listen on the card) is deferred with phase 9 — not required for theme-only Music challenges.
 
@@ -20,8 +20,8 @@ Phases below are numbered in **ship order**. Phase 1 is song creations (Suno pos
 
 1. Song creations (Suno posts) — no deps; ship first
 2. Foundations (debt + snapshot freshness)
-3–6. Organizer console (prizes → publish → board + Announce tab → auto pin sync)
-7–9. Multi-track participation (lane → submit targeting → Music challenge wiring)
+3–6. Organizer console (prizes → publish → board + Announce tab; dated pin windows fire on the clock — phase 6 collapsed)
+7–9. Multi-track participation (feed board + stacked /challenges cards + submit picker → accepted_media → Music wiring)
 10. Cleanup + data contract doc
 
 Within 3–6 and 7–9, per-phase "done when" = engineer checkpoint; team validates at the end of each numbered phase below.
@@ -35,9 +35,9 @@ Note to the implementer: this is a big plan — progress MUST be visible in this
 - Phase 3 — Prize structures + inheritance: [x] built (2026-08-02) · [x] validated (2026-08-02)
 - Phase 4 — Results + publish + payouts: [x] built (2026-08-02; tip from admin account; Save order / Pay unpaid; unpaid amounts always from live Prizes; finalize stamps `results_published_at` only — no pin/announce) · [x] validated (2026-08-02)
 - Phase 5 — Board actions + Announce tab + review modal: [x] built (2026-08-02: Results Stats|Payout; **Announce** tab with dated slots + upsert/clear on save via organize/pins) · [x] validated (2026-08-02)
-- Phase 6 — Auto open-pins: [ ] built · [ ] validated
-- Phase 7 — Multi-track lane + voting + results display: [ ] built · [ ] validated
-- Phase 8 — Submit targeting: [ ] built · [ ] validated
+- Phase 6 — Auto open-pins: [x] collapsed to a note (2026-08-02) — no build needed; Announce-tab dated windows already fire pins on the clock · [x] validated (2026-08-02, phases 3–6 organizer-console walkthrough)
+- Phase 7 — Multi-track surfaces (feed board + /challenges stacked cards + submit picker + pin exclusivity): [x] built (2026-08-02; /challenges multi-track = stacked pared legacy cards, not summary/detail) · [x] validated (2026-08-03)
+- Phase 8 — accepted_media + media filtering: [ ] built · [ ] validated
 - Phase 9 — Music challenge wiring: [ ] built · [ ] validated
 - Phase 10 — Cleanup + data contract doc: [ ] built · [ ] validated
 
@@ -86,7 +86,7 @@ Debt:
 
 Snapshot invalidation (organizer saves must show immediately; the 20-min TTL was fiction because of the always-fresh default above):
 
-- `api_routes/chat.js` message POST/PATCH: when written `kind` is `challenge_config` (only in the `#challenges` thread; parse body defensively), invalidate `api_routes/feed/challengeFeedSnapshotCache.js` (Redis `feed-beta:challenge-snapshot:v2` + mem).
+- `api_routes/chat.js` message POST/PATCH: when written `kind` is `challenge_config` (only in the `#challenges` thread; parse body defensively), invalidate `api_routes/feed/challengeFeedSnapshotCache.js` (Redis `feed-beta:challenge-snapshot:v3` + mem).
 - Also invalidate from organize pins route (`chat.js` ~2370) and the publish-results route (phase 4).
 - Single-flight the rebuild: in-process lock + Redis SETNX so concurrent feed requests after an invalidation don't all rebuild at once. While one rebuild runs, serve stale snapshot if present rather than blocking.
 - Verify inactive card copy in `api_routes/feed/engagementAndNewbie.js` (~221–304) after rebuild.
@@ -181,54 +181,52 @@ Built 2026-08-02: Announce tab UI (`adminView.js`), `model/pinSlots.js`, save sy
 
 ---
 
-## Phase 6 — Auto open-pins at phase boundaries (lazy)
+## Phase 6 — Auto open-pins: collapsed to a note (2026-08-02)
 
 → User flow F6 (challenge goes live; feed pin appears without organizer clicks).
 
-Announce tab (phase 5) is the source of truth for creation + window. This phase only auto-upserts when a listed challenge crosses a boundary and the matching pin is missing.
-
-- In snapshot build (`api_routes/feed/challengeFeedSnapshotShared.js`): listed challenge entered open phase + open slot has a creation + no `challenge-open-{id}` pin → fire `onChallengeOpened` (pins-route logic in lifecycle module). Prefer config window over hard-coded +7/+14. Same idea for winners after results when results slot is set.
-- Idempotency = pin id in policy. Do NOT stamp markers onto the config message from the server (save-conflict fingerprint).
-- Pin upserts after the feed response (fire-and-forget), inside the phase-2 single-flight lock.
-- Unpublished organizer creations as pin targets: unchanged (phase 2 addendum). No system bot.
-
-Done when: a scheduled challenge going live gets its open pin within one snapshot rebuild from Announce-tab config, zero card clicks.
+No build needed. This phase was written for the old design (card Announce clicks at the boundary). Phase 5's Announce tab already covers F6: save upserts pins immediately with full `starts_at`/`until` windows, and `isEditorialPinActive` (`api_routes/feed/editorialPinPolicy.js`) gates injection on the clock — a future-dated open pin activates itself when its window opens, zero clicks. Winners pin also fires from `onResultsPublished`. A snapshot-build reconciler would only cover a pin missing despite a filled slot (failed upsert / hand-edited policy) — not worth building.
 
 Team validate after phases 3–6 (organizer console): create (prizes + Announce tab with dates) → goes live → open pin appears (save and/or auto) → (optional Close voting) → Results → Payout → Finalize → Complete → winners pin if results slot set → past Results still reviewable.
 
 ---
 
-## Phase 7 — Multi-track participant lane + per-challenge voting + results display
+## Phase 7 — Multi-track surfaces (feed board + /challenges + submit picker + pin exclusivity)
 
-→ User flows F7 (browse + vote concurrent tracks), F10 (view past results), feed half of F6.
+→ User flows F6 (feed half), F7 (browse + vote concurrent), F8 (submit picker).
 
-`mountPane.js` renders multiple active cards (~166–232) but votes/badges track global focus (~330–356).
+Assumption: at most one **active** challenge per track (+ optional upcoming per track). When **2+ challenges are actively open**: feed status board → `/challenges` stacked pared cards (Monthly first). **When only one challenge is active**, keep the legacy feed card (`challenge_stats` / inactive) and the legacy full `/challenges` pane (hero + vote + details + submissions).
 
-- Each active card: track pill (Monthly/Weekly/Music) + phase deadline. Pill styles → `public/global.css` (shared with organize).
-- Vote CTA + badge sync keyed by the card's `challenge_id`; `challengeVoteModal.js` receives that challenge's rankedSubmissions/phase from `participantSlice.js`, not focus slice.
-- While in there: vote modal media uses thumbnail/fit variants, not full-size `url || thumb` (~L499-506); feed-initiated `onAfterVote` syncs badges only like the pane path — kill its full channel refetch (`chatPage.js` ~11683-11689). Participant hero uses fit variant too (`mountPane.js` ~31-37).
-- Placement: the vote-sync logic lives in the challenges modules; `chatPage.js` (16k lines) gets thin calls only, no new challenge logic inline.
-- Card submit CTA writes `challenge_id` into `public/shared/challengeSubmitContext.js`.
-- Next/Previous exclude all active ids (today only `excludeIds[0]`).
-- Media weight: with 2–3 active cards, below-fold card heroes/strips use `loading="lazy"` + thumbnail variants (`?variant=thumbnail`). Don't double the lane payload.
-- Past/results cards render winners + top submitters + top voters from `config.results`; `results_creation_url` stays as optional link. Replaces hand-built highlights requirement.
-- Feed: keep one engagement card; focus = soonest deadline among active; "+N more open" chip when concurrent.
+### A. Feed card — status board with newsworthy headline
 
-Done when: two open tracks independently viewable/votable/submittable; finished challenges show real winners in-app.
+Replace single-focus card with one `challenge_board` engagement card. Headline scored by urgency (ends-soon+can-act → just-opened → unvoted → not-entered → soonest deadline); ties by earlier deadline then Monthly > Weekly > Music. Layout: stacked single-track sections (Monthly first), status chip per track, no per-row CTAs → single CTA "Open challenges". Covers between-rounds too (retires `challenge_stats_inactive`). Snapshot emits all-track active + next-upcoming with per-challenge viewer overlay.
+
+### B. /challenges — stacked pared cards (multi-track)
+
+When 2+ active: one card per track sorted Monthly → Weekly → Music — hero (title/phase/countdown/stats) + hero image + Vote + More Info (no details/rewards blurbs on the card). More Info → `/challenges/details/:challengeId` (breadcrumb Challenges › title). No submissions list; no summary→detail flip. Organize CTA once at top. `?challenge_id=` scrolls/focuses that card (legacy; details use path). Next/Past exclude **all** active ids. Vote modal + submit context keyed by that card's `challenge_id`. Single active: unchanged full legacy pane.
+
+### C. Submit targeting — user picks when multiple accept
+
+Safety half of old phase 8. Eligibility returns full accepting list; POST requires explicit `challenge_id` when >1 accepting (sole-option shortcut stays; delete newest-created fallback). Confirm modal always names target; radio picker when multiple eligible and no context; stale context falls back to picker. Picker module beside `challengeSubmitContext.js`.
+
+### D. One active pin at a time
+
+`upsertChallengeEditorialPin` rejects windows that overlap any other `challenge-*` pin (same pin id excluded); error names the conflict. Announce tab surfaces the error; no auto-shift.
+
+Done when: two open tracks visible on feed board and stacked `/challenges` cards; voting/submit per challenge correct; ambiguous submit requires a pick; overlapping pin windows refused.
+
+Results-from-`config.results` (old F10) deferred — hand-built highlights + pins keep working.
 
 ---
 
-## Phase 8 — Submit targeting (never silent)
+## Phase 8 — accepted_media + media filtering
 
-→ User flow F8 (submit a creation to a named challenge).
+→ User flow F8 media half (songs → Music only). Submit picker already in phase 7.
 
 - `accepted_media` on config: `['image','video']` monthly/weekly, `['audio']` suno; defaulted by track template; on create, inherit from most recent same-track config by submission start date (same rule as `prizes` in phase 3), else template default.
-- Server (`api_routes/utils/challengeSubmitShared.js`, eligibility in `create.js` ~609): eligibility returns full accepting list `{ challenge_id, title, track, ends_at }` filtered by creation `meta.media_type` vs `accepted_media`. POST requires explicit `challenge_id` when more than one accepting; delete newest-created fallback (`pickChallengeConfigAcceptingSubmissions` ~458–473) except sole-option shortcut. Validate media eligibility server-side.
-- Deploy compat (bundles rebuild externally, not atomically with server): the new strictness only bites when multiple challenges accept at once — which can't occur before the multi-track lane exists. Ship phase 8 client + server together; server rejection message must be human-readable as the fallback for stale clients.
-- Client (`public/pages/creation-detail.js` confirm modal): always display target challenge name; radio list in same modal when multiple eligible and no context; context pre-selects. Picker/eligibility rendering goes in a small shared module (beside `public/shared/challengeSubmitContext.js`), not more inline code in creation-detail.js (6.9k lines).
-- Stale context: `challengeSubmitContext` lives 48h — a stored `challenge_id` may target a now-closed challenge. On server rejection or missing-from-eligible-list, fall back to the picker with fresh eligibility, never a dead-end error.
+- Server eligibility filters accepting list by creation `meta.media_type` vs `accepted_media`. Validate media eligibility on submit POST.
 
-Done when: a submission can never land in a challenge the user did not see named on the confirm.
+Done when: song submits only offered to Music; image/video only to monthly/weekly.
 
 ---
 
@@ -236,7 +234,7 @@ Done when: a submission can never land in a challenge the user did not see named
 
 → User flow F9 (enter a Music challenge with a Suno song). Builds on F1 + F8. Remix source listening is part of F9 when configured.
 
-Depends on phases 1, 3, and 8. Songs already exist from phase 1; this makes them first-class Music challenge entries.
+Depends on phases 1, 3, and 8 (`accepted_media`). Songs already exist from phase 1; this makes them first-class Music challenge entries. Submit picker already ships in phase 7.
 
 - `accepted_media: ['audio']` on suno track template (and inheritance from phase 8).
 - Optional remix source on config (ship here if still wanted — deferred from phase 3), e.g.:
@@ -248,13 +246,13 @@ remix_source: null | { provider: 'suno', url, song_id, title?, creator? }
   Set when the challenge is "remix this track"; omit/null for theme-only Music challenges (same shape as today's image theme challenges — brief + prizes, no listen target). Can slip to a later addendum if Music theme-only is enough for first ship.
 - Participant Music card: when `remix_source` is set, show a Listen / play control for that source track (click-to-play Suno embed, same rules as song creations — no eager iframe). Theme-only Music cards skip this control.
 - Organize edit: paste Suno URL → resolve (reuse `/api/suno/resolve`) → store `remix_source`. Clearable.
-- Vote modal `injectVoteMediaFromCreation`: cover + click-to-play embed; at most one iframe mounted at a time, unmount on advance to next entry.
+- Vote modal `injectVoteMediaFromCreation`: full-sized Suno embed (not cover-only); at most one iframe mounted at a time, unmount on advance to next entry (shipped early with phase 7).
 - Entry point: "Import a song" on Music challenge card → paste-link modal → on success, open standard submit confirm with context targeting that challenge.
 - Update Music-track how-to copy in `detailsRewardView.js` (says image/video); mention remix source when present vs theme-only.
 
 Done when: paste Suno link → playable creation → submit to Music challenge → votable in modal; theme-only Music works; remix Listen only if `remix_source` shipped.
 
-Team validate after phases 7–9: two concurrent open challenges (one Music); both cards visible with track pills + deadlines; voting on each targets the right challenge; submit from a card targets that challenge by name; submit from creation detail with both open shows the picker; song submits only offered to Music; stale submit context recovers to picker; finished challenge shows winners + top submitters + top voters in-app.
+Team validate after phases 7–9: two concurrent open challenges (one Music); feed status board shows both; `/challenges` shows stacked cards for both (monthly first) with Vote/Submit; voting on each targets the right challenge; `?challenge_id=` focuses that card; submit from a card targets that challenge by name; submit from creation detail with both open shows the picker; song submits only offered to Music; stale submit context recovers to picker; overlapping pin windows refused on Announce save.
 
 ---
 
@@ -383,27 +381,29 @@ F5 — Review and confirm winners + payouts (phases 4–5)
 4. When all paid, Finalize moves Pending → Complete (status only — no pin/announce yet).
 5. Past Complete challenges still open Results → Payout read-only for review.
 
-F6 — Challenge goes live; pin appears without clicks (phase 6 + feed)
+F6 — Challenge goes live; pin appears without clicks (phase 5 Announce windows + feed)
 
 1. Organizer already set open/hero creation + window on the Announce tab (or defaults apply).
 2. Scheduled listed challenge crosses into an open phase on the clock.
-3. Next snapshot rebuild upserts the open pin from that slot. No card Announce.
-4. Feed shows the engagement card for the soonest-deadline challenge; if more than one is open, a "+N more open" chip links to `/challenges`.
+3. Pin activates when its `starts_at` window opens (policy clock). No card Announce.
+4. Feed status board shows all open (+ upcoming) challenges; headline reflects the most urgent moment; single CTA → `/challenges`.
 
 F7 — Browse and vote on concurrent tracks (phase 7)
 
-1. User opens `/challenges`. Sees one card per open challenge (track pill + deadline). Music cards with a remix source also offer Listen on that source track.
+1. User opens `/challenges`. Sees stacked cards per open challenge (Monthly first: hero + image + Vote + More Info).
 2. Opens Vote on challenge A → modal is for A's entries only; scores apply to A.
 3. Opens Vote on challenge B → same, keyed to B. No silent cross-wiring.
-4. From the feed engagement card, Vote still works and does not re-download the whole channel after each score.
+4. More Info → `/challenges/details/:challengeId` (breadcrumb Challenges › title). `?challenge_id=` scrolls/focuses that card on the stack.
+5. From the feed status board, "Open challenges" goes to the lane; Vote from feed still works for the headline challenge and does not re-download the whole channel after each score.
 
-F8 — Submit a creation to a named challenge (phase 8)
+F8 — Submit a creation to a named challenge (phase 7 picker; media filter phase 8)
 
 1. User has a completed unpublished creation eligible for at least one open challenge.
 2. From a challenge card: Submit carries that challenge_id; confirm modal names that challenge.
 3. From creation detail with no context: if one eligible challenge, confirm names it; if several, radio picker in the same confirm; if none, no submit.
 4. Confirm always shows the target name before POST. Server rejects ambiguous/missing id when multiple are open.
 5. Stale context (closed challenge): confirm falls back to fresh eligibility / picker — never a dead-end error.
+6. (Phase 8) Media type filters the eligible list (songs → Music only).
 
 F9 — Enter a Music challenge with a Suno song (phase 9; uses F1 + F8)
 
@@ -412,12 +412,11 @@ F9 — Enter a Music challenge with a Suno song (phase 9; uses F1 + F8)
 3. Chooses Import a song on the card (or imports via Create first — F1).
 4. Paste Suno URL → song creation created (F1 steps 3–5).
 5. Submit confirm opens with Music challenge already targeted (F8).
-6. Entry appears in that challenge; voters play entries click-to-play in the vote modal (one iframe at a time).
+6. Entry appears in that challenge; voters audition entries via full-sized Suno embed in the vote modal (one iframe at a time; torn down on advance).
 
-F10 — View past results in-app (phase 7)
+F10 — View past results in-app (deferred; highlights + pins for now)
 
-1. User opens `/challenges` (or past section). Finished challenge shows winners + top submitters + top voters from published results.
-2. Optional link to highlights creation if `results_creation_url` was set. No hand-built highlights required for results to exist.
+1. Finished challenges still use hand-built highlights / results pin when set. In-app winners from `config.results` deferred past phase 7.
 
 ## Out of scope
 

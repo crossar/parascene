@@ -213,12 +213,14 @@ function hydrateMountedChatFeedChallengeCard(messagesEl, routeWrap, fetchJson) {
 export async function loadDeferredChatFeedChallenge(opts) {
 	const { messagesEl, routeWrap, mobileLayout, fetchJson, renderCard, isStale } = opts;
 
+	/*
+	 * Do not paint SW-cached engagement before the network response.
+	 * Stale cache is often the old single-challenge card; replacing it seconds later
+	 * with challenge_board (or any different payload) flips the whole card in place.
+	 * Skeleton → one final paint. Cache is only a fallback if the fetch fails.
+	 */
 	const staleItem = await readChallengeEngagementFromSwCache();
-	if (staleItem) {
-		if (typeof isStale === 'function' && isStale()) return;
-		mountChatFeedChallengeItem(messagesEl, routeWrap, mobileLayout, staleItem, renderCard);
-		hydrateMountedChatFeedChallengeCard(messagesEl, routeWrap, fetchJson);
-	} else if (!mobileLayout) {
+	if (!mobileLayout) {
 		ensureChatFeedChallengeDesktopSkeleton(routeWrap);
 	}
 
@@ -231,15 +233,17 @@ export async function loadDeferredChatFeedChallenge(opts) {
 			return;
 		}
 
-		if (challengeEngagementItemsEqual(staleItem, item)) return;
-
 		mountChatFeedChallengeItem(messagesEl, routeWrap, mobileLayout, item, renderCard);
 		hydrateMountedChatFeedChallengeCard(messagesEl, routeWrap, fetchJson);
 	} catch (err) {
 		console.warn('[Chat feed] challenge engagement', err?.message || err);
-		if (!staleItem) {
-			findChatFeedChallengeSlot(messagesEl, routeWrap)?.remove();
+		if (typeof isStale === 'function' && isStale()) return;
+		if (staleItem) {
+			mountChatFeedChallengeItem(messagesEl, routeWrap, mobileLayout, staleItem, renderCard);
+			hydrateMountedChatFeedChallengeCard(messagesEl, routeWrap, fetchJson);
+			return;
 		}
+		findChatFeedChallengeSlot(messagesEl, routeWrap)?.remove();
 	}
 }
 

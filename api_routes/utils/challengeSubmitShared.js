@@ -1,6 +1,7 @@
 import { deriveChallengePhase } from "../../src/chat/challenges/model/phases.js";
 import {
 	pickChallengeHeroImageUrl,
+	pickChallengeConfigTimestamp,
 	IMPLIED_CHALLENGE_ORGANIZER,
 	normalizeChallengeOrganizerUserNames,
 	organizersWithoutImplied,
@@ -74,30 +75,73 @@ export function pickLatestChallengeConfigPayload(messagesAsc) {
 
 /**
  * Latest `challenge_config` for a challenge that is currently accepting submissions.
- * When multiple challenges exist in the thread (e.g. a new cycle opens while the previous
- * one's results are still being published), ignores ended cycles and prefers the newest
- * active one.
+ * When multiple challenges accept, prefers the newest by config message created_at.
+ * Prefer {@link listChallengeConfigsAcceptingSubmissions} + explicit challenge_id for multi-track.
  *
  * @param {{ body?: unknown, created_at?: string }[]} messagesNewestFirst
  * @param {number} [nowMs]
  * @returns {object | null}
  */
 export function pickChallengeConfigAcceptingSubmissions(messagesNewestFirst, nowMs) {
+	const list = listChallengeConfigsAcceptingSubmissions(messagesNewestFirst, nowMs);
+	return list[0]?.cfg || null;
+}
+
+/**
+ * All challenges currently accepting submissions (newest config first).
+ *
+ * @param {{ body?: unknown, created_at?: string }[]} messagesNewestFirst
+ * @param {number} [nowMs]
+ * @returns {{ cfg: object, created_at: string, challengeId: string }[]}
+ */
+export function listChallengeConfigsAcceptingSubmissions(messagesNewestFirst, nowMs) {
 	const now = typeof nowMs === "number" ? nowMs : Date.now();
 	const byId = latestChallengeConfigByChallengeId(messagesNewestFirst);
-	let best = null;
-	let bestCreated = -1;
+	/** @type {{ cfg: object, created_at: string, challengeId: string, sortKey: number }[]} */
+	const out = [];
 	for (const { payload: cfg, created_at } of byId.values()) {
 		const phase = deriveChallengePhase(cfg, now);
 		if (phase !== "submitting" && phase !== "submit_and_vote") continue;
+		const challengeId = cfg?.challenge_id != null ? String(cfg.challenge_id).trim() : "";
+		if (!challengeId) continue;
 		const t = Date.parse(created_at || "");
 		const sortKey = Number.isFinite(t) ? t : 0;
-		if (!best || sortKey > bestCreated) {
-			best = cfg;
-			bestCreated = sortKey;
-		}
+		out.push({
+			cfg,
+			created_at: typeof created_at === "string" ? created_at : "",
+			challengeId,
+			sortKey
+		});
 	}
-	return best;
+	out.sort((a, b) => b.sortKey - a.sortKey);
+	return out.map(({ cfg, created_at, challengeId }) => ({ cfg, created_at, challengeId }));
+}
+
+/**
+ * Public eligibility list shape for creation detail (no media filter yet — phase 8).
+ * @param {{ cfg: object, challengeId: string }[]} accepting
+ * @returns {{ challenge_id: string, title: string, details: string, ends_at: string }[]}
+ */
+export function summarizeAcceptingChallengesForEligibility(accepting) {
+	return (Array.isArray(accepting) ? accepting : []).map(({ cfg, challengeId }) => {
+		const rawTitle = typeof cfg?.title === "string" ? cfg.title.trim() : "";
+		const title = rawTitle || (challengeId ? `Challenge: ${challengeId}` : "Challenge");
+		let details = "";
+		if (cfg?.details != null) {
+			details =
+				typeof cfg.details === "string" ? cfg.details.trim() : String(cfg.details).trim();
+		}
+		const ends =
+			pickChallengeConfigTimestamp(cfg, "submission_end_at") ||
+			pickChallengeConfigTimestamp(cfg, "voting_end_at") ||
+			"";
+		return {
+			challenge_id: challengeId,
+			title,
+			details,
+			ends_at: typeof ends === "string" ? ends : ""
+		};
+	});
 }
 
 /**
@@ -491,6 +535,7 @@ export async function validateChallengeSubmission({
 		const messagesNewest = [...messages].reverse();
 		const wantId =
 			requestedChallengeId != null ? String(requestedChallengeId).trim() : "";
+		const accepting = listChallengeConfigsAcceptingSubmissions(messagesNewest, now);
 		let cfg = null;
 		if (wantId) {
 			cfg = pickLatestChallengeConfigForChallengeId(messagesNewest, wantId);
@@ -502,8 +547,15 @@ export async function validateChallengeSubmission({
 					message: "That challenge is not accepting submissions right now."
 				};
 			}
-		} else {
-			cfg = pickChallengeConfigAcceptingSubmissions(messagesNewest, now);
+		} else if (accepting.length === 1) {
+			cfg = accepting[0].cfg;
+		} else if (accepting.length > 1) {
+			return {
+				ok: false,
+				status: 400,
+				message:
+					"Multiple challenges are accepting submissions — choose which challenge to enter."
+			};
 		}
 		const challengeId =
 			cfg && cfg.challenge_id != null ? String(cfg.challenge_id).trim() : "";

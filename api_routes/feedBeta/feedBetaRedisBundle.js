@@ -9,6 +9,7 @@ import {
 } from './catalogSnapshotCache.js';
 import {
 	CHALLENGE_FEED_SNAPSHOT_REDIS_KEY,
+	isChallengeFeedSnapshotCachePayload,
 	isChallengeFeedSnapshotMemCacheFresh,
 	primeChallengeFeedSnapshotMemCache
 } from '../feed/challengeFeedSnapshotCache.js';
@@ -75,7 +76,7 @@ export async function primeFeedBetaRedisFromPipeline(userId, timing = null, opts
 		if (needChallenge) {
 			const raw = results[idx];
 			idx += 1;
-			if (raw && typeof raw === 'object' && raw.version === 1) {
+			if (isChallengeFeedSnapshotCachePayload(raw)) {
 				primeChallengeFeedSnapshotMemCache(raw);
 			}
 		}

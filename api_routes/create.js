@@ -67,6 +67,11 @@ import {
 	fetchChatChannelThreadRow,
 	findChallengesChannelThreadId,
 	validateChallengeSubmission,
+	listChallengeConfigsAcceptingSubmissions,
+	summarizeAcceptingChallengesForEligibility,
+	fetchThreadMessagesChronological,
+	metaHasChallengeSubmission,
+	isChatThreadMember,
 	summarizeChallengeSubmissionPhases,
 	computeChallengeEndedByImageId
 } from "./utils/challengeSubmitShared.js";
@@ -710,45 +715,56 @@ export default function createCreateRoutes({ queries, storage }) {
 			return;
 		}
 
-		const v = await validateChallengeSubmission({
-			sb,
-			userId: user.id,
-			ownerUserId: image.user_id,
-			creationId: Number(image.id),
-			meta,
-			threadId,
-			note: ""
-		});
-		if (!v.ok) {
+		try {
+			const memberOk = await isChatThreadMember(sb, threadId, user.id);
+			if (!memberOk) {
+				response.challenge_submit = {
+					eligible: false,
+					reason: "blocked",
+					message: "Join the Challenges channel before submitting."
+				};
+				return;
+			}
+
+			const messages = await fetchThreadMessagesChronological(sb, threadId);
+			const messagesNewest = [...messages].reverse();
+			const accepting = listChallengeConfigsAcceptingSubmissions(messagesNewest);
+			const challenges = summarizeAcceptingChallengesForEligibility(accepting).filter((ch) => {
+				return !metaHasChallengeSubmission(meta, threadId, ch.challenge_id);
+			});
+			if (!challenges.length) {
+				response.challenge_submit = {
+					eligible: false,
+					reason: "blocked",
+					message:
+						accepting.length > 0
+							? "This creation is already entered in every open challenge."
+							: "No challenge is accepting submissions right now."
+				};
+				return;
+			}
+
+			const primary = challenges[0];
+			response.challenge_submit = {
+				eligible: true,
+				reason: null,
+				thread_id: threadId,
+				challenge_id: primary.challenge_id,
+				challenges,
+				challenge: {
+					challenge_id: primary.challenge_id,
+					title: primary.title,
+					details: primary.details
+				}
+			};
+		} catch (err) {
+			console.warn("[challenge_submit eligibility]", err?.message || err);
 			response.challenge_submit = {
 				eligible: false,
 				reason: "blocked",
-				message: v.message
+				message: "Could not check challenge eligibility."
 			};
-			return;
 		}
-		const cfg = v.cfg && typeof v.cfg === "object" ? v.cfg : {};
-		const rawTitle = typeof cfg.title === "string" ? cfg.title.trim() : "";
-		const cidStr = String(v.challengeId || "").trim();
-		const challengeTitle =
-			rawTitle || (cidStr ? `Challenge: ${cidStr}` : "Challenge");
-		let challengeDetails = "";
-		if (cfg.details != null) {
-			challengeDetails =
-				typeof cfg.details === "string"
-					? cfg.details.trim()
-					: String(cfg.details).trim();
-		}
-		response.challenge_submit = {
-			eligible: true,
-			reason: null,
-			thread_id: threadId,
-			challenge: {
-				challenge_id: cidStr,
-				title: challengeTitle,
-				details: challengeDetails
-			}
-		};
 	}
 
 	async function bumpFeedVersionCounter() {

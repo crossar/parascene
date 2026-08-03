@@ -479,6 +479,67 @@ export function createChallengeVoteModal(opts) {
 		v.addEventListener('click', onClick);
 	}
 
+	/** @param {HTMLElement} stage */
+	function setVoteMediaSunoMode(stage, on) {
+		const media = stage.closest('.challenge-vote-modal-media');
+		if (media instanceof HTMLElement) {
+			media.classList.toggle('challenge-vote-modal-media--suno', !!on);
+		}
+	}
+
+	/**
+	 * Resolve Suno embed URL from creation meta.import (same rules as creation detail).
+	 * @param {object | null | undefined} c
+	 * @returns {{ embedSrc: string, title: string } | null}
+	 */
+	function sunoEmbedFromCreation(c) {
+		const meta = c?.meta && typeof c.meta === 'object' && !Array.isArray(c.meta) ? c.meta : null;
+		const importMeta =
+			meta?.import && typeof meta.import === 'object' && !Array.isArray(meta.import)
+				? meta.import
+				: null;
+		const provider =
+			typeof importMeta?.provider === 'string' ? importMeta.provider.trim().toLowerCase() : '';
+		const mediaType =
+			typeof c?.media_type === 'string'
+				? c.media_type
+				: typeof meta?.media_type === 'string'
+					? meta.media_type
+					: '';
+		if (provider !== 'suno' && mediaType !== 'audio') return null;
+		if (provider && provider !== 'suno') return null;
+
+		const songId = typeof importMeta?.song_id === 'string' ? importMeta.song_id.trim() : '';
+		const embedUrlRaw =
+			typeof importMeta?.embed_url === 'string' ? importMeta.embed_url.trim() : '';
+		const title =
+			typeof importMeta?.title === 'string' && importMeta.title.trim()
+				? importMeta.title.trim()
+				: songId
+					? `suno ${songId.slice(0, 8)}`
+					: 'Suno song';
+
+		let embedSrc = '';
+		if (embedUrlRaw) {
+			try {
+				const parsed = new URL(embedUrlRaw);
+				if (
+					(parsed.hostname === 'suno.com' || parsed.hostname === 'www.suno.com') &&
+					parsed.pathname.startsWith('/embed/')
+				) {
+					embedSrc = parsed.toString();
+				}
+			} catch {
+				embedSrc = '';
+			}
+		}
+		if (!embedSrc && songId && /^[a-f0-9-]{36}$/i.test(songId)) {
+			embedSrc = `https://suno.com/embed/${encodeURIComponent(songId)}`;
+		}
+		if (!embedSrc) return null;
+		return { embedSrc, title };
+	}
+
 	function injectVoteMediaFromCreation(stage, c, cid) {
 		const mediaType = typeof c.media_type === 'string' ? c.media_type : 'image';
 		const videoUrl = typeof c.video_url === 'string' ? c.video_url.trim() : '';
@@ -487,6 +548,15 @@ export function createChallengeVoteModal(opts) {
 		const isNsfw = !!(c.nsfw ?? c.meta?.nsfw);
 		const nsfwClass = isNsfw ? ' nsfw' : '';
 		const idAttr = ` data-vote-media-id="${cid}"`;
+
+		const suno = sunoEmbedFromCreation(c);
+		if (suno) {
+			setVoteMediaSunoMode(stage, true);
+			stage.innerHTML = `<div class="challenge-vote-modal-suno-embed"${idAttr}><iframe class="challenge-vote-modal-suno-embed-iframe" src="${escAttr(suno.embedSrc)}" title="${escAttr(suno.title)}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe></div>`;
+			lastVoteMediaCreationId = cid;
+			return;
+		}
+		setVoteMediaSunoMode(stage, false);
 
 		if (mediaType === 'video' && videoUrl) {
 			const poster = thumb || url ? escAttr(thumb || url) : '';
@@ -510,6 +580,7 @@ export function createChallengeVoteModal(opts) {
 	async function renderMedia(stage, row) {
 		const cid = row.creationId != null ? Number(row.creationId) : NaN;
 		if (!Number.isFinite(cid) || cid <= 0) {
+			setVoteMediaSunoMode(stage, false);
 			stage.innerHTML =
 				'<p class="challenge-vote-modal-media-fallback" role="status">No image for this entry.</p>';
 			lastVoteMediaCreationId = null;
@@ -527,6 +598,7 @@ export function createChallengeVoteModal(opts) {
 		if (cached !== undefined) {
 			if (!overlay) return;
 			if (!cached || cached._error) {
+				setVoteMediaSunoMode(stage, false);
 				stage.innerHTML =
 					'<p class="challenge-vote-modal-media-fallback" role="status">Could not load this creation.</p>';
 				lastVoteMediaCreationId = null;
@@ -536,10 +608,12 @@ export function createChallengeVoteModal(opts) {
 			return;
 		}
 
+		setVoteMediaSunoMode(stage, false);
 		stage.innerHTML = '<p class="challenge-vote-modal-media-loading" role="status">Loading…</p>';
 		const c = await fetchCreation(cid, msgId);
 		if (!overlay) return;
 		if (!c || c._error) {
+			setVoteMediaSunoMode(stage, false);
 			stage.innerHTML =
 				'<p class="challenge-vote-modal-media-fallback" role="status">Could not load this creation.</p>';
 			lastVoteMediaCreationId = null;
@@ -641,6 +715,7 @@ export function createChallengeVoteModal(opts) {
 			}
 			const stage = el('[data-challenge-vote-media]');
 			if (stage instanceof HTMLElement) {
+				setVoteMediaSunoMode(stage, false);
 				stage.innerHTML =
 					'<p class="challenge-vote-modal-media-fallback challenge-vote-modal-media-fallback--empty" role="status">No other entries to score here yet (for example, you may be the only submitter, or every peer entry is already scored). Open Challenges for the full view.</p>';
 			}
