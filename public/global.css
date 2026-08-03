@@ -8036,8 +8036,9 @@ body.chat-page .chat-page-canvas-panel-body {
 }
 
 /*
- * Inter `<-` ligature ink sits left (and slightly high) in the em box.
- * Shared optical nudge so circular back hit-targets look centered.
+ * Inter `<-` ligature ink sits left/high in the em box.
+ * Nudge so the glyph centers in the circular hit-target and lines up
+ * with adjacent header title text/icons.
  */
 .chat-page-back-icon,
 .blog-edit-back-icon {
@@ -8046,7 +8047,7 @@ body.chat-page .chat-page-canvas-panel-body {
 	letter-spacing: 0;
 	font-variant-ligatures: common-ligatures contextual;
 	font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
-	transform: translate(2px, 0.5px);
+	transform: translate(2px, 5px);
 }
 
 .chat-page-back-icon-svg {

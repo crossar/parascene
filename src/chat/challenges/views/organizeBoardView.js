@@ -556,8 +556,8 @@ function renderOrganizeCardHtml(c, vm) {
 	const footer = `<div class="challenges-organize-card-footer">
 		${organizeTrackMetaHtml(c.track || pickChallengeTrack(c.merged))}
 		<div class="challenges-organize-card-footer-actions">
-			${statsBtn}
 			${primaryActionBtn}
+			${statsBtn}
 			${restoreBtn}
 			${purgeBtn}
 		</div>
@@ -579,11 +579,9 @@ function renderOrganizeCardHtml(c, vm) {
 		${organizeHeroThumbHtml(c.merged, cid, c.track)}
 		<div class="challenges-organize-card-main">
 			<div class="challenges-organize-card-header">
-				<div class="challenges-organize-card-heading">
-					<h4 class="challenges-organize-card-title">${title}</h4>
-					<p class="challenges-organize-card-meta">${meta}</p>
-				</div>
+				<h4 class="challenges-organize-card-title">${title}</h4>
 				<span class="challenges-organize-phase-chip challenges-organize-phase-chip--${esc(chipPhase)}">${esc(organizePhaseLabel(phase, listed))}</span>
+				<p class="challenges-organize-card-meta">${meta}</p>
 			</div>
 			${footer}
 		</div>

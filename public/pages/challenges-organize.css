@@ -323,15 +323,12 @@
 	letter-spacing: 0.01em;
 }
 
-/* Stretches top-to-bottom; width set to match height (square) after layout.
-   Cap width so long titles / wrapped actions can't widen the thumb and feed a taller card. */
+/* Stretches top-to-bottom; width set to match height (square) after layout. */
 .challenges-organize-card-media {
 	position: relative;
 	flex: 0 0 auto;
 	align-self: stretch;
 	width: var(--organize-hero-side, 112px);
-	max-width: min(112px, 38%);
-	min-width: 72px;
 	overflow: hidden;
 	border-radius: 0;
 	background: color-mix(in srgb, var(--text) 6%, transparent);
@@ -394,30 +391,38 @@
 }
 
 .challenges-organize-card-header {
-	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 10px;
-}
-
-.challenges-organize-card-heading {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-areas:
+		'title status'
+		'meta meta';
+	column-gap: 10px;
+	row-gap: 0;
+	align-items: center;
 	min-width: 0;
-	flex: 1;
-}
-
-.challenges-organize-card-header .challenges-organize-phase-chip {
-	flex-shrink: 0;
-	margin-left: auto;
 }
 
 .challenges-organize-card-title {
+	grid-area: title;
 	margin: 0;
+	min-width: 0;
 	font-size: 16px;
 	font-weight: 600;
 	line-height: 1.25;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.challenges-organize-card-header .challenges-organize-phase-chip {
+	grid-area: status;
+	align-self: center;
+	justify-self: end;
+	flex-shrink: 0;
 }
 
 .challenges-organize-card-meta {
+	grid-area: meta;
 	margin: 6px 0 0;
 	font-size: 13px;
 	color: var(--text-muted);
@@ -451,7 +456,6 @@
 	padding: 6px 12px;
 	font-size: 13px;
 	min-height: 36px;
-	min-width: 7rem;
 	box-sizing: border-box;
 }
 
@@ -1343,5 +1347,28 @@
 
 	.challenges-organize-card-list {
 		gap: 10px;
+	}
+
+	.challenges-organize-card-title {
+		font-size: 14px;
+	}
+
+	.challenges-organize-card-header .challenges-organize-phase-chip {
+		padding-top: 2px;
+		padding-bottom: 2px;
+	}
+
+	.challenges-organize-card-meta {
+		font-size: 12px;
+		margin-top: 1px;
+	}
+
+	.challenges-organize-track-meta {
+		font-size: 11px;
+	}
+
+	.challenges-organize-card-main {
+		gap: 4px;
+		padding-bottom: 2px;
 	}
 }

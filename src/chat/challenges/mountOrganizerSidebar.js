@@ -1835,26 +1835,15 @@ export function mountChallengesOrganizerTools(host, opts) {
 	/** @type {ResizeObserver | null} */
 	let cardHeroResizeObserver = null;
 
-	/** Keep organize thumbs square without letting card growth widen them unboundedly. */
-	const ORGANIZE_HERO_SIDE_MAX = 112;
-	const ORGANIZE_HERO_SIDE_MIN = 72;
-	const ORGANIZE_HERO_WIDTH_FRAC = 0.38;
-
 	const syncOrganizeCardHeroSquares = () => {
 		const cards = host.querySelectorAll('[data-organize-card]');
 		for (const card of cards) {
 			if (!(card instanceof HTMLElement)) continue;
 			const media = card.querySelector('.challenges-organize-card-media');
 			if (!(media instanceof HTMLElement)) continue;
-			const rect = card.getBoundingClientRect();
-			const h = Math.round(rect.height);
+			const h = Math.round(card.getBoundingClientRect().height);
 			if (h <= 0) continue;
-			const maxByWidth = Math.floor(rect.width * ORGANIZE_HERO_WIDTH_FRAC);
-			const side = Math.max(
-				ORGANIZE_HERO_SIDE_MIN,
-				Math.min(h, ORGANIZE_HERO_SIDE_MAX, maxByWidth || ORGANIZE_HERO_SIDE_MAX)
-			);
-			media.style.setProperty('--organize-hero-side', `${side}px`);
+			media.style.setProperty('--organize-hero-side', `${h}px`);
 		}
 	};
 
