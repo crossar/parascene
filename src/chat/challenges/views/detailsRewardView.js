@@ -5,6 +5,7 @@ import {
 	formatCreditsLabel,
 	resolveChallengePrizes
 } from '../model/prizes.js';
+import { pickChallengeTrack } from '../model/tracks.js';
 import { esc } from '../constants.js';
 
 /**
@@ -274,29 +275,52 @@ export function renderDetailsAndReward(cfg) {
 		html += `<section class="challenge-pane-section challenge-pane-details-section"><h3 class="challenge-pane-section-label">Details</h3><div class="challenge-pane-details user-text">${esc(String(cfg.details))}</div></section>`;
 	}
 	html += renderRewardsSection(cfg);
-	html += renderHowToEnterSection();
+	html += renderHowToEnterSection(cfg);
 	return html;
 }
 
-function renderHowToEnterSection() {
-	return `<section class="challenge-pane-section challenge-pane-howto-section">
-			<h3 class="challenge-pane-section-label">How to enter</h3>
-			<ol class="challenge-pane-howto-steps">
-				<li class="challenge-pane-howto-step">
+/**
+ * @param {object} [cfg] challenge_config
+ */
+function renderHowToEnterSection(cfg) {
+	const isSuno = pickChallengeTrack(cfg) === 'suno';
+	const step1 = isSuno
+		? `<li class="challenge-pane-howto-step">
+					<span class="challenge-pane-howto-step-num" aria-hidden="true">1</span>
+					<div class="challenge-pane-howto-step-body">
+						<p class="challenge-pane-howto-step-title">Make for the brief</p>
+						<p class="challenge-pane-howto-step-text">Read <strong>Details</strong> above and create a song on <strong>Suno</strong> that fits the theme, constraints, and vibe of this round.</p>
+						<p class="challenge-pane-howto-step-text">Voters hear entries in the embedded Suno player, so your Suno profile may be visible—judge the music, not the maker.</p>
+					</div>
+				</li>`
+		: `<li class="challenge-pane-howto-step">
 					<span class="challenge-pane-howto-step-num" aria-hidden="true">1</span>
 					<div class="challenge-pane-howto-step-body">
 						<p class="challenge-pane-howto-step-title">Design for the brief</p>
 						<p class="challenge-pane-howto-step-text">Read <strong>Details</strong> above and make something that fits the theme, constraints, and vibe of this round.</p>
 						<p class="challenge-pane-howto-step-text">Voting is blind: people score entries without knowing who made them. Aim for work that stands on its own—skip obvious signatures, watermarks, or tells that make it easy to guess your workflow or identity.</p>
 					</div>
-				</li>
-				<li class="challenge-pane-howto-step">
+				</li>`;
+	const step2 = isSuno
+		? `<li class="challenge-pane-howto-step">
+					<span class="challenge-pane-howto-step-num" aria-hidden="true">2</span>
+					<div class="challenge-pane-howto-step-body">
+						<p class="challenge-pane-howto-step-title">Import your Suno link</p>
+						<p class="challenge-pane-howto-step-text">Open <a href="/create">Create</a>, choose <strong>Import Media</strong>, and paste your suno.com song link. We’ll save the cover and make a playable creation—you’ll submit from that page once it’s ready.</p>
+					</div>
+				</li>`
+		: `<li class="challenge-pane-howto-step">
 					<span class="challenge-pane-howto-step-num" aria-hidden="true">2</span>
 					<div class="challenge-pane-howto-step-body">
 						<p class="challenge-pane-howto-step-title">Generate in Create</p>
 						<p class="challenge-pane-howto-step-text">Open <a href="/create">Create</a>, run your idea, and finish the image or video. You’ll submit from the creation page once generation is complete.</p>
 					</div>
-				</li>
+				</li>`;
+	return `<section class="challenge-pane-section challenge-pane-howto-section">
+			<h3 class="challenge-pane-section-label">How to enter</h3>
+			<ol class="challenge-pane-howto-steps">
+				${step1}
+				${step2}
 				<li class="challenge-pane-howto-step">
 					<span class="challenge-pane-howto-step-num" aria-hidden="true">3</span>
 					<div class="challenge-pane-howto-step-body">

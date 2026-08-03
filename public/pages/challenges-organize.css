@@ -323,12 +323,15 @@
 	letter-spacing: 0.01em;
 }
 
-/* Stretches top-to-bottom; width set to match height (square) after layout. */
+/* Stretches top-to-bottom; width set to match height (square) after layout.
+   Cap width so long titles / wrapped actions can't widen the thumb and feed a taller card. */
 .challenges-organize-card-media {
 	position: relative;
 	flex: 0 0 auto;
 	align-self: stretch;
 	width: var(--organize-hero-side, 112px);
+	max-width: min(112px, 38%);
+	min-width: 72px;
 	overflow: hidden;
 	border-radius: 0;
 	background: color-mix(in srgb, var(--text) 6%, transparent);
