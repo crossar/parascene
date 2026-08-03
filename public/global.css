@@ -1668,7 +1668,7 @@ header .create-button.btn-primary {
 }
 
 @media (max-width: 768px) {
-	body[data-entry="app"] .chat-page-sidebar-pseudo .chat-page-sidebar-row--also-in-app-primary-nav {
+	body[data-entry="app"] .chat-page-sidebar-pseudo .chat-page-sidebar-row--also-in-mobile-primary-nav {
 		display: none;
 	}
 }
@@ -8035,6 +8035,20 @@ body.chat-page .chat-page-canvas-panel-body {
 	outline-offset: 2px;
 }
 
+/*
+ * Inter `<-` ligature ink sits left (and slightly high) in the em box.
+ * Shared optical nudge so circular back hit-targets look centered.
+ */
+.chat-page-back-icon,
+.blog-edit-back-icon {
+	display: block;
+	line-height: 1;
+	letter-spacing: 0;
+	font-variant-ligatures: common-ligatures contextual;
+	font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
+	transform: translate(2px, 0.5px);
+}
+
 .chat-page-back-icon-svg {
 	display: block;
 	width: 22px;
@@ -10975,9 +10989,7 @@ body.blog-edit-page .blog-edit-route {
 }
 
 .blog-edit-back-icon {
-	display: block;
 	font-size: 1.375rem;
-	line-height: 1;
 	font-weight: 500;
 }
 

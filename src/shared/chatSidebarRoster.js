@@ -150,11 +150,28 @@ export const SIDEBAR_TOP_STRIP_CHANNEL_SLUGS = new Set(
 );
 
 /**
- * Strip slugs that mirror primary app chrome: `app-navigation` links in `pages/app.html` (feed, explore, creations)
- * and the same `data-route` values on `app-navigation-mobile` (`public/components/navigation/mobile.js`).
- * Rows get class `chat-page-sidebar-row--also-in-app-primary-nav` where layout/CSS hides dupes of header / mobile nav.
+ * Strip slugs that mirror desktop header chrome: `app-navigation` links in `pages/app.html` (feed, explore, creations).
+ * Rows get class `chat-page-sidebar-row--also-in-app-primary-nav` (Connect sidebar hides these).
  */
 export const SIDEBAR_STRIP_SLUGS_ALSO_IN_APP_PRIMARY_NAV = new Set(['feed', 'explore', 'creations']);
+
+/**
+ * Strip slugs that mirror mobile bottom nav (`app-navigation-mobile`: feed, challenges, creations).
+ * Rows get class `chat-page-sidebar-row--also-in-mobile-primary-nav` (mobile chat / Connect hide these).
+ */
+export const SIDEBAR_STRIP_SLUGS_ALSO_IN_MOBILE_PRIMARY_NAV = new Set(['feed', 'challenges', 'creations']);
+
+/** @param {string} slug */
+function sidebarPseudoStripPrimaryNavClasses(slug) {
+	let cls = '';
+	if (SIDEBAR_STRIP_SLUGS_ALSO_IN_APP_PRIMARY_NAV.has(slug)) {
+		cls += ' chat-page-sidebar-row--also-in-app-primary-nav';
+	}
+	if (SIDEBAR_STRIP_SLUGS_ALSO_IN_MOBILE_PRIMARY_NAV.has(slug)) {
+		cls += ' chat-page-sidebar-row--also-in-mobile-primary-nav';
+	}
+	return cls;
+}
 
 /**
  * Synthetic channel rows appended for the **Channels** section (none today — strip covers reserved slugs).
@@ -434,8 +451,7 @@ export function buildSidebarPseudoStripListStaticHtml(requestPath = '', opts = {
 		const bg = getAvatarColor(slug);
 		const iconAvatarHtml = pseudoStripRouteIconAvatarHtml(slug);
 		const avatarHtml = iconAvatarHtml || `<div class="comment-avatar connect-chat-thread-row-channel-avatar chat-page-sidebar-channel-avatar" style="background: ${escapeHtmlPseudoStrip(bg)};" aria-hidden="true">#</div>`;
-		const navDup = SIDEBAR_STRIP_SLUGS_ALSO_IN_APP_PRIMARY_NAV.has(slug);
-		const navCls = navDup ? ' chat-page-sidebar-row--also-in-app-primary-nav' : '';
+		const navCls = sidebarPseudoStripPrimaryNavClasses(slug);
 		const activeCls = activeSlug === slug ? ' is-active' : '';
 		const feedBetaCls = slug === 'feed' && title.includes('[beta]') ? ' chat-page-sidebar-row--feed-beta' : '';
 		const notesHtml = slug === 'creations' ? buildSidebarNotesStripAnchorHtml(requestPath) : '';
@@ -841,7 +857,8 @@ export function tryPatchPseudoStripDomInPlace(listEl, stripRows, nav) {
 	if (anchors.length !== rows.length) return false;
 	const hrefBase =
 		typeof window !== 'undefined' && window.location?.href ? window.location.href : 'http://localhost/';
-	const navDupSlugs = SIDEBAR_STRIP_SLUGS_ALSO_IN_APP_PRIMARY_NAV;
+	const appNavDupSlugs = SIDEBAR_STRIP_SLUGS_ALSO_IN_APP_PRIMARY_NAV;
+	const mobileNavDupSlugs = SIDEBAR_STRIP_SLUGS_ALSO_IN_MOBILE_PRIMARY_NAV;
 	for (let i = 0; i < rows.length; i++) {
 		const t = rows[i];
 		const a = anchors[i];
@@ -894,7 +911,14 @@ export function tryPatchPseudoStripDomInPlace(listEl, stripRows, nav) {
 			a.removeAttribute('data-chat-sidebar-notes');
 		}
 		a.classList.toggle('is-active', active);
-		a.classList.toggle('chat-page-sidebar-row--also-in-app-primary-nav', Boolean(slug && navDupSlugs.has(slug)));
+		a.classList.toggle(
+			'chat-page-sidebar-row--also-in-app-primary-nav',
+			Boolean(slug && appNavDupSlugs.has(slug))
+		);
+		a.classList.toggle(
+			'chat-page-sidebar-row--also-in-mobile-primary-nav',
+			Boolean(slug && mobileNavDupSlugs.has(slug))
+		);
 		const titleLine = a.querySelector(':scope > .chat-page-sidebar-row-body .chat-page-sidebar-row-title-line');
 		if (!titleLine) return false;
 		titleLine.querySelectorAll('.chat-page-sidebar-unread').forEach((el) => el.remove());

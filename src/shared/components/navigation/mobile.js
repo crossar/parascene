@@ -1,4 +1,5 @@
 let homeIcon;
+let trophyIcon;
 let feedNavLabel;
 let readFeedBetaEnabledSync;
 let applyFeedBetaNavLabelsToDom;
@@ -20,6 +21,7 @@ async function loadDeps() {
 	_depsPromise = (async () => {
 		const iconsMod = await import(`../../icons/svg-strings.js${qs}`);
 		homeIcon = iconsMod.homeIcon;
+		trophyIcon = iconsMod.trophyIcon;
 		const feedBetaNavMod = await import(`../../shared/feedBetaNav.js${qs}`);
 		feedNavLabel = feedBetaNavMod.feedNavLabel;
 		readFeedBetaEnabledSync = feedBetaNavMod.readFeedBetaEnabledSync;
@@ -294,9 +296,17 @@ class AppNavigationMobile extends HTMLElement {
 		let currentRoute = pathname === '/' || pathname === '' ? defaultRoute : pathname.slice(1);
 		if (pathname.startsWith('/chat/c/')) {
 			const slug = pathname.slice('/chat/c/'.length).split('/')[0].trim().toLowerCase();
-			if (slug === 'feed' || slug === 'explore' || slug === 'creations') {
+			if (slug === 'feed' || slug === 'challenges' || slug === 'creations' || slug === 'explore') {
 				currentRoute = slug;
 			}
+		}
+		if (
+			pathname === '/challenges' ||
+			pathname === '/challenges/organize' ||
+			pathname === '/challenges/details' ||
+			pathname.startsWith('/challenges/details/')
+		) {
+			currentRoute = 'challenges';
 		}
 		if (
 			pathname === '/chat' &&
@@ -359,13 +369,9 @@ class AppNavigationMobile extends HTMLElement {
 			${homeIcon('mobile-bottom-nav-icon mobile-bottom-nav-icon-home')}
             <span class="mobile-bottom-nav-text feed-nav-label-text" data-feed-nav="home" aria-hidden="true">${homeLabel}</span>
           </button>
-          <button class="mobile-bottom-nav-item" data-route="explore" aria-label="Explore">
-            <svg class="mobile-bottom-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="2" y1="12" x2="22" y2="12"></line>
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-            </svg>
-            <span class="mobile-bottom-nav-text" aria-hidden="true">Explore</span>
+          <button class="mobile-bottom-nav-item" data-route="challenges" aria-label="Challenges">
+			${typeof trophyIcon === 'function' ? trophyIcon('mobile-bottom-nav-icon') : ''}
+            <span class="mobile-bottom-nav-text" aria-hidden="true">Challenges</span>
           </button>
 		  <button class="mobile-bottom-nav-item create-button" data-route="create" aria-label="Create">
             <span class="create-button-icon" aria-hidden="true">

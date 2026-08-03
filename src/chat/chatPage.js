@@ -1376,8 +1376,6 @@ export async function initChatPage(root, options = {}) {
 	let challengesOrganizeTeardown = null;
 	/** @type {{ remount?: () => Promise<void>, softRefresh?: () => Promise<boolean>, openGlobalSettings?: () => void, isOceanman?: () => boolean } | null} */
 	let challengesOrganizeApi = null;
-	/** @type {null | (() => void)} */
-	let challengesOrganizePtrCleanup = null;
 	/** Challenge channel: viewer may open Organize (see `isChallengeChannelAdmin`). */
 	let chatChallengesOrganizerEligible = false;
 	/** Oceanman-only settings gear on Organize route. */
@@ -11332,14 +11330,6 @@ export async function initChatPage(root, options = {}) {
 	}
 
 	function tearDownChallengesOrganizeView() {
-		if (typeof challengesOrganizePtrCleanup === 'function') {
-			try {
-				challengesOrganizePtrCleanup();
-			} catch {
-				// ignore
-			}
-		}
-		challengesOrganizePtrCleanup = null;
 		if (typeof challengesOrganizeTeardown === 'function') {
 			try {
 				challengesOrganizeTeardown();
@@ -11352,82 +11342,6 @@ export async function initChatPage(root, options = {}) {
 		chatChallengesOrganizeOceanman = false;
 		setChallengesOrganizeBodyClass(false);
 		syncOrganizeSettingsButtons();
-	}
-
-	/**
-	 * Custom pull-to-refresh on Organize scroll root (document on mobile viewport-scroll; messages pane on desktop).
-	 * @param {() => Promise<void>} onRefresh
-	 */
-	function bindChallengesOrganizePullToRefresh(onRefresh) {
-		if (typeof challengesOrganizePtrCleanup === 'function') {
-			try {
-				challengesOrganizePtrCleanup();
-			} catch {
-				// ignore
-			}
-		}
-		challengesOrganizePtrCleanup = null;
-		const messagesEl = root.querySelector('[data-chat-messages]');
-		if (!(messagesEl instanceof HTMLElement)) return;
-
-		let startY = 0;
-		let pulling = false;
-		let refreshing = false;
-		const THRESHOLD = 64;
-
-		const scrollTop = () => {
-			if (isChatPageMobileLayout() && document.body?.classList.contains('chat-page--viewport-scroll')) {
-				return window.scrollY || document.documentElement.scrollTop || 0;
-			}
-			return messagesEl.scrollTop || 0;
-		};
-
-		const onTouchStart = (e) => {
-			if (refreshing || !(e.touches && e.touches[0])) return;
-			if (scrollTop() > 2) {
-				pulling = false;
-				return;
-			}
-			startY = e.touches[0].clientY;
-			pulling = true;
-		};
-		const onTouchMove = (e) => {
-			if (!pulling || refreshing || !(e.touches && e.touches[0])) return;
-			if (scrollTop() > 2) {
-				pulling = false;
-				messagesEl.classList.remove('chat-page-organize-ptr-pulling');
-				return;
-			}
-			const dy = e.touches[0].clientY - startY;
-			messagesEl.classList.toggle('chat-page-organize-ptr-pulling', dy > 12);
-		};
-		const onTouchEnd = (e) => {
-			if (!pulling || refreshing) return;
-			pulling = false;
-			messagesEl.classList.remove('chat-page-organize-ptr-pulling');
-			const endY = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : startY;
-			const dy = endY - startY;
-			if (dy < THRESHOLD || scrollTop() > 2) return;
-			refreshing = true;
-			messagesEl.classList.add('chat-page-organize-ptr-refreshing');
-			Promise.resolve()
-				.then(() => onRefresh())
-				.catch(() => {})
-				.finally(() => {
-					refreshing = false;
-					messagesEl.classList.remove('chat-page-organize-ptr-refreshing');
-				});
-		};
-
-		messagesEl.addEventListener('touchstart', onTouchStart, { passive: true });
-		messagesEl.addEventListener('touchmove', onTouchMove, { passive: true });
-		messagesEl.addEventListener('touchend', onTouchEnd, { passive: true });
-		challengesOrganizePtrCleanup = () => {
-			messagesEl.removeEventListener('touchstart', onTouchStart);
-			messagesEl.removeEventListener('touchmove', onTouchMove);
-			messagesEl.removeEventListener('touchend', onTouchEnd);
-			messagesEl.classList.remove('chat-page-organize-ptr-pulling', 'chat-page-organize-ptr-refreshing');
-		};
 	}
 
 	async function loadChallengesOrganizeView() {
@@ -11514,11 +11428,6 @@ export async function initChatPage(root, options = {}) {
 			challengesOrganizeTeardown = api.destroy;
 			chatChallengesOrganizeOceanman = Boolean(api.isOceanman?.());
 			syncOrganizeSettingsButtons();
-			bindChallengesOrganizePullToRefresh(async () => {
-				if (typeof challengesOrganizeApi?.remount === 'function') {
-					await challengesOrganizeApi.remount();
-				}
-			});
 			scrollChatFeedPseudoChannelToTop();
 		} catch (err) {
 			console.error('[Chat page] challenges organize:', err);

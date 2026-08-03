@@ -970,15 +970,6 @@ body.chat-page.chat-page--challenges-organize .challenges-organize-root--spa {
 	}
 }
 
-.chat-page-messages.chat-page-organize-ptr-pulling {
-	opacity: 0.92;
-}
-
-body.chat-page.chat-page--challenges-organizer-modal-open .chat-page-messages.chat-page-organize-ptr-refreshing {
-	opacity: 1;
-	pointer-events: auto;
-}
-
 /* Organizer modals mount inside the thread messages pane; keep them above chat chrome. */
 body.chat-page.chat-page--challenges-organizer-modal-open .chat-page-thread-pane {
 	position: relative;
@@ -2011,7 +2002,7 @@ body.chat-page.chat-page--mobile-sidebar-open .chat-page-sidebar-empty {
 	line-height: 1.45;
 }
 
-body.chat-page.chat-page--mobile-sidebar-open .chat-page-sidebar-pseudo .chat-page-sidebar-row--also-in-app-primary-nav {
+body.chat-page.chat-page--mobile-sidebar-open .chat-page-sidebar-pseudo .chat-page-sidebar-row--also-in-mobile-primary-nav {
 	display: none;
 }
 
@@ -2325,15 +2316,9 @@ body.chat-page.chat-page--mobile-sidebar-open .chat-page-sidebar-create-sticky {
 	}
 
 	.chat-page-mobile-chrome-back .chat-page-back-icon {
-		display: inline-block;
 		font-family: inherit;
 		font-size: 24px;
 		font-weight: 500;
-		line-height: 1;
-		letter-spacing: 0;
-		font-variant-ligatures: common-ligatures contextual;
-		font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
-		transform: translateY(5px);
 	}
 
 	.chat-page-mobile-chrome-back:hover {
@@ -2605,12 +2590,9 @@ body.chat-page .chat-route {
 }
 
 .chat-page-back .chat-page-back-icon {
-	display: inline-block;
 	font-family: inherit;
 	font-size: 26px;
-	line-height: 1;
-	font-variant-ligatures: common-ligatures contextual;
-	font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
+	font-weight: 500;
 }
 
 .chat-page-title {

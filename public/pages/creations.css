@@ -5372,25 +5372,15 @@ button.creation-detail-history-thumb-link.creation-detail-history-unavailable.cr
 		transform: none;
 	}
 
-	.creation-detail-lineage-modal .chat-page-mobile-chrome-back:active .chat-page-back-icon {
-		transform: translateY(7px);
-	}
-
 	.creation-detail-lineage-modal .chat-page-mobile-chrome-back:focus-visible {
 		outline: 2px solid var(--focus);
 		outline-offset: 2px;
 	}
 
 	.creation-detail-lineage-modal .chat-page-mobile-chrome-back .chat-page-back-icon {
-		display: block;
 		font-family: inherit;
 		font-size: 24px;
 		font-weight: 500;
-		line-height: 1;
-		letter-spacing: 0;
-		font-variant-ligatures: common-ligatures contextual;
-		font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
-		transform: translateY(7px);
 	}
 }
 
@@ -5510,29 +5500,15 @@ button.creation-detail-history-thumb-link.creation-detail-history-unavailable.cr
 	transform: scale(0.96);
 }
 
-.creation-detail-overlay-chrome .chat-page-mobile-chrome-back:active .chat-page-back-icon {
-	transform: none;
-}
-
 .creation-detail-overlay-chrome .chat-page-mobile-chrome-back:focus-visible {
 	outline: 2px solid var(--focus);
 	outline-offset: 2px;
 }
 
 .creation-detail-overlay-chrome .chat-page-mobile-chrome-back .chat-page-back-icon {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 24px;
-	height: 24px;
 	font-family: inherit;
 	font-size: 24px;
 	font-weight: 500;
-	line-height: 1;
-	letter-spacing: 0;
-	font-variant-ligatures: common-ligatures contextual;
-	font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
-	transform: none;
 }
 
 .creation-detail-overlay-chrome .creation-detail-overlay-dismiss {
