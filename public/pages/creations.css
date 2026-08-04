@@ -3920,42 +3920,36 @@ body.view-nsfw .creation-detail-image-wrapper.nsfw::after {
 	}
 }
 
-/* Challenge organizer: assign this creation as hero / results / theme-vote media */
-.creation-detail-organizer-assign {
+/* Challenge actions: submit + organizer assign CTAs (modals load on click) */
+.creation-detail-challenge-actions {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 0 0 20px;
+	max-width: 36rem;
+}
+
+.creation-detail-challenge-actions-btns {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.creation-detail-challenge-submit-cta {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 0 0 20px;
+	max-width: 28rem;
+}
+
+.creation-detail-organizer-assign-modal .creation-detail-challenge-submit-modal-body {
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
-	margin: 0 0 12px;
-	padding: 12px 14px;
-	border-radius: 10px;
-	border: 1px dashed color-mix(in srgb, var(--accent) 34%, var(--border));
-	background: color-mix(in srgb, var(--accent) 5%, var(--surface));
-}
-
-.creation-detail-organizer-assign-header {
-	display: flex;
-	align-items: flex-start;
-	gap: 12px;
-	min-width: 0;
-}
-
-.creation-detail-organizer-assign-icon {
-	flex-shrink: 0;
-	color: var(--accent);
-	line-height: 0;
-}
-
-.creation-detail-organizer-assign-icon svg {
-	display: block;
-	width: 22px;
-	height: 22px;
-}
-
-.creation-detail-organizer-assign-title {
-	margin: 0 0 4px;
-	font-size: 0.8125rem;
-	font-weight: 600;
-	color: var(--text);
 }
 
 .creation-detail-organizer-assign-hint {
@@ -4066,35 +4060,6 @@ body.view-nsfw .creation-detail-image-wrapper.nsfw::after {
 
 .creation-detail-organizer-assign-status-error {
 	color: var(--color-red-fg, #d66);
-}
-
-.creation-detail-organizer-submit {
-	display: flex;
-	flex-direction: column;
-	gap: 10px;
-	margin-top: 4px;
-	padding-top: 12px;
-	border-top: 1px dashed color-mix(in srgb, var(--accent) 28%, var(--border));
-}
-
-.creation-detail-organizer-submit-title {
-	margin: 0;
-	font-size: 0.8125rem;
-	font-weight: 600;
-	color: var(--text);
-}
-
-.creation-detail-organizer-submit-btn {
-	align-self: flex-start;
-}
-
-.creation-detail-challenge-submit-cta {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 8px;
-	margin: 0 0 20px;
-	max-width: 28rem;
 }
 
 .creation-detail-challenge-submit-btn {
