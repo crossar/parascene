@@ -13,6 +13,10 @@ import {
 	viewerOrganizesTrack,
 	tracksViewerCanOrganize
 } from "../../src/chat/challenges/challengeAdmin.js";
+import {
+	challengeAcceptsMediaType,
+	creationMediaTypeFromMeta
+} from "../../src/chat/challenges/model/tracks.js";
 import { verifyShareToken } from "./shareLink.js";
 
 export {
@@ -119,7 +123,18 @@ export function listChallengeConfigsAcceptingSubmissions(messagesNewestFirst, no
 }
 
 /**
- * Public eligibility list shape for creation detail (no media filter yet — phase 8).
+ * Filter accepting challenges to those whose accepted_media includes the creation media type.
+ * @param {{ cfg: object, challengeId: string, created_at?: string }[]} accepting
+ * @param {unknown} mediaType
+ * @returns {{ cfg: object, challengeId: string, created_at?: string }[]}
+ */
+export function filterAcceptingChallengesByMedia(accepting, mediaType) {
+	const list = Array.isArray(accepting) ? accepting : [];
+	return list.filter((row) => challengeAcceptsMediaType(row?.cfg, mediaType));
+}
+
+/**
+ * Public eligibility list shape for creation detail.
  * @param {{ cfg: object, challengeId: string }[]} accepting
  * @returns {{ challenge_id: string, title: string, details: string, ends_at: string }[]}
  */
@@ -562,6 +577,8 @@ export async function findDuplicateChallengeSubmissionMessage(sb, threadId, send
  *   threadId: number,
  *   note?: string,
  *   nowMs?: number,
+ *   challengeId?: string,
+ *   mediaType?: string,
  * }} args
  * @returns {Promise<{ ok: true, challengeId: string, cfg: object, threadRow: object, noteTrim: string } | { ok: false, status: number, message: string }>}
  */
@@ -574,9 +591,14 @@ export async function validateChallengeSubmission({
 	threadId,
 	note,
 	nowMs,
-	challengeId: requestedChallengeId
+	challengeId: requestedChallengeId,
+	mediaType: mediaTypeArg
 }) {
 	const now = typeof nowMs === "number" ? nowMs : Date.now();
+	const mediaType =
+		typeof mediaTypeArg === "string" && mediaTypeArg.trim()
+			? mediaTypeArg.trim().toLowerCase()
+			: creationMediaTypeFromMeta(meta);
 	if (Number(userId) !== Number(ownerUserId)) {
 		return { ok: false, status: 403, message: "Only the creation owner can submit to a challenge." };
 	}
@@ -604,7 +626,8 @@ export async function validateChallengeSubmission({
 		const messagesNewest = [...messages].reverse();
 		const wantId =
 			requestedChallengeId != null ? String(requestedChallengeId).trim() : "";
-		const accepting = listChallengeConfigsAcceptingSubmissions(messagesNewest, now);
+		const acceptingAll = listChallengeConfigsAcceptingSubmissions(messagesNewest, now);
+		const accepting = filterAcceptingChallengesByMedia(acceptingAll, mediaType);
 		let cfg = null;
 		if (wantId) {
 			cfg = pickLatestChallengeConfigForChallengeId(messagesNewest, wantId);
@@ -614,6 +637,13 @@ export async function validateChallengeSubmission({
 					ok: false,
 					status: 400,
 					message: "That challenge is not accepting submissions right now."
+				};
+			}
+			if (!challengeAcceptsMediaType(cfg, mediaType)) {
+				return {
+					ok: false,
+					status: 400,
+					message: "This creation's media type is not accepted by that challenge."
 				};
 			}
 		} else if (accepting.length === 1) {
@@ -629,7 +659,14 @@ export async function validateChallengeSubmission({
 		const challengeId =
 			cfg && cfg.challenge_id != null ? String(cfg.challenge_id).trim() : "";
 		if (!challengeId) {
-			return { ok: false, status: 400, message: "No challenge is accepting submissions right now." };
+			return {
+				ok: false,
+				status: 400,
+				message:
+					acceptingAll.length > 0 && accepting.length === 0
+						? "No open challenge accepts this creation's media type."
+						: "No challenge is accepting submissions right now."
+			};
 		}
 
 		if (metaHasChallengeSubmission(meta, tid, challengeId)) {

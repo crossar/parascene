@@ -37,7 +37,7 @@ Note to the implementer: this is a big plan — progress MUST be visible in this
 - Phase 5 — Board actions + Announce tab + review modal: [x] built (2026-08-02: Results Stats|Payout; **Announce** tab with dated slots + upsert/clear on save via organize/pins) · [x] validated (2026-08-02)
 - Phase 6 — Auto open-pins: [x] collapsed to a note (2026-08-02) — no build needed; Announce-tab dated windows already fire pins on the clock · [x] validated (2026-08-02, phases 3–6 organizer-console walkthrough)
 - Phase 7 — Multi-track surfaces (feed board + /challenges stacked cards + submit picker + pin exclusivity): [x] built (2026-08-02; /challenges multi-track = stacked pared legacy cards, not summary/detail) · [x] validated (2026-08-03)
-- Phase 8 — accepted_media + media filtering: [ ] built · [ ] validated
+- Phase 8 — accepted_media + media filtering: [x] built (2026-08-04: track defaults + eligibility/POST filter; create inherits `accepted_media`; creation-detail CTA no longer hard-blocks audio/video) · [ ] validated
 - Phase 9 — Music challenge wiring: [ ] built · [ ] validated
 - Phase 10 — Cleanup + data contract doc: [ ] built · [ ] validated
 
@@ -119,7 +119,7 @@ prizes: {
 ```
 
 - Cutover done (2026-08-02): `db/maintenance/migrate-challenge-prizes.js exec` converted all existing `challenge_config` messages (20 rows) — `prizes.main` parsed from legacy digits, participation off for historical challenges, `reward_participation`/`reward` text folded into `reward_custom`, legacy keys deleted. Backup jsonl in `db/maintenance/backups/`. No legacy read fallback remains in code; a config without a `prizes` block renders no reward cards.
-- On create (`src/chat/challenges/mountOrganizerSidebar.js`): prefill `prizes` (+ `reward_custom`) from the most recent non-deleted same-track config by **submission start date** (`submission_start_at`); fall back to presets in `model/tracks.js`. (`accepted_media` waits for phase 8.)
+- On create (`src/chat/challenges/mountOrganizerSidebar.js`): prefill `prizes` (+ `reward_custom`) and `accepted_media` from the most recent non-deleted same-track config by **submission start date** (`submission_start_at`); fall back to presets in `model/tracks.js`.
 - Track presets: default `prizes` (main + participation categories enabled with starter amounts — customizable in the form). Participation defaults: `[50, 30, 20]` credits each category (tune in `tracks.js`).
 - Edit modal (`views/adminView.js`): prizes tab = numeric main amounts, enable/amounts for top submitters and top voters, and the Custom text field.
 - Participant cards render medal rows procedurally ("400 credits") from `prizes.main` (>0 only); a Participation card ("Prizes for top 3 voters and top 3 submitters" — spot counts from funded tiers, no amounts) when a category is enabled; Custom card from `reward_custom`. Configs without a `prizes` block render no reward cards. Feed topPrize/totalRewardCredits derive from `prizes.main` only (participation amounts stay hidden until results).

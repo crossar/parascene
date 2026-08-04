@@ -14,13 +14,34 @@ import { MODAL_DISMISS_ICON_SVG } from '../../shared/modalDismiss.js';
 let challengeVoteModalPopstateDismiss = /** @type {null | (() => void)} */ (null);
 
 /**
- * @returns {boolean} true if the vote modal was open and is now torn down (suppress further popstate handling).
+ * Count of programmatic `history.back()` calls from UI close that must not re-run route loaders.
+ * Cleared by the capture-phase listener / {@link dismissChallengeVoteModalFromBrowserHistoryIfOpen}.
+ */
+let voteModalPopstateSuppress = 0;
+
+/**
+ * @returns {boolean} true if this popstate was for the vote modal (dismissed or suppressed) —
+ * callers should stop further popstate handling so the page behind does not reload.
  */
 export function dismissChallengeVoteModalFromBrowserHistoryIfOpen() {
+	if (voteModalPopstateSuppress > 0) {
+		voteModalPopstateSuppress -= 1;
+		return true;
+	}
 	if (!challengeVoteModalPopstateDismiss) return false;
 	challengeVoteModalPopstateDismiss();
 	return true;
 }
+
+/** Capture-phase so UI-close `history.back()` cannot reach chat/nav route reloaders on any page. */
+window.addEventListener(
+	'popstate',
+	(e) => {
+		if (!dismissChallengeVoteModalFromBrowserHistoryIfOpen()) return;
+		if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+	},
+	true
+);
 
 /**
  * @param {{ viewerVote?: string | null }} row
@@ -149,8 +170,6 @@ export function createChallengeVoteModal(opts) {
 	let modalTrack = /** @type {string} */ ('');
 	/** `pushState` layer while modal is open — browser back should close modal. */
 	let voteModalHistoryPushed = false;
-	/** Ignore the next `popstate` from programmatic `history.back()` after closing/replacing the modal. */
-	let voteModalPopstateSuppress = 0;
 
 	function cancelVoteCommitDebounce() {
 		if (voteCommitTimer != null) {
@@ -1025,7 +1044,10 @@ export function createChallengeVoteModal(opts) {
 				typeof openOpts.track === 'string' ? openOpts.track.trim().toLowerCase() : '';
 			heatNeedsSeedFromRow = true;
 			lastPaintedHeatScore = 0;
-			destroy();
+			// Tear down a prior open of this instance without history.back — we keep or
+			// re-push the modal history layer below (back+push races popstate vs pushState).
+			const hadModalHistory = voteModalHistoryPushed;
+			destroy(true);
 
 			const headingText = voteModalHeadingText(openOpts.challengeTitle);
 
@@ -1081,9 +1103,11 @@ export function createChallengeVoteModal(opts) {
 			}
 
 			voteModalHistoryPushed = true;
-			const prevState =
-				typeof history.state === 'object' && history.state !== null ? history.state : {};
-			history.pushState({ ...prevState, psChallengeVoteModal: 1 }, '', window.location.href);
+			if (!hadModalHistory) {
+				const prevState =
+					typeof history.state === 'object' && history.state !== null ? history.state : {};
+				history.pushState({ ...prevState, psChallengeVoteModal: 1 }, '', window.location.href);
+			}
 			challengeVoteModalPopstateDismiss = () => destroy(true);
 		},
 		destroy

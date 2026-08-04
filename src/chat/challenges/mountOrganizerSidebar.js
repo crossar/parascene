@@ -47,7 +47,8 @@ import {
 } from './model/tracks.js';
 import {
 	readPrizesFromFormData,
-	resolveCreatePrizePrefills
+	resolveCreatePrizePrefills,
+	resolveCreateAcceptedMedia
 } from './model/prizes.js';
 import { summarizeLatestChallengeConfigs } from './model/organizerSummaries.js';
 import { buildChallengesChannelModel } from './model/buildChannelModel.js';
@@ -1055,6 +1056,9 @@ export function mountChallengesOrganizerTools(host, opts) {
 							}
 						}
 						applyRewardsAndPrizesFromForm(payload, fd, adminForm);
+						if (!isEditForm) {
+							payload.accepted_media = resolveCreateAcceptedMedia(track, boardSummaries());
+						}
 					}
 				}
 			}

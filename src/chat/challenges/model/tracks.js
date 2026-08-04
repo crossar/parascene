@@ -30,11 +30,14 @@ export function challengeTrackListRank(track) {
 	return CHALLENGE_TRACK_LIST_ORDER[key] ?? 9;
 }
 
+/** @typedef {'image' | 'video' | 'audio'} ChallengeAcceptedMedia */
+
 /**
  * @typedef {object} ChallengeTrackTemplate
  * @property {ChallengeTrack} track
  * @property {string} label
  * @property {number} defaultLengthDays
+ * @property {ChallengeAcceptedMedia[]} defaultAcceptedMedia
  * @property {{ reward_first: string, reward_second: string, reward_third: string }} defaultPrizes
  * @property {{
  *   main: { first: number, second: number, third: number },
@@ -97,12 +100,18 @@ function suggestChallengeId(track, anchorYmd) {
 	return `${ymd}-${type}-${shortChallengeIdToken()}`.slice(0, 120);
 }
 
+/** Image/video tracks (monthly + weekly). */
+export const ACCEPTED_MEDIA_IMAGE_VIDEO = /** @type {ChallengeAcceptedMedia[]} */ (['image', 'video']);
+/** Music (suno) track. */
+export const ACCEPTED_MEDIA_AUDIO = /** @type {ChallengeAcceptedMedia[]} */ (['audio']);
+
 /** @type {ChallengeTrackTemplate[]} */
 export const CHALLENGE_TRACK_TEMPLATES = [
 	{
 		track: 'monthly',
 		label: 'Monthly',
 		defaultLengthDays: 28,
+		defaultAcceptedMedia: [...ACCEPTED_MEDIA_IMAGE_VIDEO],
 		defaultPrizes: {
 			reward_first: '1200 credits',
 			reward_second: '700 credits',
@@ -124,6 +133,7 @@ export const CHALLENGE_TRACK_TEMPLATES = [
 		track: 'weekly',
 		label: 'Weekly',
 		defaultLengthDays: 7,
+		defaultAcceptedMedia: [...ACCEPTED_MEDIA_IMAGE_VIDEO],
 		defaultPrizes: {
 			reward_first: '400 credits',
 			reward_second: '200 credits',
@@ -141,6 +151,7 @@ export const CHALLENGE_TRACK_TEMPLATES = [
 		track: 'suno',
 		label: 'Music',
 		defaultLengthDays: 7,
+		defaultAcceptedMedia: [...ACCEPTED_MEDIA_AUDIO],
 		defaultPrizes: {
 			reward_first: '400 credits',
 			reward_second: '200 credits',
@@ -162,6 +173,81 @@ export const CHALLENGE_TRACK_TEMPLATES = [
 export function getChallengeTrackTemplate(track) {
 	const t = normalizeChallengeTrack(track);
 	return CHALLENGE_TRACK_TEMPLATES.find((x) => x.track === t) || CHALLENGE_TRACK_TEMPLATES[0];
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {ChallengeAcceptedMedia | ''}
+ */
+export function normalizeChallengeMediaType(raw) {
+	const s = String(raw || '')
+		.trim()
+		.toLowerCase();
+	if (s === 'video' || s === 'audio' || s === 'image') return s;
+	return '';
+}
+
+/**
+ * Creation media type for challenge eligibility (defaults to image).
+ * @param {object | null | undefined} meta
+ * @returns {ChallengeAcceptedMedia}
+ */
+export function creationMediaTypeFromMeta(meta) {
+	const fromMeta = normalizeChallengeMediaType(meta?.media_type);
+	return fromMeta || 'image';
+}
+
+/**
+ * @param {ChallengeTrack | string} track
+ * @returns {ChallengeAcceptedMedia[]}
+ */
+export function defaultAcceptedMediaForTrack(track) {
+	const tpl = getChallengeTrackTemplate(track);
+	return Array.isArray(tpl.defaultAcceptedMedia) && tpl.defaultAcceptedMedia.length
+		? [...tpl.defaultAcceptedMedia]
+		: [...ACCEPTED_MEDIA_IMAGE_VIDEO];
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {ChallengeAcceptedMedia[]}
+ */
+export function normalizeAcceptedMedia(raw) {
+	if (!Array.isArray(raw)) return [];
+	/** @type {ChallengeAcceptedMedia[]} */
+	const out = [];
+	const seen = new Set();
+	for (const item of raw) {
+		const m = normalizeChallengeMediaType(item);
+		if (!m || seen.has(m)) continue;
+		seen.add(m);
+		out.push(m);
+	}
+	return out;
+}
+
+/**
+ * Resolve accepted media for a challenge config (explicit list, else track template default).
+ * @param {object | null | undefined} cfg
+ * @param {{ track?: ChallengeTrack | string }} [opts]
+ * @returns {ChallengeAcceptedMedia[]}
+ */
+export function resolveChallengeAcceptedMedia(cfg, opts = {}) {
+	const explicit = normalizeAcceptedMedia(cfg?.accepted_media);
+	if (explicit.length) return explicit;
+	const track =
+		opts.track != null ? normalizeChallengeTrack(opts.track) : pickChallengeTrack(cfg);
+	return defaultAcceptedMediaForTrack(track);
+}
+
+/**
+ * @param {object | null | undefined} cfg
+ * @param {unknown} mediaType
+ * @param {{ track?: ChallengeTrack | string }} [opts]
+ */
+export function challengeAcceptsMediaType(cfg, mediaType, opts = {}) {
+	const want = normalizeChallengeMediaType(mediaType) || 'image';
+	return resolveChallengeAcceptedMedia(cfg, opts).includes(want);
 }
 
 /**

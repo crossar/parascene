@@ -1,5 +1,10 @@
 import { pickChallengeConfigTimestamp, isChallengeConfigSoftDeleted, isChallengeConfigPurged } from '../challengeAdmin.js';
-import { normalizeChallengeTrack, pickChallengeTrack, getChallengeTrackTemplate } from './tracks.js';
+import {
+	normalizeChallengeTrack,
+	pickChallengeTrack,
+	getChallengeTrackTemplate,
+	resolveChallengeAcceptedMedia
+} from './tracks.js';
 
 /** @typedef {{ first: number, second: number, third: number }} PrizeMainAmounts */
 /** @typedef {{ enabled: boolean, amounts: [number, number, number] }} PrizeParticipationCategory */
@@ -240,6 +245,17 @@ export function resolveCreatePrizePrefills(track, summaries) {
 		rewardFields: { reward_custom: '' },
 		prizeStructure: defaultPrizeStructureForTrack(track)
 	};
+}
+
+/**
+ * Prefill `accepted_media` for create: inherit from latest same-track by start date, else template.
+ * @param {string} track
+ * @param {{ challenge_id: string, merged?: object, latest?: object }[]} summaries
+ * @returns {import('./tracks.js').ChallengeAcceptedMedia[]}
+ */
+export function resolveCreateAcceptedMedia(track, summaries) {
+	const inherited = findLatestSameTrackConfigByStart(summaries, track);
+	return resolveChallengeAcceptedMedia(inherited || { track }, { track });
 }
 
 /**

@@ -69,12 +69,16 @@ import {
 	validateChallengeSubmission,
 	listChallengeConfigsAcceptingSubmissions,
 	summarizeAcceptingChallengesForEligibility,
+	filterAcceptingChallengesByMedia,
 	fetchThreadMessagesChronological,
 	metaHasChallengeSubmission,
 	isChatThreadMember,
 	summarizeChallengeSubmissionPhases,
 	computeChallengeEndedByImageId
 } from "./utils/challengeSubmitShared.js";
+import {
+	creationMediaTypeFromMeta
+} from "../src/chat/challenges/model/tracks.js";
 import { canViewUnpublishedCreationViaEditorialPin, getCreationFeedPinStatus } from "./feed/editorialPin.js";
 import { canViewUnpublishedChallengeResultsCreation } from "./utils/challengeResultsAccess.js";
 import { loadChallengeFeedSnapshotSharedCached } from "./feed/challengeFeedSnapshotCache.js";
@@ -759,7 +763,9 @@ export default function createCreateRoutes({ queries, storage }) {
 
 			const messages = await fetchThreadMessagesChronological(sb, threadId);
 			const messagesNewest = [...messages].reverse();
-			const accepting = listChallengeConfigsAcceptingSubmissions(messagesNewest);
+			const acceptingAll = listChallengeConfigsAcceptingSubmissions(messagesNewest);
+			const mediaType = creationMediaTypeFromMeta(meta);
+			const accepting = filterAcceptingChallengesByMedia(acceptingAll, mediaType);
 			const challenges = summarizeAcceptingChallengesForEligibility(accepting).filter((ch) => {
 				return !metaHasChallengeSubmission(meta, threadId, ch.challenge_id);
 			});
@@ -769,8 +775,10 @@ export default function createCreateRoutes({ queries, storage }) {
 					reason: "blocked",
 					message:
 						accepting.length > 0
-							? "This creation is already entered in every open challenge."
-							: "No challenge is accepting submissions right now."
+							? "This creation is already entered in every open challenge that accepts this media."
+							: acceptingAll.length > 0
+								? "No open challenge accepts this creation's media type."
+								: "No challenge is accepting submissions right now."
 				};
 				return;
 			}
@@ -3876,7 +3884,8 @@ export default function createCreateRoutes({ queries, storage }) {
 				meta,
 				threadId,
 				note: noteRaw,
-				challengeId: requestedChallengeId || undefined
+				challengeId: requestedChallengeId || undefined,
+				mediaType: creationMediaTypeFromMeta(meta)
 			});
 			if (!v.ok) {
 				return res.status(v.status).json({ error: v.message });
