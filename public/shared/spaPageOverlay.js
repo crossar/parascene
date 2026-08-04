@@ -5,6 +5,7 @@
 import { MODAL_DISMISS_ICON_SVG } from './modalDismiss.js';
 import { navigateToChatPathFromOverlay, navigateToMyCreationsIfNeeded } from '/shared/createSubmit.js';
 import { SPA_OVERLAY_EMBED_READY_MESSAGE } from './embedPageRuntime.js';
+import { forwardEscapeIntoOverlayFrame } from './escapeLayers.js';
 import {
 	applyCreationDetailEmbedShellSync,
 	CREATION_DETAIL_SHELL_SYNC_MESSAGE,
@@ -1069,6 +1070,12 @@ function ensureOverlayEscapeListener() {
 		(e) => {
 			if (e.key !== 'Escape' || e.defaultPrevented) return;
 			if (!isSpaPageOverlayOpen()) return;
+			const store = getOverlayStore();
+			const frame = store.overlayFrame;
+			if (forwardEscapeIntoOverlayFrame(frame)) {
+				e.preventDefault();
+				return;
+			}
 			e.preventDefault();
 			dismissEntireSpaPageOverlay();
 		},

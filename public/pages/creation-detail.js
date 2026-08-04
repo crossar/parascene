@@ -149,34 +149,37 @@ function creationDetailHostModalIsOpen(host) {
 	return overlay instanceof HTMLElement && overlay.classList.contains('open');
 }
 
+/**
+ * @param {Element | null | undefined} el
+ * @returns {boolean}
+ */
+function isCreationDetailEscapeLayerOpen(el) {
+	if (!(el instanceof HTMLElement) || el.hidden) return false;
+	if (el.classList.contains('open')) return true;
+	return el.getAttribute('aria-hidden') === 'false';
+}
+
 /** True when Escape should close a page-local layer instead of dismissing the overlay. */
 function creationDetailPageHasOpenEscapeTarget() {
 	if (document.querySelector('.chat-inline-image-lightbox')) return true;
 	if (document.querySelector('.chat-hashtag-nav-overlay')) return true;
+	if (document.querySelector('.comment-attach-popover')) return true;
 
-	const lineageModal = document.querySelector('[data-lineage-modal]');
-	if (lineageModal instanceof HTMLElement && lineageModal.classList.contains('open')) return true;
-
-	const setAvatarModal = document.querySelector('[data-set-avatar-modal]');
-	if (setAvatarModal instanceof HTMLElement && setAvatarModal.getAttribute('aria-hidden') === 'false') {
+	if (isCreationDetailEscapeLayerOpen(document.querySelector('[data-lineage-modal]'))) return true;
+	if (isCreationDetailEscapeLayerOpen(document.querySelector('[data-set-avatar-modal]'))) return true;
+	if (isCreationDetailEscapeLayerOpen(document.querySelector('[data-adjust-image-modal]'))) return true;
+	if (isCreationDetailEscapeLayerOpen(document.querySelector('[data-queue-from-frame-modal]'))) {
+		return true;
+	}
+	if (isCreationDetailEscapeLayerOpen(document.querySelector('[data-challenge-submit-modal]'))) {
+		return true;
+	}
+	if (isCreationDetailEscapeLayerOpen(document.querySelector('.comment-sticker-modal-overlay'))) {
 		return true;
 	}
 
-	const adjustImageModal = document.querySelector('[data-adjust-image-modal]');
-	if (adjustImageModal instanceof HTMLElement && adjustImageModal.classList.contains('open')) {
-		return true;
-	}
-
-	const queueFromFrameModal = document.querySelector('[data-queue-from-frame-modal]');
-	if (queueFromFrameModal instanceof HTMLElement && queueFromFrameModal.classList.contains('open')) {
-		return true;
-	}
-
-	const challengeSubmitModal = document.querySelector('[data-challenge-submit-modal]');
-	if (
-		challengeSubmitModal instanceof HTMLElement &&
-		challengeSubmitModal.getAttribute('aria-hidden') === 'false'
-	) {
+	const moreMenu = document.querySelector('[data-creation-more-menu]');
+	if (moreMenu instanceof HTMLElement && moreMenu.getAttribute('aria-hidden') === 'false') {
 		return true;
 	}
 
@@ -5412,7 +5415,7 @@ async function loadCreation() {
 			showLineageMediaPlaceholder();
 			lineageModalBody.innerHTML = '<p class="creation-detail-lineage-modal-loading">Loading…</p>';
 			lineageModalOverlay.classList.add('open');
-			lineageModalOverlay.removeAttribute('aria-hidden');
+			lineageModalOverlay.setAttribute('aria-hidden', 'false');
 			document.body.classList.add('modal-open');
 			lineageModalEscHandler = (e) => {
 				if (e.key === 'Escape') {
@@ -5669,7 +5672,7 @@ async function loadCreation() {
 		function openSetAvatarModal() {
 			if (setAvatarModal) {
 				setAvatarModal.classList.add('open');
-				setAvatarModal.removeAttribute('aria-hidden');
+				setAvatarModal.setAttribute('aria-hidden', 'false');
 				document.body.classList.add('modal-open');
 				setAvatarModalEscapeHandler = (e) => {
 					if (e.key !== 'Escape') return;
@@ -6088,7 +6091,7 @@ async function loadCreation() {
 				challengeSubmitModalConfirm.classList.remove('is-loading');
 			}
 			challengeSubmitModal.classList.add('open');
-			challengeSubmitModal.removeAttribute('aria-hidden');
+			challengeSubmitModal.setAttribute('aria-hidden', 'false');
 			document.body.classList.add('modal-open');
 			challengeSubmitModalEscapeHandler = (e) => {
 				if (e.key !== 'Escape') return;
@@ -6349,16 +6352,23 @@ async function loadCreation() {
 		const moreBtn = detailContent.querySelector('[data-creation-more-btn]');
 		const moreMenu = detailContent.querySelector('[data-creation-more-menu]');
 		if (moreBtn instanceof HTMLButtonElement && moreMenu instanceof HTMLElement) {
+			const onDocumentClick = (e) => {
+				if (!moreMenu.contains(e.target) && !moreBtn.contains(e.target)) {
+					closeMobileMoreMenu();
+				}
+			};
+			const onMoreMenuEscape = (e) => {
+				if (e.key !== 'Escape') return;
+				if (moreMenu.getAttribute('aria-hidden') === 'true') return;
+				e.preventDefault();
+				closeMobileMoreMenu();
+			};
 			const closeMobileMoreMenu = () => {
 				moreMenu.setAttribute('aria-hidden', 'true');
 				moreMenu.style.display = 'none';
 				document.body.style.overflow = '';
 				document.removeEventListener('click', onDocumentClick);
-			};
-			const onDocumentClick = (e) => {
-				if (!moreMenu.contains(e.target) && !moreBtn.contains(e.target)) {
-					closeMobileMoreMenu();
-				}
+				document.removeEventListener('keydown', onMoreMenuEscape);
 			};
 			moreBtn.addEventListener('click', (e) => {
 				e.preventDefault();
@@ -6386,6 +6396,7 @@ async function loadCreation() {
 				moreMenu.setAttribute('aria-hidden', 'false');
 				document.body.style.overflow = 'hidden';
 				setTimeout(() => document.addEventListener('click', onDocumentClick), 0);
+				document.addEventListener('keydown', onMoreMenuEscape);
 			});
 			moreMenu.addEventListener('click', (e) => {
 				const item = e.target?.closest?.('[data-creation-more-action]');

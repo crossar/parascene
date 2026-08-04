@@ -46,7 +46,9 @@ export async function init(version) {
 	if (isEmbed) {
 		const runtimeMod = await import(`../../shared/createPageRuntime.js${qs}`);
 		runtimeMod.bindCreatePageEmbedNavigation();
-		runtimeMod.bindCreatePageEmbedEscape(() => false);
+		runtimeMod.bindCreatePageEmbedEscape(() => {
+			return Boolean(document.querySelector('[data-import-suno-modal]'));
+		});
 	} else if (!isAdvanced) {
 		const runtimeMod = await import(`../../shared/createPageRuntime.js${qs}`);
 		const advancedLink = document.querySelector('.create-switch-to-advanced');

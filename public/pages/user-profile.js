@@ -2042,7 +2042,48 @@ async function init() {
 		const profileRuntime = await import(`../shared/profilePageRuntime.js${qs}`);
 		navigateToCreation = profileRuntime.navigateToCreation;
 		profileRuntime.bindProfilePageEmbedNavigation();
-		profileRuntime.bindProfilePageEmbedEscape();
+		profileRuntime.bindProfilePageEmbedEscape(() => {
+			if (document.querySelector('[data-profile-generate-confirm-overlay]:not([hidden])')) return true;
+			if (document.querySelector('[data-persona-library-generate-confirm-overlay]:not([hidden])')) {
+				return true;
+			}
+			if (document.querySelector('[data-persona-library-edit-overlay].open')) return true;
+			if (document.querySelector('[data-profile-edit-overlay].open')) return true;
+			return false;
+		});
+		if (document.documentElement.dataset.prsnProfileNestedEscapeBound !== '1') {
+			document.documentElement.dataset.prsnProfileNestedEscapeBound = '1';
+			document.addEventListener('keydown', (e) => {
+				if (e.key !== 'Escape') return;
+				const personaConfirm = document.querySelector(
+					'[data-persona-library-generate-confirm-overlay]:not([hidden])'
+				);
+				if (personaConfirm instanceof HTMLElement) {
+					personaConfirm.hidden = true;
+					e.preventDefault();
+					return;
+				}
+				const profileConfirm = document.querySelector(
+					'[data-profile-generate-confirm-overlay]:not([hidden])'
+				);
+				if (profileConfirm instanceof HTMLElement) {
+					profileConfirm.hidden = true;
+					e.preventDefault();
+					return;
+				}
+				const personaEdit = document.querySelector('[data-persona-library-edit-overlay].open');
+				if (personaEdit instanceof HTMLElement) {
+					setModalOpen(personaEdit, false);
+					e.preventDefault();
+					return;
+				}
+				const profileEdit = document.querySelector('[data-profile-edit-overlay].open');
+				if (profileEdit instanceof HTMLElement) {
+					setModalOpen(profileEdit, false);
+					e.preventDefault();
+				}
+			});
+		}
 		bindProfileEmbedDmLinks = profileRuntime.bindProfileEmbedDmLinks;
 	}
 	const container = document.querySelector('main .user-profile-page');

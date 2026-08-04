@@ -324,8 +324,12 @@ class AppRouteCreate extends HTMLElement {
 			const runtimeMod = await import(`../../shared/createPageRuntime.js${qs}`);
 			runtimeMod.bindCreatePageEmbedNavigation();
 			runtimeMod.bindCreatePageEmbedEscape(() => {
-				const confirm = this.querySelector('.create-route-advanced-confirm[aria-hidden="false"]');
-				return confirm instanceof HTMLElement;
+				const confirm = this.querySelector('.create-route-advanced-confirm.open:not([hidden])');
+				if (confirm instanceof HTMLElement) return true;
+				const preview = this.querySelector('[data-advanced-preview-dialog].open:not([hidden])');
+				if (preview instanceof HTMLElement) return true;
+				const blog = this.querySelector('[data-blog-campaign-dialog].open:not([hidden])');
+				return blog instanceof HTMLElement;
 			});
 		}
 		try {
@@ -641,13 +645,23 @@ class AppRouteCreate extends HTMLElement {
 		if (previewCopyBtn) previewCopyBtn.addEventListener("click", () => this.copyPreviewPayload());
 		this._boundPreviewEscape = (e) => {
 			if (e.key === "Escape") {
+				const confirmD = this.querySelector("[data-advanced-confirm-dialog]");
+				if (confirmD && !confirmD.hidden && confirmD.classList.contains("open")) {
+					this.closeAdvancedConfirm();
+					e.preventDefault();
+					return;
+				}
 				const blogD = this.querySelector("[data-blog-campaign-dialog]");
 				if (blogD && !blogD.hidden && blogD.classList.contains("open")) {
 					this.closeBlogCampaignModal();
+					e.preventDefault();
 					return;
 				}
 				const d = this.querySelector("[data-advanced-preview-dialog]");
-				if (d && !d.hidden && d.classList.contains("open")) this.closePreviewPayload();
+				if (d && !d.hidden && d.classList.contains("open")) {
+					this.closePreviewPayload();
+					e.preventDefault();
+				}
 			}
 		};
 		document.addEventListener("keydown", this._boundPreviewEscape);

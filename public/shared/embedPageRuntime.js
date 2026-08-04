@@ -2,6 +2,8 @@
  * Shared embed iframe runtime helpers for SPA page overlay targets.
  */
 
+import { documentHasNestedEscapeLayer } from './escapeLayers.js';
+
 export const SPA_OVERLAY_ROUTE_MESSAGE = 'prsn-spa-page-overlay-route';
 export const SPA_OVERLAY_CLOSE_MESSAGE = 'prsn-spa-page-overlay-close';
 export const SPA_OVERLAY_SHELL_OUT_MESSAGE = 'prsn-spa-page-overlay-shell-out';
@@ -196,6 +198,7 @@ export function createEmbedPageRuntime(embedFlag) {
 			(e) => {
 				if (e.key !== 'Escape' || e.defaultPrevented) return;
 				if (typeof hasOpenEscapeTarget === 'function' && hasOpenEscapeTarget()) return;
+				if (documentHasNestedEscapeLayer()) return;
 				if (!requestCloseOverlay()) return;
 				e.preventDefault();
 				e.stopPropagation();

@@ -10,6 +10,7 @@ import {
 	parseHashtagSlugFromTagPath,
 	shouldDelegateHashtagIntentToParentChatShell,
 } from './hashtagDestination.js';
+import { documentHasNestedEscapeLayer } from './escapeLayers.js';
 
 const ROUTE_MESSAGE = 'prsn-creation-detail-overlay-route';
 const SPA_ROUTE_MESSAGE = 'prsn-spa-page-overlay-route';
@@ -300,6 +301,7 @@ export function bindCreationDetailEmbedEscape(hasOpenEscapeTarget) {
 		(e) => {
 			if (e.key !== 'Escape' || e.defaultPrevented) return;
 			if (typeof hasOpenEscapeTarget === 'function' && hasOpenEscapeTarget()) return;
+			if (documentHasNestedEscapeLayer()) return;
 			if (!requestCloseOverlay()) return;
 			e.preventDefault();
 			e.stopPropagation();
