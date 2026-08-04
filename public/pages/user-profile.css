@@ -913,9 +913,19 @@ body.profile-page-embed[data-entry="user-profile"] main .user-profile-page {
 	min-width: 0;
 }
 
-.user-profile-comment-footer {
+.user-profile-comment-block > .comment-reactions {
 	grid-column: 3;
 	grid-row: 2;
+	justify-self: start;
+	min-width: 0;
+	max-width: 100%;
+	overflow: visible;
+	padding-top: 4px;
+}
+
+.user-profile-comment-footer {
+	grid-column: 3;
+	grid-row: 3;
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
@@ -961,9 +971,14 @@ body.profile-page-embed[data-entry="user-profile"] main .user-profile-page {
 		grid-row: 3;
 	}
 
-	.user-profile-comment-footer {
+	.user-profile-comment-block > .comment-reactions {
 		grid-column: 1;
 		grid-row: 4;
+	}
+
+	.user-profile-comment-footer {
+		grid-column: 1;
+		grid-row: 5;
 	}
 }
 

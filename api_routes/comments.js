@@ -5,19 +5,13 @@ import { notifyCommentMentions } from "./utils/activityNotifications.js";
 import { sanitizeClientReplyPreview } from "./utils/chatReplyStamp.js";
 import { canViewUnpublishedCreationViaEditorialPin } from "./feed/editorialPin.js";
 import { canViewUnpublishedChallengeResultsCreation } from "./utils/challengeResultsAccess.js";
+import { buildWhoListFromProfileRows } from "./utils/whoMeta.js";
 
 /** Allowed emoji keys for comment reactions, in display order. Must match frontend REACTION_ORDER. */
 export const REACTION_ORDER = [
 	"thumbsUp", "thumbsDown", "heart", "joy", "grin", "openMouth", "sad", "angry",
 	"clap", "hundred", "fire", "thinking", "eyes", "rocket", "pray"
 ];
-
-const MAX_REACTORS_IN_RESPONSE = 5;
-
-function formatReactorLabel(userName, displayName) {
-	const un = (userName || displayName || "").trim();
-	return un ? `@${un}` : "";
-}
 
 /**
  * Fetch reactions for the given comment ids.
@@ -67,11 +61,7 @@ export async function getReactionsForCommentIds(queries, commentIds, viewerId) {
 		const entry = byComment.get(cid);
 		if (!entry) continue;
 		const rows = reactorGroups.get(`${cid}:${key}`) ?? [];
-		const strings = rows.slice(0, MAX_REACTORS_IN_RESPONSE).map((r) =>
-			formatReactorLabel(r?.user_name, r?.display_name)
-		).filter(Boolean);
-		const others = Math.max(0, total - strings.length);
-		entry.reactions[key] = others > 0 ? [...strings, others] : strings;
+		entry.reactions[key] = buildWhoListFromProfileRows(rows, total);
 	}
 
 	for (const row of viewerRows ?? []) {

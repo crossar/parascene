@@ -10,6 +10,7 @@ import {
 	buildEditorialPinFeedItems,
 	mergeEditorialPinIntoPage
 } from "./editorialPin.js";
+import { stampWhoMetaOnCreationRows } from "../utils/whoMeta.js";
 
 /**
  * Combine creation rows, NSFW filter, blog merge, challenge engagement card, editorial pin, newbie tips.
@@ -127,7 +128,10 @@ export async function assembleFeedItems({
 		}
 	}
 
-	const items = applyNewbieFeedTips(pageAfterPin, isNewbieFeed);
+	const itemsRaw = applyNewbieFeedTips(pageAfterPin, isNewbieFeed);
+	const items = await (timing
+		? timing.timeAsync('assemble.who_meta', () => stampWhoMetaOnCreationRows(queries, itemsRaw))
+		: stampWhoMetaOnCreationRows(queries, itemsRaw));
 
 	return { items, hasMore };
 }

@@ -1,6 +1,7 @@
 import express from "express";
 import { canViewUnpublishedCreationViaEditorialPin } from "./feed/editorialPin.js";
 import { canViewUnpublishedChallengeResultsCreation } from "./utils/challengeResultsAccess.js";
+import { getWhoMetaForCreation } from "./utils/whoMeta.js";
 
 async function requireUser(req, res, queries) {
   if (!req.auth?.userId) {
@@ -72,7 +73,15 @@ async function getLikeMeta({ queries, imageId, viewerId }) {
     : null;
   const viewerLiked = Boolean(likedRow?.viewer_liked);
 
-  return { like_count: likeCount, viewer_liked: viewerLiked };
+  let liked_by = [];
+  try {
+    const who = await getWhoMetaForCreation(queries, imageId, { like_count: likeCount });
+    liked_by = Array.isArray(who?.liked_by) ? who.liked_by : [];
+  } catch {
+    liked_by = [];
+  }
+
+  return { like_count: likeCount, viewer_liked: viewerLiked, liked_by };
 }
 
 export default function createLikesRoutes({ queries }) {

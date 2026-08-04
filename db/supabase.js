@@ -6133,6 +6133,94 @@ export function openDb() {
 				return data ? { viewer_liked: 1 } : undefined;
 			}
 		},
+		/** Likers for creations: [{ created_image_id, user_id, display_name, user_name, created_at }] most recent first. */
+		selectCreatedImageLikersByImageIds: {
+			all: async (creationIds, opts = {}) => {
+				const ids = Array.isArray(creationIds)
+					? creationIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0)
+					: [];
+				if (ids.length === 0) return [];
+				const limit = Math.min(Math.max(1, Number(opts.limit) || 400), 800);
+				const { data: likeRows, error: err1 } = await serviceClient
+					.from(prefixedTable("likes_created_image"))
+					.select("created_image_id, user_id, created_at")
+					.in("created_image_id", ids)
+					.order("created_at", { ascending: false })
+					.limit(limit);
+				if (err1) throw err1;
+				const rows = likeRows ?? [];
+				if (rows.length === 0) return [];
+				const userIds = [...new Set(rows.map((r) => r.user_id).filter((id) => id != null))];
+				if (userIds.length === 0) return [];
+				const { data: profiles, error: err2 } = await serviceClient
+					.from(prefixedTable("user_profiles"))
+					.select("user_id, display_name, user_name")
+					.in("user_id", userIds);
+				if (err2) throw err2;
+				const byUserId = new Map((profiles ?? []).map((p) => [p.user_id, p]));
+				return rows.map((r) => {
+					const p = byUserId.get(r.user_id) ?? {};
+					return {
+						created_image_id: r.created_image_id,
+						user_id: r.user_id,
+						display_name: p.display_name ?? null,
+						user_name: p.user_name ?? null,
+						created_at: r.created_at
+					};
+				});
+			}
+		},
+		/**
+		 * Unique commenters per creation (most recent comment first).
+		 * [{ created_image_id, user_id, display_name, user_name, last_commented_at }]
+		 */
+		selectCreatedImageCommentersByImageIds: {
+			all: async (creationIds, opts = {}) => {
+				const ids = Array.isArray(creationIds)
+					? creationIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0)
+					: [];
+				if (ids.length === 0) return [];
+				const limit = Math.min(Math.max(1, Number(opts.limit) || 800), 2000);
+				const { data: commentRows, error: err1 } = await serviceClient
+					.from(prefixedTable("comments_created_image"))
+					.select("created_image_id, user_id, created_at")
+					.in("created_image_id", ids)
+					.order("created_at", { ascending: false })
+					.limit(limit);
+				if (err1) throw err1;
+				const rows = commentRows ?? [];
+				if (rows.length === 0) return [];
+				const seen = new Set();
+				const unique = [];
+				for (const r of rows) {
+					const cid = Number(r.created_image_id);
+					const uid = Number(r.user_id);
+					if (!Number.isFinite(cid) || !Number.isFinite(uid)) continue;
+					const k = `${cid}:${uid}`;
+					if (seen.has(k)) continue;
+					seen.add(k);
+					unique.push(r);
+				}
+				const userIds = [...new Set(unique.map((r) => r.user_id).filter((id) => id != null))];
+				if (userIds.length === 0) return [];
+				const { data: profiles, error: err2 } = await serviceClient
+					.from(prefixedTable("user_profiles"))
+					.select("user_id, display_name, user_name")
+					.in("user_id", userIds);
+				if (err2) throw err2;
+				const byUserId = new Map((profiles ?? []).map((p) => [p.user_id, p]));
+				return unique.map((r) => {
+					const p = byUserId.get(r.user_id) ?? {};
+					return {
+						created_image_id: r.created_image_id,
+						user_id: r.user_id,
+						display_name: p.display_name ?? null,
+						user_name: p.user_name ?? null,
+						last_commented_at: r.created_at
+					};
+				});
+			}
+		},
 		selectViewerLikedCreationIds: {
 			all: async (userId, creationIds) => {
 				const safeIds = Array.isArray(creationIds)

@@ -50,6 +50,8 @@ import {
 	resolveGroupCoverDisplayUrl
 } from './creationGroupMedia.js';
 import { creationTitleDisplay } from './creationCard.js';
+import { applyWhoTooltipAttr } from './whoLabels.js';
+import { setupWhoTooltips } from './reactionTooltipTap.js';
 
 const { buildBlogPostPublicPath, BLOG_CAMPAIGN_INTERNAL } = blogCampaignPathMod;
 const { formatDateTime, formatRelativeTime } = datetimeMod;
@@ -1636,6 +1638,10 @@ function buildFeedCreationCard(
 
 	const commentButton = card.querySelector('button[data-comment-button]');
 	if (commentButton && item.created_image_id) {
+		applyWhoTooltipAttr(commentButton, item.commented_by);
+		if (commentButton.hasAttribute('data-tooltip')) {
+			commentButton.setAttribute('data-who-longpress', '1');
+		}
 		commentButton.addEventListener('click', (e) => {
 			e.preventDefault();
 			e.stopPropagation();
@@ -1647,6 +1653,8 @@ function buildFeedCreationCard(
 			}
 		});
 	}
+
+	setupWhoTooltips(card);
 
 	const detailsButton = card.querySelector('button[data-details-button]');
 	if (detailsButton && item.created_image_id) {

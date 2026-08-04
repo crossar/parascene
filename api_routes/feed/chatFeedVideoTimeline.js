@@ -10,6 +10,7 @@ import {
 	pullMobileChatSlotPackFeedPageOne
 } from "./pullMobileChatSlotPackFeed.js";
 import { transformFeedCreationRow } from "./transformFeedCreationRow.js";
+import { stampWhoMetaOnCreationRows } from "../utils/whoMeta.js";
 
 const CHAT_FEED_PAGE_ONE_LIMIT = 28;
 
@@ -304,8 +305,12 @@ export async function pullSiteVideoDoomPageFallback({
 		startCreationId,
 		afterCreatedImageId
 	});
+	const rows = await stampWhoMetaOnCreationRows(
+		queries,
+		(page?.rows ?? []).map(transformFeedCreationRow)
+	);
 	return {
-		rows: (page?.rows ?? []).map(transformFeedCreationRow),
+		rows,
 		hasMore: Boolean(page?.hasMore),
 		cursor: page?.cursor ?? null
 	};

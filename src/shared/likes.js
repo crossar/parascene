@@ -1,4 +1,6 @@
 import { notifyCreationDetailEmbedShellSync } from './creationDetailEmbedShell.js';
+import { applyWhoTooltipAttr } from './whoLabels.js';
+import { setupWhoTooltips } from './reactionTooltipTap.js';
 
 function getCreationLikeId(creation) {
 	if (!creation) return null;
@@ -135,6 +137,23 @@ function setDisplayedLikeCount(buttonEl, creation, likedOverride) {
 	countEl.textContent = String(displayed);
 }
 
+function applyLikedByTooltip(buttonEl, likedBy) {
+	if (!(buttonEl instanceof HTMLElement)) return;
+	// Whole control (heart + count) — matches feed comment-button hover target.
+	applyWhoTooltipAttr(buttonEl, likedBy);
+	const countEl = getLikeCountEl(buttonEl);
+	if (countEl) {
+		countEl.removeAttribute('data-tooltip');
+		countEl.removeAttribute('data-who-tap');
+		countEl.classList.remove('who-tooltip', 'is-tooltip-visible');
+	}
+	if (buttonEl.hasAttribute('data-tooltip')) {
+		buttonEl.setAttribute('data-who-longpress', '1');
+	} else {
+		buttonEl.removeAttribute('data-who-longpress');
+	}
+}
+
 export function initLikeButton(buttonEl, creation) {
 	if (!(buttonEl instanceof HTMLElement)) return false;
 
@@ -145,6 +164,7 @@ export function initLikeButton(buttonEl, creation) {
 	const liked = isCreationLiked(creation);
 	applyLikeButtonState(buttonEl, liked, false);
 	setDisplayedLikeCount(buttonEl, creation, liked);
+	applyLikedByTooltip(buttonEl, creation?.liked_by);
 	return liked;
 }
 
@@ -155,6 +175,8 @@ export function enableLikeButtons(root = document) {
 	if (!target) return;
 	if (rootsWithListener.has(target)) return;
 	rootsWithListener.add(target);
+
+	setupWhoTooltips(target instanceof Document ? target.body || target.documentElement : target);
 
 	target.addEventListener('click', (e) => {
 		const el = e.target;
@@ -167,6 +189,8 @@ export function enableLikeButtons(root = document) {
 		if (!id) return;
 
 		if (button.dataset.likeBusy === '1') return;
+		// Long-press who-tooltip just fired — don't toggle.
+		if (button.dataset.whoLongPressSuppressClick === '1') return;
 
 		const baseCount = toSafeInt(button.dataset.likeBaseCount, null);
 		const baseCreation = { like_count: baseCount !== null ? baseCount : undefined };
@@ -212,16 +236,19 @@ export function enableLikeButtons(root = document) {
 				const likeCount = Math.max(0, toSafeInt(meta?.like_count, 0));
 				const viewerLiked = Boolean(meta?.viewer_liked);
 				const newBase = Math.max(0, likeCount - (viewerLiked ? 1 : 0));
+				const likedBy = Array.isArray(meta?.liked_by) ? meta.liked_by : [];
 
 				button.dataset.likeBaseCount = String(newBase);
 				setDisplayedLikeCount(button, { like_count: newBase }, viewerLiked);
 				applyLikeButtonState(button, viewerLiked, false);
+				applyLikedByTooltip(button, likedBy);
 				invalidateRelatedCachesAfterLikeMutation();
 				notifyCreationDetailEmbedShellSync({
 					creationId: imageId,
 					reason: 'like-changed',
 					like_count: likeCount,
 					viewer_liked: viewerLiked,
+					liked_by: likedBy,
 				});
 			})
 			.catch(() => {
@@ -234,4 +261,3 @@ export function enableLikeButtons(root = document) {
 			});
 	}, { capture: true });
 }
-

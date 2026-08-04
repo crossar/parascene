@@ -5412,19 +5412,29 @@ body.view-nsfw .feed-card-image--group-carousel.nsfw::after {
 	position: relative;
 }
 
-/* CSS-only tooltip for who reacted (matches comment-reaction-picker) */
+.who-tooltip[data-tooltip] {
+	position: relative;
+}
+
+/* Who-lists use a body-level float only — CSS ::after tooltips clip inside overflow parents. */
 .comment-reaction-chip[data-tooltip]::after,
-.comment-reaction-pill[data-tooltip]::after {
-	content: attr(data-tooltip);
-	display: block;
-	position: absolute;
-	bottom: 100%;
-	left: 50%;
-	transform: translateX(-50%);
-	margin-bottom: 4px;
+.comment-reaction-pill[data-tooltip]::after,
+.who-tooltip[data-tooltip]::after,
+.comment-reaction-chip[data-tooltip]::before,
+.comment-reaction-pill[data-tooltip]::before,
+.who-tooltip[data-tooltip]::before {
+	content: none !important;
+	display: none !important;
+	opacity: 0 !important;
+	visibility: hidden !important;
+}
+
+.who-tooltip-float {
+	position: fixed;
+	z-index: 10050;
 	padding: 10px 12px;
 	width: max-content;
-	max-width: 260px;
+	max-width: min(260px, calc(100vw - 16px));
 	background: var(--surface);
 	border: 1px solid var(--border);
 	border-radius: 10px;
@@ -5434,40 +5444,11 @@ body.view-nsfw .feed-card-image--group-carousel.nsfw::after {
 	font-weight: 400;
 	line-height: 1.4;
 	white-space: normal;
-	z-index: 1000;
 	pointer-events: none;
-	opacity: 0;
-	transition: opacity 0.15s ease;
 }
 
-.comment-reaction-chip[data-tooltip]:hover::after,
-.comment-reaction-pill[data-tooltip]:hover::after,
-.comment-reaction-chip[data-tooltip].is-tooltip-visible::after,
-.comment-reaction-pill[data-tooltip].is-tooltip-visible::after {
-	opacity: 1;
-}
-
-.comment-reaction-chip[data-tooltip]::before,
-.comment-reaction-pill[data-tooltip]::before {
-	content: '';
-	position: absolute;
-	bottom: 100%;
-	left: 50%;
-	transform: translateX(-50%);
-	margin-bottom: -1px;
-	border: 5px solid transparent;
-	border-top-color: var(--surface);
-	z-index: 1001;
-	pointer-events: none;
-	opacity: 0;
-	transition: opacity 0.15s ease;
-}
-
-.comment-reaction-chip[data-tooltip]:hover::before,
-.comment-reaction-pill[data-tooltip]:hover::before,
-.comment-reaction-chip[data-tooltip].is-tooltip-visible::before,
-.comment-reaction-pill[data-tooltip].is-tooltip-visible::before {
-	opacity: 1;
+.who-tooltip-float[hidden] {
+	display: none !important;
 }
 
 .comment-reaction-chip {

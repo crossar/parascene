@@ -6,6 +6,7 @@ import { normalizeTag } from "./utils/tag.js";
 import { dmChatInboxTitleFromProfile, otherUserIdFromDmPairKey } from "./utils/dmChatInboxTitle.js";
 import { insertNotificationsForChatMentions } from "./utils/chatMentionNotifications.js";
 import { REACTION_ORDER } from "./comments.js";
+import { buildWhoListFromProfileRows } from "./utils/whoMeta.js";
 import { getShareBaseUrl } from "./utils/url.js";
 import { ACTIVE_SHARE_VERSION, mintShareToken } from "./utils/shareLink.js";
 import { removeJoinedPrivateChannelInviteDmMessages } from "./utils/chatInviteCleanup.js";
@@ -68,20 +69,78 @@ function normalizeChatReactionsBucket(raw) {
 	return out;
 }
 
-/** Stored on each message as jsonb: { emoji_key: [user_id, ...] }. Response uses numeric counts (not comment-style name lists). */
-function enrichChatReactionsFromMessageColumn(messages, viewerId) {
+/** Stored on each message as jsonb: { emoji_key: [user_id, ...] }.
+ * Normal messages: comment-style name lists for every reaction key.
+ * Challenge submissions only: score keys stay numeric counts (blind votes).
+ */
+async function enrichChatReactionsFromMessageColumn(messages, viewerId, queries) {
 	const viewerIdNum =
 		viewerId != null && Number.isFinite(Number(viewerId)) ? Number(viewerId) : null;
-	return messages.map((m) => {
-		const bucket = normalizeChatReactionsBucket(m.reactions);
+	const list = Array.isArray(messages) ? messages : [];
+	if (list.length === 0) return list;
+
+	const allUserIds = new Set();
+	const buckets = list.map((m) => normalizeChatReactionsBucket(m.reactions));
+	const challengeSubmissionFlags = list.map((m) => isChallengeSubmissionMessage(m));
+	for (let i = 0; i < buckets.length; i++) {
+		const bucket = buckets[i];
+		const isChallengeSubmission = challengeSubmissionFlags[i];
+		for (const emojiKey of REACTION_ORDER) {
+			// Score keys on challenge submissions stay anonymous — no profile lookup.
+			if (isChallengeSubmission && isChallengeScoreReactionKey(emojiKey)) continue;
+			for (const uid of bucket[emojiKey] || []) allUserIds.add(uid);
+		}
+	}
+
+	let profilesById = new Map();
+	if (allUserIds.size > 0) {
+		if (typeof queries?.selectUserProfilesByUserIds === "function") {
+			try {
+				profilesById = await queries.selectUserProfilesByUserIds([...allUserIds]);
+			} catch {
+				profilesById = new Map();
+			}
+		}
+		if (!(profilesById instanceof Map) || profilesById.size === 0) {
+			try {
+				const sb = getSupabaseServiceClient();
+				if (sb) {
+					const { data: profiles, error } = await sb
+						.from("prsn_user_profiles")
+						.select("user_id, user_name, display_name")
+						.in("user_id", [...allUserIds]);
+					if (!error && Array.isArray(profiles)) {
+						profilesById = new Map();
+						for (const p of profiles) {
+							profilesById.set(Number(p.user_id), p);
+						}
+					}
+				}
+			} catch {
+				// keep empty map — still expose overflow count via buildWhoListFromProfileRows
+			}
+		}
+	}
+
+	return list.map((m, idx) => {
+		const bucket = buckets[idx] || {};
+		const isChallengeSubmission = challengeSubmissionFlags[idx];
 		const reactions = {};
 		const viewer_reactions = [];
 		for (const emojiKey of REACTION_ORDER) {
 			const userIds = bucket[emojiKey] || [];
 			const total = userIds.length;
 			if (total === 0) continue;
-			reactions[emojiKey] = total;
-			if (viewerIdNum != null && userIds.includes(viewerIdNum)) {
+			if (isChallengeSubmission && isChallengeScoreReactionKey(emojiKey)) {
+				reactions[emojiKey] = total;
+			} else {
+				const profileRows = userIds.map((uid) => {
+					const p = profilesById.get(Number(uid)) ?? {};
+					return { user_name: p.user_name ?? null, display_name: p.display_name ?? null };
+				});
+				reactions[emojiKey] = buildWhoListFromProfileRows(profileRows, total);
+			}
+			if (viewerIdNum != null && userIds.some((uid) => Number(uid) === viewerIdNum)) {
 				viewer_reactions.push(emojiKey);
 			}
 		}
@@ -130,6 +189,11 @@ function tryParseChallengeJsonBody(body) {
 	} catch {
 		return null;
 	}
+}
+
+function isChallengeSubmissionMessage(message) {
+	const payload = tryParseChallengeJsonBody(message?.body);
+	return Boolean(payload && String(payload.kind || "").trim() === "challenge_submission");
 }
 
 /** Bayesian prior for challenge stats — scoped to one thread, short mem cache. */
@@ -2097,9 +2161,12 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				if (pinMsgErr) throw pinMsgErr;
 				if (pinMsg) {
 					const enriched = await enrichChatMessagesWithSenderProfiles(sb, [pinMsg]);
-					out.pinned_message = enrichChatReactionsFromMessageColumn(
-						[enriched[0] || pinMsg],
-						userId
+					out.pinned_message = (
+						await enrichChatReactionsFromMessageColumn(
+							[enriched[0] || pinMsg],
+							userId,
+							queries
+						)
 					)[0];
 				} else {
 					// Stale pin (message gone) — clear meta so banner does not stick.
@@ -2463,7 +2530,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				meta.time_sensitive = ts;
 				return { ...m, meta };
 			});
-			messagesOut = enrichChatReactionsFromMessageColumn(messagesOut, userId);
+			messagesOut = await enrichChatReactionsFromMessageColumn(messagesOut, userId, queries);
 			const { data: threadRow } = await sb
 				.from("prsn_chat_threads")
 				.select("id, type, meta")
@@ -3394,7 +3461,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			let messageOut = ins.data;
 			const enrichedNew = await enrichChatMessagesWithSenderProfiles(sb, [messageOut]);
 			messageOut = enrichedNew[0] || messageOut;
-			messageOut = enrichChatReactionsFromMessageColumn([messageOut], userId)[0];
+			messageOut = (await enrichChatReactionsFromMessageColumn([messageOut], userId, queries))[0];
 			if (messageOut?.meta?.reply) {
 				messageOut = { ...messageOut, reply_parent_exists: true };
 			}
@@ -3701,9 +3768,8 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			void broadcastRoomDirty(threadId, messageId);
 
 			const enriched = await enrichChatMessagesWithSenderProfiles(sb, [msg]);
-			const pinned_message = enrichChatReactionsFromMessageColumn(
-				[enriched[0] || msg],
-				userId
+			const pinned_message = (
+				await enrichChatReactionsFromMessageColumn([enriched[0] || msg], userId, queries)
 			)[0];
 			return res.status(200).json({ ok: true, pinned_message_id: messageId, pinned_message });
 		} catch (err) {
@@ -3822,7 +3888,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			let messageOut = ins.data;
 			const enriched = await enrichChatMessagesWithSenderProfiles(sb, [messageOut]);
 			messageOut = enriched[0] || messageOut;
-			messageOut = enrichChatReactionsFromMessageColumn([messageOut], userId)[0];
+			messageOut = (await enrichChatReactionsFromMessageColumn([messageOut], userId, queries))[0];
 
 			return res.status(201).json({ message: messageOut });
 		} catch (err) {
@@ -4047,7 +4113,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			let out = fresh;
 			const enriched = await enrichChatMessagesWithSenderProfiles(sb, [out]);
 			out = enriched[0] || out;
-			out = enrichChatReactionsFromMessageColumn([out], userId)[0];
+			out = (await enrichChatReactionsFromMessageColumn([out], userId, queries))[0];
 
 			const withExist = await enrichMessagesReplyParentExists(sb, threadId, [out]);
 			out = withExist[0] || out;

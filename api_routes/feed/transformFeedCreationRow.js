@@ -55,6 +55,8 @@ export function transformFeedCreationRow(item) {
 		like_count: Number(item.like_count ?? 0),
 		comment_count: Number(item.comment_count ?? 0),
 		viewer_liked: Boolean(item.viewer_liked),
+		liked_by: Array.isArray(item.liked_by) ? item.liked_by : [],
+		commented_by: Array.isArray(item.commented_by) ? item.commented_by : [],
 		nsfw: !!(item.nsfw),
 		meta: meta && typeof meta === "object" ? meta : null,
 		media_type: mediaType,

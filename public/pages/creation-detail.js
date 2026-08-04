@@ -3486,7 +3486,7 @@ async function loadCreation() {
 
 		// Load like metadata from backend (no localStorage fallback).
 		// Pinned / results detail hides the action strip — skip the like round-trip.
-		let likeMeta = { like_count: 0, viewer_liked: false };
+		let likeMeta = { like_count: 0, viewer_liked: false, liked_by: [] };
 		if (shareMounted || isPinnedInteractiveDetail) {
 			perf.skipPart(
 				'likeMeta',
@@ -3501,7 +3501,8 @@ async function loadCreation() {
 						const meta = await likeRes.json();
 						likeMeta = {
 							like_count: Number(meta?.like_count ?? 0),
-							viewer_liked: Boolean(meta?.viewer_liked)
+							viewer_liked: Boolean(meta?.viewer_liked),
+							liked_by: Array.isArray(meta?.liked_by) ? meta.liked_by : []
 						};
 					}
 				});

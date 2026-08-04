@@ -4,6 +4,7 @@ import { mapCreatedImageRowMediaFields } from "./utils/resolveCreationDisplayMed
 import { parseCreationMeta } from "./utils/resolveCreatedImageStorageFilename.js";
 import { runSemanticSearch } from "./utils/embeddingsSearch.js";
 import { normalizeTag } from "./utils/tag.js";
+import { stampWhoMetaOnCreationRows } from "./utils/whoMeta.js";
 
 const MAX_COMMENT_META_SEARCH_IMAGES = 300;
 const SEARCH_IDS_REDIS_KEY_PREFIX = "explore:search:ids:v1:";
@@ -57,6 +58,8 @@ function mapExploreItemsToResponse(items) {
 			like_count: Number(item?.like_count ?? 0),
 			comment_count: Number(item?.comment_count ?? 0),
 			viewer_liked: Boolean(item?.viewer_liked),
+			liked_by: Array.isArray(item?.liked_by) ? item.liked_by : [],
+			commented_by: Array.isArray(item?.commented_by) ? item.commented_by : [],
 			nsfw: !!(item?.nsfw ?? meta?.nsfw),
 			meta: mediaFields.meta,
 			media_type: mediaFields.media_type,
@@ -124,6 +127,7 @@ export default function createExploreRoutes({ queries }) {
 			const page = hasMore ? list.slice(0, limit) : list;
 
 			let itemsWithImages = mapExploreItemsToResponse(page);
+			itemsWithImages = await stampWhoMetaOnCreationRows(queries, itemsWithImages);
 			const enableNsfw = user.meta?.enableNsfw === true;
 			if (!enableNsfw) {
 				itemsWithImages = itemsWithImages.filter((item) => !item.nsfw);
@@ -331,6 +335,7 @@ export default function createExploreRoutes({ queries }) {
 			const page = hasMore ? windowItems.slice(0, limit) : windowItems;
 
 			let itemsWithImages = mapExploreItemsToResponse(page);
+			itemsWithImages = await stampWhoMetaOnCreationRows(queries, itemsWithImages);
 			const enableNsfw = user.meta?.enableNsfw === true;
 			if (!enableNsfw) {
 				itemsWithImages = itemsWithImages.filter((item) => !item.nsfw);
@@ -394,6 +399,7 @@ export default function createExploreRoutes({ queries }) {
 			const orderIdx = new Map(dedupedIds.map((id, i) => [Number(id), i]));
 			const sorted = (Array.isArray(rows) ? rows : []).slice().sort((a, b) => (orderIdx.get(Number(a?.created_image_id ?? a?.id)) ?? 999) - (orderIdx.get(Number(b?.created_image_id ?? b?.id)) ?? 999));
 			let itemsWithImages = mapExploreItemsToResponse(sorted);
+			itemsWithImages = await stampWhoMetaOnCreationRows(queries, itemsWithImages);
 			if (!enableNsfw) {
 				itemsWithImages = itemsWithImages.filter((item) => !item.nsfw);
 			}

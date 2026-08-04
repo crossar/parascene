@@ -11,6 +11,8 @@ import * as _cdAvatar from '../shared/avatar.js';
 import * as _cdProfileLinks from '../shared/profileLinks.js';
 import * as _cdCommentItem from '../shared/commentItem.js';
 import * as _cdUserText from '../shared/userText.js';
+import { CHALLENGE_SCORE_REACTION_KEYS } from './challenges/constants.js';
+import { formatWhoTooltip } from '../shared/whoLabels.js';
 import {
 	bindChatInlineImageLightboxClickDelegation,
 	chatAttachmentPreviewKindFromHref,
@@ -632,6 +634,7 @@ let renderChallengePaneSkeleton;
 let renderChallengesOrganizeBoardSkeleton;
 let toggleChatMessageReaction;
 let setupReactionTooltipTap;
+let setupWhoTooltips;
 let createConnectCommentRowElement;
 
 /**
@@ -779,6 +782,11 @@ async function loadDeps() {
 	enableLikeButtons = _cdLikes.enableLikeButtons;
 	toggleChatMessageReaction = _cdComments.toggleChatMessageReaction;
 	setupReactionTooltipTap = _cdReactionTooltipTap.setupReactionTooltipTap;
+	setupWhoTooltips =
+		_cdReactionTooltipTap.setupWhoTooltips ||
+		((el) => {
+			if (typeof setupReactionTooltipTap === 'function') setupReactionTooltipTap(el);
+		});
 	createConnectCommentRowElement = _cdConnectCommentCard.createConnectCommentRowElement;
 	createPseudoColumnPager = _cdPseudoChannelColumnPager.createPseudoColumnPager;
 	renderFeedCardsSkeleton = _cdSkeleton.renderFeedCardsSkeleton;
@@ -4050,7 +4058,7 @@ export async function initChatPage(root, options = {}) {
 		mountOptimisticRow(messagesEl, opt, sameSenderAsPrev, vid);
 		chatStickToBottom = true;
 		scrollChatMessagesToEnd();
-		setupReactionTooltipTap(messagesEl);
+		setupWhoTooltips(messagesEl);
 	}
 
 	function finishAfterSendSuccess(threadId) {
@@ -4086,7 +4094,7 @@ export async function initChatPage(root, options = {}) {
 				trimChatCreationEmbedWhitespace(embed);
 			}
 		}
-		setupReactionTooltipTap(messagesEl);
+		setupWhoTooltips(messagesEl);
 	}
 
 	function appendChatMessagesToDom(messagesEl, allMessages, startIdx) {
@@ -4702,6 +4710,38 @@ export async function initChatPage(root, options = {}) {
 		}
 	}
 
+	function isChatChallengeSubmissionMessage(m) {
+		const body = m?.body;
+		if (body == null) return false;
+		const s = String(body).trim();
+		if (!s || (!s.startsWith('{') && !s.startsWith('['))) return false;
+		try {
+			const parsed = JSON.parse(s);
+			return Boolean(
+				parsed &&
+					typeof parsed === 'object' &&
+					!Array.isArray(parsed) &&
+					String(parsed.kind || '').trim() === 'challenge_submission'
+			);
+		} catch {
+			return false;
+		}
+	}
+
+	function chatReactionWhoTooltipAttr(raw, actionLabel) {
+		let tooltipAttr = '';
+		let titleAttr = ` title="${escapeHtml(actionLabel)}"`;
+		if (typeof raw !== 'number' && Array.isArray(raw) && raw.length > 0) {
+			const tooltip = formatWhoTooltip(raw);
+			if (tooltip) {
+				tooltipAttr = ` data-tooltip="${escapeHtml(tooltip)}"`;
+				// Native title steals attention and hides that who-list exists.
+				titleAttr = '';
+			}
+		}
+		return { tooltipAttr, titleAttr };
+	}
+
 	function buildChatReactionMetaRowHtml(m) {
 		const reactions = m?.reactions && typeof m.reactions === 'object' ? m.reactions : {};
 		const viewerReactions = Array.isArray(m?.viewer_reactions) ? m.viewer_reactions : [];
@@ -4722,19 +4762,8 @@ export async function initChatPage(root, options = {}) {
 				const iconFn = REACTION_ICONS[key];
 				const iconHtml = iconFn ? iconFn('comment-reaction-icon') : '';
 				const actionLabel = hasViewer ? `Remove ${key}` : `Add ${key}`;
-				let tooltipAttr = '';
-				if (typeof raw !== 'number' && Array.isArray(raw) && raw.length > 0) {
-					const last = raw[raw.length - 1];
-					const others = typeof last === 'number' ? last : 0;
-					const strings = (typeof last === 'number' ? raw.slice(0, -1) : raw).filter(
-						(s) => typeof s === 'string'
-					);
-					const tooltip = [...strings, others > 0 ? `and ${others} ${others === 1 ? 'other' : 'others'}` : '']
-						.filter(Boolean)
-						.join(', ');
-					if (tooltip) tooltipAttr = ` data-tooltip="${escapeHtml(tooltip)}"`;
-				}
-				return `<button type="button" class="comment-reaction-pill${hasViewer ? ' is-viewer' : ''}" data-emoji-key="${escapeHtml(key)}" data-chat-message-id="${escapeHtml(messageId)}" aria-label="${escapeHtml(actionLabel)}" title="${escapeHtml(actionLabel)}"${tooltipAttr}><span class="comment-reaction-icon-wrap" aria-hidden="true">${iconHtml}</span><span class="comment-reaction-count">${escapeHtml(countLabel)}</span></button>`;
+				const { tooltipAttr, titleAttr } = chatReactionWhoTooltipAttr(raw, actionLabel);
+				return `<button type="button" class="comment-reaction-pill${hasViewer ? ' is-viewer' : ''}" data-emoji-key="${escapeHtml(key)}" data-chat-message-id="${escapeHtml(messageId)}" aria-label="${escapeHtml(actionLabel)}"${titleAttr}${tooltipAttr}><span class="comment-reaction-icon-wrap" aria-hidden="true">${iconHtml}</span><span class="comment-reaction-count">${escapeHtml(countLabel)}</span></button>`;
 			})
 			.join('');
 		const addReactionBtn = hasUnusedReactions
@@ -4768,19 +4797,8 @@ export async function initChatPage(root, options = {}) {
 				const iconFn = REACTION_ICONS[key];
 				const iconHtml = iconFn ? iconFn('comment-reaction-icon') : '';
 				const actionLabel = hasViewer ? `Remove ${key}` : `Add ${key}`;
-				let tooltipAttr = '';
-				if (typeof raw !== 'number' && Array.isArray(raw) && raw.length > 0) {
-					const last = raw[raw.length - 1];
-					const others = typeof last === 'number' ? last : 0;
-					const strings = (typeof last === 'number' ? raw.slice(0, -1) : raw).filter(
-						(s) => typeof s === 'string'
-					);
-					const tooltip = [...strings, others > 0 ? `and ${others} ${others === 1 ? 'other' : 'others'}` : '']
-						.filter(Boolean)
-						.join(', ');
-					if (tooltip) tooltipAttr = ` data-tooltip="${escapeHtml(tooltip)}"`;
-				}
-				return `<button type="button" class="comment-reaction-pill${hasViewer ? ' is-viewer' : ''}" data-emoji-key="${escapeHtml(key)}" data-chat-message-id="${escapeHtml(messageId)}" aria-label="${escapeHtml(actionLabel)}" title="${escapeHtml(actionLabel)}"${tooltipAttr}><span class="comment-reaction-icon-wrap" aria-hidden="true">${iconHtml}</span><span class="comment-reaction-count">${escapeHtml(countLabel)}</span></button>`;
+				const { tooltipAttr, titleAttr } = chatReactionWhoTooltipAttr(raw, actionLabel);
+				return `<button type="button" class="comment-reaction-pill${hasViewer ? ' is-viewer' : ''}" data-emoji-key="${escapeHtml(key)}" data-chat-message-id="${escapeHtml(messageId)}" aria-label="${escapeHtml(actionLabel)}"${titleAttr}${tooltipAttr}><span class="comment-reaction-icon-wrap" aria-hidden="true">${iconHtml}</span><span class="comment-reaction-count">${escapeHtml(countLabel)}</span></button>`;
 			})
 			.join('');
 		return `<div class="comment-reaction-pills chat-page-pinned-message-pills"><div class="comment-reaction-pills-inner">${reactionPills}</div></div>`;
@@ -4963,10 +4981,36 @@ export async function initChatPage(root, options = {}) {
 			if (!m || typeof m !== 'object') return;
 			m.reactions = m.reactions && typeof m.reactions === 'object' ? { ...m.reactions } : {};
 			m.viewer_reactions = Array.isArray(m.viewer_reactions) ? [...m.viewer_reactions] : [];
-			if (count > 0) {
+			const prev = m.reactions[emojiKey];
+			// Only challenge submission score votes stay count-only (blind).
+			const scoreBlind =
+				isChatChallengeSubmissionMessage(m) && CHALLENGE_SCORE_REACTION_KEYS.includes(emojiKey);
+			if (count <= 0) {
+				delete m.reactions[emojiKey];
+			} else if (scoreBlind) {
 				m.reactions[emojiKey] = count;
 			} else {
-				delete m.reactions[emojiKey];
+				let arr = Array.isArray(prev) ? [...prev] : [];
+				const last = arr[arr.length - 1];
+				const strings = (typeof last === 'number' ? arr.slice(0, -1) : arr).filter(
+					(s) => typeof s === 'string'
+				);
+				if (added) {
+					if (!strings.some((s) => String(s).toLowerCase() === '@you')) {
+						strings.unshift('@you');
+					}
+					const overflow = Math.max(0, count - Math.min(5, strings.length));
+					const shown = strings.slice(0, 5);
+					m.reactions[emojiKey] = overflow > 0 ? [...shown, overflow] : shown;
+				} else {
+					let nextStrings = strings.filter((s) => String(s).toLowerCase() !== '@you');
+					if (nextStrings.length === strings.length && nextStrings.length > 0) {
+						nextStrings = nextStrings.slice(0, -1);
+					}
+					const overflow = Math.max(0, count - nextStrings.length);
+					const shown = nextStrings.slice(0, 5);
+					m.reactions[emojiKey] = overflow > 0 ? [...shown, overflow] : shown;
+				}
 			}
 			if (added) {
 				if (!m.viewer_reactions.includes(emojiKey)) m.viewer_reactions.push(emojiKey);
@@ -5138,8 +5182,8 @@ export async function initChatPage(root, options = {}) {
 		updateChatLatestRowMarker(messagesEl);
 		try {
 			hydrateRichUserTextEmbeds(next);
-			if (typeof setupReactionTooltipTap === 'function') {
-				setupReactionTooltipTap(messagesEl);
+			if (typeof setupWhoTooltips === 'function') {
+				setupWhoTooltips(messagesEl);
 			}
 		} catch {
 			// ignore
@@ -7254,8 +7298,8 @@ export async function initChatPage(root, options = {}) {
 			}
 		}
 		hydrateRichUserTextEmbeds(messagesEl);
-		if (typeof setupReactionTooltipTap === 'function') {
-			setupReactionTooltipTap(messagesEl);
+		if (typeof setupWhoTooltips === 'function') {
+			setupWhoTooltips(messagesEl);
 		}
 		updateCommentsChannelLatestMarker(messagesEl);
 	}
@@ -8055,8 +8099,8 @@ export async function initChatPage(root, options = {}) {
 			}
 
 			hydrateRichUserTextEmbeds(messagesEl);
-			if (typeof setupReactionTooltipTap === 'function') {
-				setupReactionTooltipTap(messagesEl);
+			if (typeof setupWhoTooltips === 'function') {
+				setupWhoTooltips(messagesEl);
 			}
 			updateCommentsChannelLatestMarker(messagesEl);
 
@@ -11198,7 +11242,7 @@ export async function initChatPage(root, options = {}) {
 				trimChatCreationEmbedWhitespace(embed);
 			}
 			restoreChatVideoPlaybackStates(messagesEl, prevVideoStates);
-			setupReactionTooltipTap(messagesEl);
+			setupWhoTooltips(messagesEl);
 			if (threadMessagesHasMore && threadMessagesNextBefore) {
 				setupThreadMessagesLoadMoreObserver(messagesEl);
 			}
@@ -14183,6 +14227,9 @@ export async function initChatPage(root, options = {}) {
 			const panel = overlay.querySelector('.chat-page-chat-modal-panel');
 			if (panel instanceof HTMLElement) panel.appendChild(next);
 		}
+		if (typeof setupWhoTooltips === 'function') {
+			setupWhoTooltips(overlay);
+		}
 	}
 
 	function handlePinnedMessageOverlayActionClick(ev, overlay) {
@@ -14344,6 +14391,9 @@ export async function initChatPage(root, options = {}) {
 		document.body.appendChild(overlay);
 		document.body.classList.add('modal-open');
 		document.documentElement.classList.add('modal-open');
+		if (typeof setupWhoTooltips === 'function') {
+			setupWhoTooltips(overlay);
+		}
 
 		const onKey = (ev) => {
 			if (ev.key === 'Escape') {

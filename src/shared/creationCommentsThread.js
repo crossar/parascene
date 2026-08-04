@@ -35,6 +35,7 @@ function loadDeps() {
 			commentItemMod,
 			createSubmitMod,
 			avatarMod,
+			tooltipTapMod,
 		] = await Promise.all([
 			import(`/shared/datetime.js${_qs}`),
 			import(`/shared/comments.js${_qs}`),
@@ -49,6 +50,7 @@ function loadDeps() {
 			import(`/shared/commentItem.js${_qs}`),
 			import(`/shared/createSubmit.js${_qs}`),
 			import(`/shared/avatar.js${_qs}`),
+			import(`/shared/reactionTooltipTap.js${_qs}`),
 		]);
 		return {
 			formatDateTime: datetimeMod.formatDateTime,
@@ -80,6 +82,7 @@ function loadDeps() {
 			renderCommentAvatarHtml: commentItemMod.renderCommentAvatarHtml,
 			uploadImageFile: createSubmitMod.uploadImageFile,
 			getAvatarColor: avatarMod.getAvatarColor,
+			setupWhoTooltips: tooltipTapMod.setupWhoTooltips,
 		};
 	})();
 	return _depsPromise;
@@ -164,6 +167,7 @@ export async function mountCreationCommentsThread(container, options) {
 		renderCommentAvatarHtml,
 		uploadImageFile,
 		getAvatarColor,
+		setupWhoTooltips,
 	} = deps;
 
 	const viewerRaw = opts.viewer || {};
@@ -799,6 +803,9 @@ export async function mountCreationCommentsThread(container, options) {
 		}
 		mountCommentReplyIndicators();
 		hydrateOpenInlineReplyComposer();
+		if (typeof setupWhoTooltips === 'function') {
+			setupWhoTooltips(container);
+		}
 	}
 
 	let activeReactionPicker = null;

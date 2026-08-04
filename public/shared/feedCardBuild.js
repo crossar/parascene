@@ -28,6 +28,8 @@ const [
 	sequentialVideoPlayerMod,
 	creationGroupMediaMod,
 	creationCardMod,
+	whoLabelsMod,
+	reactionTooltipTapMod,
 ] = await Promise.all([
 	import(`./blogCampaignPath.js${_qs}`),
 	import(`./datetime.js${_qs}`),
@@ -43,6 +45,8 @@ const [
 	import(`./sequentialVideoPlayer.js${_qs}`),
 	import(`./creationGroupMedia.js${_qs}`),
 	import(`./creationCard.js${_qs}`),
+	import(`./whoLabels.js${_qs}`),
+	import(`./reactionTooltipTap.js${_qs}`),
 ]);
 
 const { buildBlogPostPublicPath, BLOG_CAMPAIGN_INTERNAL } = blogCampaignPathMod;
@@ -59,6 +63,8 @@ const { primeMediaElementForAudioLeveling } = mediaAudioLevelingMod;
 const { openFeedBetaWhyModal } = feedBetaWhyModalMod;
 const { attachFeedImpressionBeacon, recordFeedImpressionOnClick } = feedImpressionBeaconMod;
 const { mountSequentialVideoPlayer } = sequentialVideoPlayerMod;
+const { applyWhoTooltipAttr } = whoLabelsMod;
+const { setupWhoTooltips } = reactionTooltipTapMod;
 
 const html = String.raw;
 
@@ -987,6 +993,11 @@ function buildFeedCreationCard(
 
 	const commentButton = card.querySelector('button[data-comment-button]');
 	if (commentButton && item.created_image_id) {
+		// Hover / long-press shows who commented; click still navigates.
+		applyWhoTooltipAttr(commentButton, item.commented_by);
+		if (commentButton.hasAttribute('data-tooltip')) {
+			commentButton.setAttribute('data-who-longpress', '1');
+		}
 		commentButton.addEventListener('click', (e) => {
 			e.preventDefault();
 			e.stopPropagation();
@@ -998,6 +1009,8 @@ function buildFeedCreationCard(
 			}
 		});
 	}
+
+	setupWhoTooltips(card);
 
 	const detailsButton = card.querySelector('button[data-details-button]');
 	if (detailsButton && item.created_image_id) {

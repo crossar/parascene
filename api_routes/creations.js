@@ -7,6 +7,7 @@ import { getSupabaseServiceClient } from "./utils/supabaseService.js";
 import { runSemanticSearch } from "./utils/embeddingsSearch.js";
 import { filterRecommendableCreationIds } from "./utils/recommendableCreations.js";
 import { recommendWithDataSource } from "../db/recommend/recsysWrapper.js";
+import { stampWhoMetaOnCreationRows } from "./utils/whoMeta.js";
 
 const RELATED_LIMIT_CAP = 40;
 const RELATED_EXCLUDE_IDS_CAP = 200;
@@ -235,6 +236,8 @@ function mapRelatedItemsToResponse(items, viewerLikedIds, reasonMetaByCreationId
 			like_count: Number(item?.like_count ?? 0),
 			comment_count: Number(item?.comment_count ?? 0),
 			viewer_liked: likedSet.has(String(item?.id ?? item?.created_image_id)),
+			liked_by: Array.isArray(item?.liked_by) ? item.liked_by : [],
+			commented_by: Array.isArray(item?.commented_by) ? item.commented_by : [],
 			nsfw: !!(item?.nsfw ?? meta?.nsfw),
 			reason_labels: Array.isArray(reasonMeta?.labels) ? reasonMeta.labels : [],
 			reason_details: Array.isArray(reasonMeta?.details) ? reasonMeta.details : [],
@@ -598,6 +601,7 @@ export default function createCreationsRoutes({ queries }) {
 				? await queries.selectViewerLikedCreationIds.all(req.auth?.userId, ids)
 				: [];
 			let itemsWithImages = mapRelatedItemsToResponse(items, viewerLikedIds, reasonMetaByCreationId);
+			itemsWithImages = await stampWhoMetaOnCreationRows(queries, itemsWithImages);
 			const user = await queries.selectUserById?.get?.(req.auth?.userId);
 			const enableNsfw = user?.meta?.enableNsfw === true;
 			if (!enableNsfw) {
@@ -671,7 +675,9 @@ export default function createCreationsRoutes({ queries }) {
 				...item,
 				distance: idToDistance.get(Number(item.created_image_id)) ?? null
 			}));
-			const mainMapped = mapRelatedItemsToResponse(mainRows, [], null);
+			items = await stampWhoMetaOnCreationRows(queries, items);
+			let mainMapped = mapRelatedItemsToResponse(mainRows, [], null);
+			mainMapped = await stampWhoMetaOnCreationRows(queries, mainMapped);
 			if (req.auth?.userId && queries.selectUserById?.get) {
 				const user = await queries.selectUserById.get(req.auth.userId);
 				if (!user?.meta?.enableNsfw) {
@@ -707,10 +713,11 @@ export default function createCreationsRoutes({ queries }) {
 				: [];
 			const orderIdx = new Map(ids.map((id, i) => [id, i]));
 			const sorted = neighbourRows.slice().sort((a, b) => (orderIdx.get(Number(a.id)) ?? 999) - (orderIdx.get(Number(b.id)) ?? 999));
-			const items = mapRelatedItemsToResponse(sorted, [], null).map((item) => ({
+			let items = mapRelatedItemsToResponse(sorted, [], null).map((item) => ({
 				...item,
 				distance: idToDistance.get(Number(item.created_image_id)) ?? null
 			}));
+			items = await stampWhoMetaOnCreationRows(queries, items);
 			return res.json({ items, distances: Object.fromEntries(idToDistance), has_more: hasMore });
 		} catch (err) {
 			console.error("[creations] embeddings/search error:", err);
@@ -738,7 +745,8 @@ export default function createCreationsRoutes({ queries }) {
 			const viewerLikedIds = typeof queries.selectViewerLikedCreationIds?.all === "function"
 				? await queries.selectViewerLikedCreationIds.all(req.auth?.userId, [id])
 				: [];
-			const items = mapRelatedItemsToResponse(rows, viewerLikedIds);
+			let items = mapRelatedItemsToResponse(rows, viewerLikedIds);
+			items = await stampWhoMetaOnCreationRows(queries, items);
 			const item = items[0] || null;
 			const user = await queries.selectUserById?.get?.(req.auth?.userId);
 			const enableNsfw = user?.meta?.enableNsfw === true;

@@ -27,6 +27,8 @@ let buildUserListRowHtml;
 let REACTION_ORDER;
 let REACTION_ICONS;
 let setupReactionTooltipTap;
+let setupWhoTooltips;
+let setupFloatingWhoTooltips;
 
 let navigateToCreation = (href) => {
 	window.location.assign(href);
@@ -108,7 +110,10 @@ async function loadDeps() {
 		REACTION_ICONS = iconsMod.REACTION_ICONS;
 
 		const tooltipTapMod = await import(`../shared/reactionTooltipTap.js${qs}`);
+		const whoLabelsMod = await import(`../shared/whoLabels.js${qs}`);
 		setupReactionTooltipTap = tooltipTapMod.setupReactionTooltipTap;
+		setupWhoTooltips = tooltipTapMod.setupWhoTooltips;
+		setupFloatingWhoTooltips = whoLabelsMod.setupFloatingWhoTooltips;
 	})();
 	return _depsPromise;
 }
@@ -1178,8 +1183,11 @@ function renderCommentsList(container, comments, emptyMessage) {
 			}).join('')}
 		</div>
 	`;
-	if (typeof setupReactionTooltipTap === 'function') {
-		setupReactionTooltipTap(container);
+	if (typeof setupWhoTooltips === 'function') {
+		setupWhoTooltips(container);
+	} else {
+		if (typeof setupReactionTooltipTap === 'function') setupReactionTooltipTap(container);
+		if (typeof setupFloatingWhoTooltips === 'function') setupFloatingWhoTooltips(container);
 	}
 }
 

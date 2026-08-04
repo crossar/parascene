@@ -10,6 +10,8 @@ import {
 import { getAvatarColor } from '../../shared/avatar.js';
 import { renderCommentAvatarHtml } from '../../shared/commentItem.js';
 import { primeMediaElementForAudioLeveling } from '../../shared/mediaAudioLeveling.js';
+import { applyWhoTooltipAttr } from '../../shared/whoLabels.js';
+import { setupWhoTooltips } from '../../shared/reactionTooltipTap.js';
 
 /**
  * @param {unknown} s
@@ -464,6 +466,14 @@ export function createDoomSlideElement(item, viewerUserId, slideOpts = {}) {
 		</div>
 	`;
 
+	const doomCommentsLink = rail.querySelector('a[data-chat-doom-comments]');
+	if (doomCommentsLink) {
+		applyWhoTooltipAttr(doomCommentsLink, item.commented_by);
+		if (doomCommentsLink.hasAttribute('data-tooltip')) {
+			doomCommentsLink.setAttribute('data-who-longpress', '1');
+		}
+	}
+	setupWhoTooltips(rail);
 	const bottom = document.createElement('div');
 	bottom.className = 'chat-doom-bottom';
 	if (Number.isFinite(cid) && cid > 0) {

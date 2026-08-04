@@ -38,6 +38,7 @@ import {
 } from "./utils/resolveCreatedImageStorageFilename.js";
 import { invalidateFeedBetaCatalogSnapshot } from "./feedBeta/catalogSnapshot.js";
 import { mapCreatedImageRowMediaFields } from "./utils/resolveCreationDisplayMedia.js";
+import { getWhoMetaForCreation } from "./utils/whoMeta.js";
 import {
 	canSetVideoPosterFromFirstFrame,
 	getLandscapeOutpaintEligibility,
@@ -3508,6 +3509,13 @@ export default function createCreateRoutes({ queries, storage }) {
 			const likeCount = Number(likeCountRow?.like_count ?? 0);
 			const viewerLikedRow = await queries.selectCreatedImageViewerLiked?.get(user.id, image.id);
 			const viewerLiked = Boolean(viewerLikedRow?.viewer_liked);
+			let liked_by = [];
+			try {
+				const who = await getWhoMetaForCreation(queries, image.id, { like_count: likeCount });
+				liked_by = Array.isArray(who?.liked_by) ? who.liked_by : [];
+			} catch {
+				liked_by = [];
+			}
 
 			const isPublished = image.published === 1 || image.published === true;
 			// Always read description from created_image, not from feed_item
@@ -3623,6 +3631,7 @@ export default function createCreateRoutes({ queries, storage }) {
 				description: description || null,
 				like_count: likeCount,
 				viewer_liked: viewerLiked,
+				liked_by,
 				user_id: image.user_id,
 				meta: shareAccess
 					? rewriteGroupMetaForShareAccess(meta, shareAccess, creationIdForMedia)
