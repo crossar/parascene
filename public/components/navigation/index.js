@@ -170,6 +170,7 @@ class AppNavigation extends HTMLElement {
 		this.handleCreditsClaimStatus = this.handleCreditsClaimStatus.bind(this);
 		this.canClaimCredits = null; // null = unknown (no callout)
 		this.chatUnreadCount = 0;
+		this.challengesUnreadCount = 0;
 		this._chatUnreadPoll = null;
 		this._onChatUnreadRefresh = this._onChatUnreadRefresh.bind(this);
 		this._chatUserBroadcastTeardown = null;
@@ -519,7 +520,9 @@ class AppNavigation extends HTMLElement {
 	}
 
 	_syncChatTabAttention() {
-		applyChatGlobalUnreadChrome(this.chatUnreadCount || 0);
+		const chat = this.chatUnreadCount || 0;
+		const challenges = this.challengesUnreadCount || 0;
+		applyChatGlobalUnreadChrome(chat + challenges);
 	}
 
 	_tearDownChatUserBroadcast() {
@@ -563,13 +566,43 @@ class AppNavigation extends HTMLElement {
 		void playChatUnreadPing();
 	}
 
+	_parseUnreadSummary(data) {
+		const totalRaw = Number(data?.total_unread);
+		const total = Number.isFinite(totalRaw) ? Math.max(0, totalRaw) : 0;
+		const challengesRaw = Number(data?.challenges_unread);
+		const challenges = Number.isFinite(challengesRaw)
+			? Math.max(0, Math.min(total, challengesRaw))
+			: 0;
+		const chatRaw = Number(data?.chat_unread);
+		const chat = Number.isFinite(chatRaw)
+			? Math.max(0, chatRaw)
+			: Math.max(0, total - challenges);
+		return { total, chat, challenges };
+	}
+
+	_paintUnreadBadge(el, n, ariaNoun) {
+		if (!(el instanceof HTMLElement)) return;
+		if (n > 0) {
+			el.textContent = n > 99 ? '99+' : String(n);
+			el.classList.add('has-unread');
+			el.setAttribute('aria-label', `${n} unread ${ariaNoun}`);
+		} else {
+			el.textContent = '';
+			el.classList.remove('has-unread');
+			el.removeAttribute('aria-label');
+		}
+	}
+
 	async loadChatUnreadCount() {
 		const wasInitialized = this._chatUnreadCountInitialized;
-		const prevUnread = Number.isFinite(this.chatUnreadCount) ? this.chatUnreadCount : null;
+		const prevTotal =
+			(Number.isFinite(this.chatUnreadCount) ? this.chatUnreadCount : 0) +
+			(Number.isFinite(this.challengesUnreadCount) ? this.challengesUnreadCount : 0);
 		try {
 			const res = await fetch('/api/chat/unread-summary', { credentials: 'include' });
 			if (!res.ok) {
 				this.chatUnreadCount = 0;
+				this.challengesUnreadCount = 0;
 				this._chatUnreadCountInitialized = true;
 				this._tearDownChatUserBroadcast();
 				this.updateChatUnreadBadgeUI();
@@ -577,21 +610,22 @@ class AppNavigation extends HTMLElement {
 				return;
 			}
 			const data = await res.json().catch(() => ({}));
-			const n = Number(data?.total_unread);
-			const nextUnread = Number.isFinite(n) ? Math.max(0, n) : 0;
+			const { total, chat, challenges } = this._parseUnreadSummary(data);
 			const vid = data?.viewer_id != null && Number.isFinite(Number(data.viewer_id)) ? Number(data.viewer_id) : null;
-			this.chatUnreadCount = nextUnread;
+			this.chatUnreadCount = chat;
+			this.challengesUnreadCount = challenges;
 			this._chatUnreadCountInitialized = true;
 			if (vid != null) {
 				void this._maybeBindChatUserBroadcast(vid);
 			}
 			if (wasInitialized) {
-				this._maybePlayChatUnreadPing(prevUnread, nextUnread);
+				this._maybePlayChatUnreadPing(prevTotal, total);
 			}
 			this.updateChatUnreadBadgeUI();
 			this._syncChatTabAttention();
 		} catch {
 			this.chatUnreadCount = 0;
+			this.challengesUnreadCount = 0;
 			this._chatUnreadCountInitialized = true;
 			this._tearDownChatUserBroadcast();
 			this.updateChatUnreadBadgeUI();
@@ -600,33 +634,24 @@ class AppNavigation extends HTMLElement {
 	}
 
 	updateChatUnreadBadgeUI() {
-		const n = this.chatUnreadCount || 0;
-		const navBadges = this.querySelectorAll('.nav-link-unread-badge');
+		const chatN = this.chatUnreadCount || 0;
+		const challengesN = this.challengesUnreadCount || 0;
+		const navBadges = this.querySelectorAll('.nav-link-unread-badge:not(.nav-link-unread-badge--challenges)');
 		navBadges.forEach((badge) => {
-			if (n > 0) {
-				badge.textContent = n > 99 ? '99+' : String(n);
-				badge.classList.add('has-unread');
-				badge.setAttribute('aria-label', `${n} unread chat messages`);
-			} else {
-				badge.textContent = '';
-				badge.classList.remove('has-unread');
-				badge.removeAttribute('aria-label');
-			}
+			this._paintUnreadBadge(badge, chatN, 'chat messages');
 		});
-		const mob = document.querySelector(
+		const challengesNavBadges = this.querySelectorAll('.nav-link-unread-badge--challenges');
+		challengesNavBadges.forEach((badge) => {
+			this._paintUnreadBadge(badge, challengesN, 'challenge updates');
+		});
+		const mobChat = document.querySelector(
 			'app-navigation-mobile .mobile-bottom-nav-item[data-route="connect"] .mobile-bottom-nav-unread-badge'
 		);
-		if (mob) {
-			if (n > 0) {
-				mob.textContent = n > 99 ? '99+' : String(n);
-				mob.classList.add('has-unread');
-				mob.setAttribute('aria-label', `${n} unread chat messages`);
-			} else {
-				mob.textContent = '';
-				mob.classList.remove('has-unread');
-				mob.removeAttribute('aria-label');
-			}
-		}
+		this._paintUnreadBadge(mobChat, chatN, 'chat messages');
+		const mobChallenges = document.querySelector(
+			'app-navigation-mobile .mobile-bottom-nav-item[data-route="challenges"] .mobile-bottom-nav-unread-badge'
+		);
+		this._paintUnreadBadge(mobChallenges, challengesN, 'challenge updates');
 	}
 
 	async loadCreditsCount() {

@@ -1225,6 +1225,48 @@ function initChallengesOrganizeSpaHotfix() {
 
 initChallengesOrganizeSpaHotfix();
 
+/**
+ * Vote prev/next belong above/below the media (image voting layout), not overlaid.
+ * If a stale bundle or earlier hotfix left them inside the media frame, move them out.
+ */
+function initChallengeVoteNavOutsideHotfix() {
+	function ensureVoteNavOutsideMedia(overlay) {
+		if (!(overlay instanceof HTMLElement)) return;
+		const column = overlay.querySelector('.challenge-vote-modal-media-column');
+		const media = overlay.querySelector('.challenge-vote-modal-media');
+		if (!(column instanceof HTMLElement) || !(media instanceof HTMLElement)) return;
+
+		const prev = overlay.querySelector('[data-challenge-vote-prev]');
+		const next = overlay.querySelector('[data-challenge-vote-next]');
+		if (!(prev instanceof HTMLButtonElement) || !(next instanceof HTMLButtonElement)) return;
+
+		prev.classList.remove('challenge-vote-nav-in');
+		next.classList.remove('challenge-vote-nav-in');
+		prev.classList.add('challenge-vote-nav-out', 'challenge-vote-nav-up');
+		next.classList.add('challenge-vote-nav-out', 'challenge-vote-nav-down');
+
+		if (prev.parentElement !== column || prev.nextElementSibling !== media) {
+			column.insertBefore(prev, media);
+		}
+		if (next.parentElement !== column || media.nextElementSibling !== next) {
+			if (media.nextSibling) column.insertBefore(next, media.nextSibling);
+			else column.appendChild(next);
+		}
+	}
+
+	const scan = () => {
+		document.querySelectorAll('.challenge-vote-modal-overlay').forEach(ensureVoteNavOutsideMedia);
+	};
+	scan();
+	const mo = new MutationObserver(() => {
+		window.clearTimeout(initChallengeVoteNavOutsideHotfix._t);
+		initChallengeVoteNavOutsideHotfix._t = window.setTimeout(scan, 30);
+	});
+	mo.observe(document.documentElement, { childList: true, subtree: true });
+}
+
+initChallengeVoteNavOutsideHotfix();
+
 void import(`/shared/consoleGen.js${assetQuery()}`)
 	.then((mod) => {
 		mod.installConsoleGen?.();

@@ -1155,7 +1155,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 		return Boolean(ev && typeof ev === "object" && !Array.isArray(ev));
 	}
 
-	// GET /api/chat/unread-summary — total unread messages across threads (for nav badge)
+	// GET /api/chat/unread-summary — total unread + split for Challenges vs Chat nav badges
 	router.get("/api/chat/unread-summary", async (req, res) => {
 		const userId = requireUser(req, res);
 		if (userId == null) return;
@@ -1170,7 +1170,42 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 			const raw = data;
 			const n = typeof raw === "bigint" ? Number(raw) : Number(raw);
 			const total = Number.isFinite(n) ? Math.max(0, n) : 0;
-			return res.status(200).json({ total_unread: total, viewer_id: userId });
+
+			let challengesUnread = 0;
+			const challengesTid = await findChallengesChannelThreadId(sb);
+			if (challengesTid != null) {
+				const { data: mem, error: memErr } = await sb
+					.from("prsn_chat_members")
+					.select("last_read_message_id")
+					.eq("thread_id", challengesTid)
+					.eq("user_id", userId)
+					.maybeSingle();
+				if (memErr) throw memErr;
+				if (mem) {
+					const lastRead =
+						mem.last_read_message_id != null ? Number(mem.last_read_message_id) : null;
+					let q = sb
+						.from("prsn_chat_messages")
+						.select("id", { count: "exact", head: true })
+						.eq("thread_id", challengesTid)
+						.neq("sender_id", userId);
+					if (Number.isFinite(lastRead) && lastRead > 0) {
+						q = q.gt("id", lastRead);
+					}
+					const { count, error: cntErr } = await q;
+					if (cntErr) throw cntErr;
+					const c = Number(count);
+					challengesUnread = Number.isFinite(c) && c > 0 ? c : 0;
+				}
+			}
+
+			const chatUnread = Math.max(0, total - challengesUnread);
+			return res.status(200).json({
+				total_unread: total,
+				challenges_unread: challengesUnread,
+				chat_unread: chatUnread,
+				viewer_id: userId
+			});
 		} catch (err) {
 			console.error("[GET /api/chat/unread-summary]", err);
 			return res.status(500).json({ error: "Server error", message: err?.message || "Failed" });

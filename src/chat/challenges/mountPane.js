@@ -256,7 +256,8 @@ function renderLegacySingleChallengePane(item, opts) {
 	html += renderChallengeVoteHeroCta({
 		phase,
 		viewerId: opts.viewerId ?? null,
-		ranked: rankedSubmissions
+		ranked: rankedSubmissions,
+		challengeId
 	});
 	if (opts.showOrganize) {
 		html += renderOrganizeEntryCta();
@@ -301,7 +302,8 @@ function renderChallengeDetailView(item, opts) {
 	html += renderChallengeVoteHeroCta({
 		phase,
 		viewerId: opts.viewerId ?? null,
-		ranked: rankedSubmissions
+		ranked: rankedSubmissions,
+		challengeId
 	});
 	html += renderDetailsAndReward(latestConfig);
 	html += renderSubmissionsSection({
@@ -333,7 +335,8 @@ function renderStackedChallengeActions(opts) {
 		phase,
 		viewerId,
 		ranked,
-		forceHeroBadge: true
+		forceHeroBadge: true,
+		challengeId
 	});
 	html += `<section class="challenge-pane-section challenge-pane-stack-more-info">
 		<a class="challenge-pane-stack-details-btn" href="${esc(challengesDetailsHref(challengeId))}" data-chat-challenge-details-open>More Info</a>
@@ -488,6 +491,27 @@ function countUnvotedSubmissions(ranked, viewerId) {
 }
 
 /**
+ * Prefer the challenge card / detail root so nested `[data-challenge-id]` (thumb, buttons)
+ * never steal scope and leave the Vote badge unupdated — or worse, fall through to `root`
+ * and paint every challenge's badge with the wrong count.
+ * @param {Element} root
+ * @param {string} challengeId
+ * @returns {Element}
+ */
+function resolveVoteChromeScope(root, challengeId) {
+	const cid = String(challengeId || '').trim();
+	if (!cid || !(root instanceof Element)) return root;
+	const esc = CSS.escape(cid);
+	return (
+		root.querySelector(`[data-challenge-detail][data-challenge-id="${esc}"]`) ||
+		root.querySelector(`.challenge-pane-summary-card[data-challenge-id="${esc}"]`) ||
+		root.querySelector(`.challenge-pane-active-card[data-challenge-id="${esc}"]`) ||
+		root.querySelector(`[data-challenge-id="${esc}"]`) ||
+		root
+	);
+}
+
+/**
  * Sync vote badge chrome scoped to a challenge card / detail root.
  * @param {Element} scope
  * @param {object[]} rankedPeers
@@ -496,9 +520,10 @@ function countUnvotedSubmissions(ranked, viewerId) {
  */
 function syncVoteTabChrome(scope, rankedPeers, viewerId, phase) {
 	if (!phaseUsesModalVoteOnly(phase)) return;
+	if (!(scope instanceof Element)) return;
 
 	const voteTab = scope.querySelector('[data-challenge-action-tab="vote"]');
-	const badge = scope.querySelector('[data-challenge-vote-tab-badge]');
+	const badges = scope.querySelectorAll('[data-challenge-vote-tab-badge]');
 	const openBtn = scope.querySelector('[data-challenge-vote-open]');
 	const hasVoteTab = voteTab instanceof HTMLButtonElement;
 	const ariaHost =
@@ -534,21 +559,25 @@ function syncVoteTabChrome(scope, rankedPeers, viewerId, phase) {
 		}
 	}
 
-	if (badge instanceof HTMLElement) {
-		if (unvoted > 1) {
+	const showBadge = unvoted > 1;
+	const label = showBadge ? `${unvoted} submissions not scored` : '';
+	for (const badge of badges) {
+		if (!(badge instanceof HTMLElement)) continue;
+		if (showBadge) {
 			badge.hidden = false;
 			badge.removeAttribute('aria-hidden');
 			badge.textContent = String(unvoted);
-			const label = `${unvoted} submissions not scored`;
 			badge.title = label;
-			if (ariaHost instanceof HTMLElement) ariaHost.setAttribute('aria-description', label);
 		} else {
 			badge.hidden = true;
 			badge.setAttribute('aria-hidden', 'true');
 			badge.textContent = '';
 			badge.removeAttribute('title');
-			if (ariaHost instanceof HTMLElement) ariaHost.removeAttribute('aria-description');
 		}
+	}
+	if (ariaHost instanceof HTMLElement) {
+		if (showBadge) ariaHost.setAttribute('aria-description', label);
+		else ariaHost.removeAttribute('aria-description');
 	}
 }
 
@@ -660,8 +689,7 @@ export async function mountChallengesPane(opts) {
 					? String(item.latestConfig.challenge_id).trim()
 					: String(item.challengeId || '').trim();
 			if (!cid) continue;
-			const scope =
-				root.querySelector(`[data-challenge-id="${CSS.escape(cid)}"]`) || root;
+			const scope = resolveVoteChromeScope(root, cid);
 			const peers = rankedSubmissionsForPeerVoting(
 				item.rankedSubmissions || [],
 				viewerId
@@ -690,12 +718,8 @@ export async function mountChallengesPane(opts) {
 			if (detailChallengeId) {
 				const item = findLiveItem(detailChallengeId);
 				if (item) {
-					const scope =
-						root.querySelector(
-							`[data-challenge-detail][data-challenge-id="${CSS.escape(detailChallengeId)}"]`
-						) || root;
 					syncVoteTabChrome(
-						scope,
+						resolveVoteChromeScope(root, detailChallengeId),
 						rankedSubmissionsForPeerVoting(item.rankedSubmissions || [], viewerId),
 						viewerId,
 						item.phase
@@ -709,10 +733,8 @@ export async function mountChallengesPane(opts) {
 						? String(item.latestConfig.challenge_id).trim()
 						: String(item.challengeId || '').trim();
 				if (!cid) continue;
-				const scope =
-					root.querySelector(`[data-challenge-id="${CSS.escape(cid)}"]`) || root;
 				syncVoteTabChrome(
-					scope,
+					resolveVoteChromeScope(root, cid),
 					rankedSubmissionsForPeerVoting(item.rankedSubmissions || [], viewerId),
 					viewerId,
 					item.phase
@@ -730,7 +752,10 @@ export async function mountChallengesPane(opts) {
 		const challengeTitle = item.latestConfig
 			? participantHeroViewModel(item.latestConfig, peers).title
 			: '';
-		voteModal.open(slides, { challengeTitle });
+		voteModal.open(slides, {
+			challengeTitle,
+			track: pickChallengeTrack(item.latestConfig)
+		});
 		return true;
 	};
 
@@ -868,6 +893,10 @@ export function openChallengeVoteModalFromMessages(opts) {
 			}
 		}
 	});
-	voteModal.open(slides, { challengeTitle });
+	const cfg = item?.latestConfig || model.participant.latestConfig;
+	voteModal.open(slides, {
+		challengeTitle,
+		track: pickChallengeTrack(cfg)
+	});
 	return true;
 }

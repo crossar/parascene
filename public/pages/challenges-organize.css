@@ -429,6 +429,11 @@
 	line-height: 1.35;
 }
 
+/* Mobile-only: icon+type before dates. Hidden on larger screens. */
+.challenges-organize-card-meta-lead {
+	display: none;
+}
+
 .challenges-organize-card-footer {
 	display: flex;
 	flex-wrap: wrap;
@@ -1373,12 +1378,39 @@
 		margin-top: 1px;
 	}
 
-	.challenges-organize-track-meta {
-		font-size: 11px;
+	.challenges-organize-card-meta-year,
+	.challenges-organize-card-meta-days {
+		display: none;
+	}
+
+	.challenges-organize-card-meta-lead {
+		display: inline;
+	}
+
+	.challenges-organize-card-meta-lead .challenges-organize-track-meta {
+		display: inline-flex;
+		vertical-align: -0.15em;
+		margin-right: 0;
+		font-size: inherit;
+		font-weight: inherit;
+	}
+
+	.challenges-organize-card-meta-lead .challenges-organize-track-svg {
+		width: 12px;
+		height: 12px;
+	}
+
+	.challenges-organize-card-footer > .challenges-organize-track-meta {
+		display: none;
 	}
 
 	.challenges-organize-card-main {
-		gap: 4px;
+		gap: 0;
 		padding-bottom: 2px;
+	}
+
+	.challenges-organize-card-footer {
+		margin-top: 0;
+		min-height: 0;
 	}
 }

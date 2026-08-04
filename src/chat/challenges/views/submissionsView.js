@@ -49,6 +49,7 @@ function phaseShowsVoteUiInModalOnly(phase) {
  *   viewerId: number | null,
  *   ranked: object[],
  *   forceHeroBadge?: boolean,
+ *   challengeId?: string,
  * }} vm
  */
 export function renderChallengeVoteHeroCta(vm) {
@@ -60,6 +61,9 @@ export function renderChallengeVoteHeroCta(vm) {
 		vm.phase !== 'submitting' && vm.phase !== 'submit_and_vote';
 	// Stacked board has no Vote tab — always put the unvoted badge on the hero button.
 	const badgeOnHero = Boolean(vm.forceHeroBadge) || !showSubmitTab;
+	const challengeId =
+		typeof vm.challengeId === 'string' ? vm.challengeId.trim() : '';
+	const challengeIdAttr = challengeId ? ` data-challenge-id="${esc(challengeId)}"` : '';
 
 	const vid = Number(vm.viewerId);
 	const signedIn = Number.isFinite(vid) && vid > 0;
@@ -80,7 +84,7 @@ export function renderChallengeVoteHeroCta(vm) {
 
 	return `
 <section class="challenge-pane-section challenge-pane-vote-hero-cta">
-	<button type="button" class="challenge-pane-vote-hero-btn" data-challenge-vote-open>
+	<button type="button" class="challenge-pane-vote-hero-btn" data-challenge-vote-open${challengeIdAttr}>
 		<span class="challenge-pane-vote-open-inner">
 			<span class="challenge-pane-vote-hero-btn-label">Vote</span>
 			${badgeHtml}

@@ -75,6 +75,22 @@ function organizeActionsForPhase(phase, opts = {}) {
 }
 
 /**
+ * Month/day label with year in a span so small screens can hide it.
+ * @param {Date} date
+ * @param {boolean} includeYear
+ */
+function formatOrganizeDateLabel(date, includeYear) {
+	const md = esc(
+		date.toLocaleDateString(undefined, {
+			month: 'short',
+			day: 'numeric'
+		})
+	);
+	if (!includeYear) return md;
+	return `${md}<span class="challenges-organize-card-meta-year">, ${date.getFullYear()}</span>`;
+}
+
+/**
  * @param {string} startYmd
  * @param {string} endYmd
  */
@@ -85,18 +101,11 @@ function formatOrganizeDateRange(startYmd, endYmd) {
 	const startDate = new Date(a.y, a.m - 1, a.d);
 	const endDate = new Date(b.y, b.m - 1, b.d);
 	const sameYear = a.y === b.y;
-	const startLabel = startDate.toLocaleDateString(undefined, {
-		month: 'short',
-		day: 'numeric',
-		...(sameYear ? {} : { year: 'numeric' })
-	});
-	const endLabel = endDate.toLocaleDateString(undefined, {
-		month: 'short',
-		day: 'numeric',
-		year: 'numeric'
-	});
+	const startLabel = formatOrganizeDateLabel(startDate, !sameYear);
+	const endLabel = formatOrganizeDateLabel(endDate, true);
 	const n = daysInclusive(startYmd, endYmd);
-	return `${startLabel} – ${endLabel} · ${n} day${n === 1 ? '' : 's'}`;
+	const daysBlurb = `<span class="challenges-organize-card-meta-days"> · ${n} day${n === 1 ? '' : 's'}</span>`;
+	return `${startLabel} – ${endLabel}${daysBlurb}`;
 }
 
 /** Monthly calendar glyph (no shared calendar icon in svg-strings). */
@@ -514,9 +523,12 @@ function renderOrganizeCardHtml(c, vm) {
 	const actions = organizeActionsForPhase(phase, {
 		isOceanman: Boolean(vm.isOceanman)
 	});
+	const track = normalizeChallengeTrack(c.track || pickChallengeTrack(c.merged));
 	const meta = c.range
-		? esc(formatOrganizeDateRange(c.range.start, c.range.end))
+		? formatOrganizeDateRange(c.range.start, c.range.end)
 		: 'No dates set';
+	/* Mobile: icon+type first on the date line; desktop keeps icon+label in the footer. */
+	const metaLead = `<span class="challenges-organize-card-meta-lead">${organizeTrackMetaHtml(track)}<span class="challenges-organize-card-meta-sep" aria-hidden="true"> · </span></span>`;
 	const isComplete = phase === 'results';
 	const needsAction = phase === 'finalizing';
 	const isLive =
@@ -554,7 +566,7 @@ function renderOrganizeCardHtml(c, vm) {
 		: '';
 
 	const footer = `<div class="challenges-organize-card-footer">
-		${organizeTrackMetaHtml(c.track || pickChallengeTrack(c.merged))}
+		${organizeTrackMetaHtml(track)}
 		<div class="challenges-organize-card-footer-actions">
 			${primaryActionBtn}
 			${statsBtn}
@@ -575,13 +587,13 @@ function renderOrganizeCardHtml(c, vm) {
 		.filter(Boolean)
 		.join(' ');
 
-	return `<article class="challenges-organize-card ${cardMods}" data-organize-card="${esc(cid)}" data-organize-track="${esc(c.track)}" data-organize-phase="${esc(phase)}" data-organize-listed="${listed ? '1' : '0'}">
-		${organizeHeroThumbHtml(c.merged, cid, c.track)}
+	return `<article class="challenges-organize-card ${cardMods}" data-organize-card="${esc(cid)}" data-organize-track="${esc(track)}" data-organize-phase="${esc(phase)}" data-organize-listed="${listed ? '1' : '0'}">
+		${organizeHeroThumbHtml(c.merged, cid, track)}
 		<div class="challenges-organize-card-main">
 			<div class="challenges-organize-card-header">
 				<h4 class="challenges-organize-card-title">${title}</h4>
 				<span class="challenges-organize-phase-chip challenges-organize-phase-chip--${esc(chipPhase)}">${esc(organizePhaseLabel(phase, listed))}</span>
-				<p class="challenges-organize-card-meta">${meta}</p>
+				<p class="challenges-organize-card-meta">${metaLead}${meta}</p>
 			</div>
 			${footer}
 		</div>

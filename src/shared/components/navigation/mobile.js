@@ -369,9 +369,10 @@ class AppNavigationMobile extends HTMLElement {
 			${homeIcon('mobile-bottom-nav-icon mobile-bottom-nav-icon-home')}
             <span class="mobile-bottom-nav-text feed-nav-label-text" data-feed-nav="home" aria-hidden="true">${homeLabel}</span>
           </button>
-          <button class="mobile-bottom-nav-item" data-route="challenges" aria-label="Challenges">
+          <button class="mobile-bottom-nav-item mobile-bottom-nav-item--challenges" data-route="challenges" aria-label="Challenges">
 			${typeof trophyIcon === 'function' ? trophyIcon('mobile-bottom-nav-icon') : ''}
             <span class="mobile-bottom-nav-text" aria-hidden="true">Challenges</span>
+            <span class="mobile-bottom-nav-unread-badge" aria-hidden="true"></span>
           </button>
 		  <button class="mobile-bottom-nav-item create-button" data-route="create" aria-label="Create">
             <span class="create-button-icon" aria-hidden="true">

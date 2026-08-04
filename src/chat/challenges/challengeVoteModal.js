@@ -145,6 +145,8 @@ export function createChallengeVoteModal(opts) {
 	let mediaSwipeCleanup = /** @type {null | (() => void)} */ (null);
 	/** Skip replacing media when the same creation is already shown (prevents layout flicker). */
 	let lastVoteMediaCreationId = /** @type {number | null} */ (null);
+	/** Challenge track for this open (`suno` keeps prev/next visible when only one slide). */
+	let modalTrack = /** @type {string} */ ('');
 	/** `pushState` layer while modal is open — browser back should close modal. */
 	let voteModalHistoryPushed = false;
 	/** Ignore the next `popstate` from programmatic `history.back()` after closing/replacing the modal. */
@@ -398,6 +400,18 @@ export function createChallengeVoteModal(opts) {
 		const url = typeof c.url === 'string' ? c.url.trim() : '';
 		const thumb = typeof c.thumbnail_url === 'string' ? c.thumbnail_url.trim() : '';
 
+		/* Suno vote UI uses cover art + docked embed — warm the cover like an image. */
+		if (sunoEmbedFromCreation(c)) {
+			const artSrc = (url || thumb).trim();
+			if (!artSrc) return;
+			const im = new Image();
+			im.decoding = 'async';
+			im.src = artSrc;
+			prefetchKeepAlive.push(im);
+			trimPrefetchKeepAlive();
+			return;
+		}
+
 		if (mediaType === 'video' && videoUrl) {
 			const poster = (thumb || url).trim();
 			if (poster) {
@@ -530,6 +544,11 @@ export function createChallengeVoteModal(opts) {
 		return { embedSrc, title };
 	}
 
+	/**
+	 * Vote UI for Suno: same markup on all sizes.
+	 * Mobile CSS: cover art + compact (19/6) player at center-bottom (swipe-friendly).
+	 * Desktop CSS: full-bleed official embed.
+	 */
 	function injectVoteMediaFromCreation(stage, c, cid) {
 		const mediaType = typeof c.media_type === 'string' ? c.media_type : 'image';
 		const videoUrl = typeof c.video_url === 'string' ? c.video_url.trim() : '';
@@ -542,7 +561,16 @@ export function createChallengeVoteModal(opts) {
 		const suno = sunoEmbedFromCreation(c);
 		if (suno) {
 			setVoteMediaSunoMode(stage, true);
-			stage.innerHTML = `<div class="challenge-vote-modal-suno-embed"${idAttr}><iframe class="challenge-vote-modal-suno-embed-iframe" src="${escAttr(suno.embedSrc)}" title="${escAttr(suno.title)}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe></div>`;
+			const artSrc = url || thumb;
+			const artHtml = artSrc
+				? `<img class="challenge-vote-modal-suno-art${nsfwClass}" src="${escAttr(artSrc)}" alt="" decoding="async" draggable="false" />`
+				: `<div class="challenge-vote-modal-suno-art challenge-vote-modal-suno-art--empty" aria-hidden="true"></div>`;
+			stage.innerHTML = `<div class="challenge-vote-modal-suno-stage"${idAttr}>
+				${artHtml}
+				<div class="challenge-vote-modal-suno-dock">
+					<iframe class="challenge-vote-modal-suno-embed-iframe" src="${escAttr(suno.embedSrc)}" title="${escAttr(suno.title)}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+				</div>
+			</div>`;
 			lastVoteMediaCreationId = cid;
 			return;
 		}
@@ -717,17 +745,19 @@ export function createChallengeVoteModal(opts) {
 		const nextBtn = el('[data-challenge-vote-next]');
 
 		const multi = slides.length > 1;
+		/* Music (Suno): always show chevrons so single-entry votes still match image layout — both disabled. */
+		const showNav = multi || modalTrack === 'suno';
 		if (prevBtn instanceof HTMLButtonElement) {
-			prevBtn.hidden = !multi;
-			prevBtn.setAttribute('aria-hidden', multi ? 'false' : 'true');
+			prevBtn.hidden = !showNav;
+			prevBtn.setAttribute('aria-hidden', showNav ? 'false' : 'true');
 			prevBtn.disabled = !multi || slideIdx <= 0;
-			prevBtn.tabIndex = multi ? 0 : -1;
+			prevBtn.tabIndex = showNav ? 0 : -1;
 		}
 		if (nextBtn instanceof HTMLButtonElement) {
-			nextBtn.hidden = !multi;
-			nextBtn.setAttribute('aria-hidden', multi ? 'false' : 'true');
+			nextBtn.hidden = !showNav;
+			nextBtn.setAttribute('aria-hidden', showNav ? 'false' : 'true');
 			nextBtn.disabled = !multi || slideIdx >= slides.length - 1;
-			nextBtn.tabIndex = multi ? 0 : -1;
+			nextBtn.tabIndex = showNav ? 0 : -1;
 		}
 
 		syncHeatAndBusyOnly();
@@ -777,6 +807,19 @@ export function createChallengeVoteModal(opts) {
 				vid.pause();
 			} catch {
 				// ignore
+			}
+		}
+		/* Drop Suno iframes before swap so audio does not keep playing under the next slide. */
+		const sunoIframes = overlay?.querySelectorAll('.challenge-vote-modal-suno-embed-iframe');
+		if (sunoIframes) {
+			for (const frame of sunoIframes) {
+				if (frame instanceof HTMLIFrameElement) {
+					try {
+						frame.src = 'about:blank';
+					} catch {
+						// ignore
+					}
+				}
 			}
 		}
 		slideIdx = next;
@@ -969,7 +1012,7 @@ export function createChallengeVoteModal(opts) {
 	return {
 		/**
 		 * @param {object[]} nextSlides — ranked rows, newest-first order
-		 * @param {{ challengeTitle?: string }} [openOpts]
+		 * @param {{ challengeTitle?: string, track?: string }} [openOpts]
 		 */
 		open(nextSlides, openOpts = {}) {
 			slides = Array.isArray(nextSlides) ? nextSlides : [];
@@ -978,6 +1021,8 @@ export function createChallengeVoteModal(opts) {
 			mediaWarmByCreationId = new Set();
 			prefetchKeepAlive.length = 0;
 			lastVoteMediaCreationId = null;
+			modalTrack =
+				typeof openOpts.track === 'string' ? openOpts.track.trim().toLowerCase() : '';
 			heatNeedsSeedFromRow = true;
 			lastPaintedHeatScore = 0;
 			destroy();

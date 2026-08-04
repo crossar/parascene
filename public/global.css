@@ -2388,7 +2388,8 @@ header .hamburger-button.active span:nth-child(3) {
 	line-height: 1;
 }
 
-.mobile-bottom-nav-item--connect {
+.mobile-bottom-nav-item--connect,
+.mobile-bottom-nav-item--challenges {
 	position: relative;
 }
 
@@ -8778,7 +8779,8 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	width: min(900px, calc(100vw - 16px));
 	max-width: calc(100vw - 12px);
 	max-height: calc(100vh - 20px);
-	overflow: auto;
+	max-height: calc(100dvh - 20px);
+	overflow: hidden;
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
@@ -8787,6 +8789,13 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	background: var(--surface-elevated, var(--surface, #1a1a22));
 	border: 1px solid var(--border);
 	box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+	scrollbar-width: none;
+}
+
+.challenge-vote-modal::-webkit-scrollbar {
+	display: none;
+	width: 0;
+	height: 0;
 }
 
 .challenge-vote-modal-top {
@@ -8813,8 +8822,10 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
-	flex: 0 0 auto;
+	flex: 1 1 auto;
 	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
 }
 
 .challenge-vote-modal-media-column {
@@ -8825,6 +8836,9 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	gap: 10px;
 	width: 100%;
 	min-width: 0;
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
 }
 
 /* Same overlay pattern as grouped creations on feed cards (`.feed-card-group-nav`).
@@ -8871,7 +8885,8 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	touch-action: none;
 }
 
-/* Suno: full-bleed official embed in the vote media frame (not cover-only). */
+/* Suno vote — mobile-first: cover art + smallest (19/6) player at center-bottom.
+   Desktop (min-width 769px): full-bleed official embed. */
 .challenge-vote-modal-media--suno {
 	background: #0b1220;
 }
@@ -8881,6 +8896,68 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	inset: 0;
 	align-items: stretch;
 	justify-content: stretch;
+}
+
+.challenge-vote-modal-suno-stage {
+	position: relative;
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	border-radius: inherit;
+	overflow: hidden;
+	background: #0b1220;
+}
+
+.challenge-vote-modal-suno-art {
+	position: absolute;
+	inset: 0;
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	object-position: center;
+	pointer-events: auto;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-drag: none;
+	z-index: 1;
+}
+
+.challenge-vote-modal-suno-art--empty {
+	background:
+		radial-gradient(ellipse at 30% 20%, color-mix(in srgb, var(--accent, #5eead4) 22%, transparent), transparent 55%),
+		linear-gradient(160deg, #0b1220 0%, #152038 100%);
+}
+
+.challenge-vote-modal-suno-dock {
+	position: absolute;
+	z-index: 2;
+	left: 50%;
+	bottom: 10px;
+	transform: translateX(-50%);
+	box-sizing: border-box;
+	/* Compact Suno strip — fixed small player size. */
+	width: 250px;
+	height: 100px;
+	max-width: none;
+	max-height: none;
+	aspect-ratio: unset;
+	border-radius: 10px;
+	overflow: hidden;
+	background: #0b1220;
+	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+}
+
+.challenge-vote-modal-suno-dock .challenge-vote-modal-suno-embed-iframe,
+.challenge-vote-modal-suno-embed-iframe {
+	display: block;
+	width: 100%;
+	height: 100%;
+	border: 0;
+	background: #0b1220;
 }
 
 .challenge-vote-modal-suno-embed {
@@ -8895,16 +8972,33 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	background: #0b1220;
 }
 
-.challenge-vote-modal-suno-embed-iframe {
-	display: block;
-	width: 100%;
-	height: 100%;
-	border: 0;
-	background: #0b1220;
+@media (min-width: 769px) {
+	.challenge-vote-modal-suno-art {
+		display: none;
+	}
+
+	.challenge-vote-modal-suno-dock {
+		inset: 0;
+		left: 0;
+		bottom: 0;
+		transform: none;
+		width: 100%;
+		height: 100%;
+		max-width: none;
+		max-height: none;
+		border-radius: 0;
+		box-shadow: none;
+	}
 }
 
-.challenge-vote-modal-media-column > .feed-card-group-nav.challenge-vote-nav-out {
+.challenge-vote-modal-media-column > .feed-card-group-nav.challenge-vote-nav-out,
+.challenge-vote-modal-media-column > .feed-card-group-nav[data-challenge-vote-prev],
+.challenge-vote-modal-media-column > .feed-card-group-nav[data-challenge-vote-next] {
 	position: relative;
+	top: auto;
+	left: auto;
+	right: auto;
+	bottom: auto;
 	inset: auto;
 	transform: none;
 	flex-shrink: 0;
@@ -8915,17 +9009,25 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	pointer-events: auto;
 }
 
-.challenge-vote-modal-media-column > .feed-card-group-nav.challenge-vote-nav-out:hover {
-	transform: none;
-}
-
-.challenge-vote-modal-media-column > .feed-card-group-nav.challenge-vote-nav-out:active {
+.challenge-vote-modal-media-column > .feed-card-group-nav.challenge-vote-nav-out:hover,
+.challenge-vote-modal-media-column > .feed-card-group-nav.challenge-vote-nav-out:active,
+.challenge-vote-modal-media-column > .feed-card-group-nav[data-challenge-vote-prev]:hover,
+.challenge-vote-modal-media-column > .feed-card-group-nav[data-challenge-vote-prev]:active,
+.challenge-vote-modal-media-column > .feed-card-group-nav[data-challenge-vote-next]:hover,
+.challenge-vote-modal-media-column > .feed-card-group-nav[data-challenge-vote-next]:active {
 	transform: none;
 }
 
 .challenge-vote-modal-media-column > .feed-card-group-nav:disabled {
 	opacity: 0.35;
 	cursor: default;
+}
+
+/* Leave room for outside chevrons + heat on mobile Suno (square was crowding them out). */
+@media (max-width: 768px) {
+	.challenge-vote-modal-media--suno {
+		max-height: min(48vh, calc(100dvh - 280px));
+	}
 }
 
 .challenge-vote-modal-controls {
