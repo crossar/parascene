@@ -527,7 +527,7 @@ function renderOrganizeCardHtml(c, vm) {
 	const meta = c.range
 		? formatOrganizeDateRange(c.range.start, c.range.end)
 		: 'No dates set';
-	/* Mobile: icon+type first on the date line; desktop keeps icon+label in the footer. */
+	/* Icon+type first on the date line (mobile hides year + day count). */
 	const metaLead = `<span class="challenges-organize-card-meta-lead">${organizeTrackMetaHtml(track)}<span class="challenges-organize-card-meta-sep" aria-hidden="true"> · </span></span>`;
 	const isComplete = phase === 'results';
 	const needsAction = phase === 'finalizing';
@@ -566,7 +566,6 @@ function renderOrganizeCardHtml(c, vm) {
 		: '';
 
 	const footer = `<div class="challenges-organize-card-footer">
-		${organizeTrackMetaHtml(track)}
 		<div class="challenges-organize-card-footer-actions">
 			${primaryActionBtn}
 			${statsBtn}
