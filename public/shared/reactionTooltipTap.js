@@ -29,19 +29,20 @@ function closeTooltipsIn(container, onOutsideClick) {
 
 /**
  * Tap-to-show for readonly chips and like counts (data-who-tap="1").
+ * Dismiss: tap again on the chip, or tap anywhere else.
  */
 export function setupReactionTooltipTap(container) {
 	if (!container || container.dataset.reactionTooltipAttached === 'true') return;
 	container.dataset.reactionTooltipAttached = 'true';
 
-	const onOutsideClick = (e) => {
-		if (!container.contains(e.target)) closeTooltipsIn(container, onOutsideClick);
+	const onDismissTap = () => {
+		closeTooltipsIn(container, onDismissTap);
 	};
 
 	container.addEventListener('click', (e) => {
 		const chip = e.target?.closest?.(TAP_SHOW_SEL);
 		if (!chip || !container.contains(chip)) {
-			closeTooltipsIn(container, onOutsideClick);
+			closeTooltipsIn(container, onDismissTap);
 			return;
 		}
 		// Don't steal clicks on interactive pills (those use long-press).
@@ -51,10 +52,10 @@ export function setupReactionTooltipTap(container) {
 		e.preventDefault();
 		e.stopPropagation();
 		const wasVisible = chip.classList.contains('is-tooltip-visible');
-		closeTooltipsIn(container, onOutsideClick);
+		closeTooltipsIn(container, onDismissTap);
 		if (!wasVisible) {
 			chip.classList.add('is-tooltip-visible');
-			requestAnimationFrame(() => document.addEventListener('click', onOutsideClick));
+			requestAnimationFrame(() => document.addEventListener('click', onDismissTap));
 		}
 	});
 }
@@ -62,13 +63,27 @@ export function setupReactionTooltipTap(container) {
 /**
  * Long-press to show who on interactive reaction pills, comment buttons, etc.
  * Short tap is left to existing handlers (toggle / navigate).
+ * Dismiss: tap anywhere (or scroll) after it opens.
  */
 export function setupReactionTooltipLongPress(container) {
 	if (!container || container.dataset.reactionLongPressAttached === 'true') return;
 	container.dataset.reactionLongPressAttached = 'true';
 
-	const onOutsideClick = (e) => {
-		if (!container.contains(e.target)) closeTooltipsIn(container, onOutsideClick);
+	const onDismissTap = () => {
+		closeTooltipsIn(container, onDismissTap);
+		document.removeEventListener('scroll', onDismissScroll, true);
+	};
+
+	const onDismissScroll = () => {
+		closeTooltipsIn(container, onDismissTap);
+		document.removeEventListener('scroll', onDismissScroll, true);
+	};
+
+	const armDismiss = () => {
+		requestAnimationFrame(() => {
+			document.addEventListener('click', onDismissTap);
+			document.addEventListener('scroll', onDismissScroll, true);
+		});
 	};
 
 	let timer = null;
@@ -93,9 +108,10 @@ export function setupReactionTooltipLongPress(container) {
 			timer = null;
 			if (!targetEl) return;
 			didLongPress = true;
-			closeTooltipsIn(container, onOutsideClick);
+			closeTooltipsIn(container, onDismissTap);
+			document.removeEventListener('scroll', onDismissScroll, true);
 			targetEl.classList.add('is-tooltip-visible');
-			requestAnimationFrame(() => document.addEventListener('click', onOutsideClick));
+			armDismiss();
 			try {
 				if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10);
 			} catch {
