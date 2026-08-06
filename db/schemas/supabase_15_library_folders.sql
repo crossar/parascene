@@ -16,9 +16,28 @@ CREATE TABLE IF NOT EXISTS prsn_library_folders (
 	user_id bigint NOT NULL REFERENCES prsn_users(id) ON DELETE CASCADE,
 	title text NOT NULL,
 	description text NOT NULL DEFAULT '',
+	meta jsonb NOT NULL DEFAULT '{}'::jsonb,
 	created_at timestamptz NOT NULL DEFAULT now(),
 	updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE prsn_library_folders
+	ADD COLUMN IF NOT EXISTS meta jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM pg_constraint
+		WHERE conrelid = 'prsn_library_folders'::regclass
+			AND conname = 'prsn_library_folders_meta_object'
+	) THEN
+		ALTER TABLE prsn_library_folders
+			ADD CONSTRAINT prsn_library_folders_meta_object
+			CHECK (jsonb_typeof(meta) = 'object' AND octet_length(meta::text) <= 16384);
+	END IF;
+END;
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_prsn_library_folders_user_updated
 	ON prsn_library_folders (user_id, updated_at DESC, title ASC);
@@ -60,6 +79,7 @@ AS $$
 			'id', f.id,
 			'title', f.title,
 			'description', f.description,
+			'meta', f.meta,
 			'created_at', f.created_at,
 			'updated_at', f.updated_at,
 			'creation_ids', COALESCE((
@@ -122,6 +142,12 @@ DECLARE
 	v_folder_id uuid;
 	v_title text;
 	v_description text;
+	v_meta jsonb;
+	v_existing_meta jsonb;
+	v_project_id text;
+	v_marker_project_id text;
+	v_existing_project_id text;
+	v_source_project_ids text[];
 	v_creation_ids bigint[];
 	v_creation_id bigint;
 	v_idx int;
@@ -175,8 +201,17 @@ BEGIN
 		IF v_op_type = '' THEN
 			RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'operation.op is required');
 		END IF;
+		v_project_id := NULLIF(trim(COALESCE(v_op->>'project_id', v_op->>'projectId', '')), '');
+		IF v_project_id IS NOT NULL THEN
+			BEGIN
+				v_project_id := (v_project_id::uuid)::text;
+			EXCEPTION WHEN others THEN
+				RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'project_id must be a uuid');
+			END;
+		END IF;
 
 		IF v_op_type = 'create' THEN
+			v_creation_ids := ARRAY[]::bigint[];
 			BEGIN
 				v_folder_id := (v_op->>'id')::uuid;
 			EXCEPTION WHEN others THEN
@@ -199,6 +234,25 @@ BEGIN
 				RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'description too long');
 			END IF;
 
+			v_meta := COALESCE(v_op->'meta', '{}'::jsonb);
+			IF jsonb_typeof(v_meta) <> 'object' THEN
+				RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'meta must be an object');
+			END IF;
+			IF octet_length(v_meta::text) > 16384 THEN
+				RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'meta too large');
+			END IF;
+			v_marker_project_id := NULLIF(trim(v_meta #>> '{parascene_desktop,project_id}'), '');
+			IF v_marker_project_id IS NOT NULL THEN
+				BEGIN
+					v_marker_project_id := (v_marker_project_id::uuid)::text;
+				EXCEPTION WHEN others THEN
+					RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'project folder marker must contain a uuid project_id');
+				END;
+				IF v_project_id IS DISTINCT FROM v_marker_project_id THEN
+					RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project_id must match the project folder marker');
+				END IF;
+			END IF;
+
 			SELECT EXISTS(
 				SELECT 1 FROM prsn_library_folders WHERE id = v_folder_id
 			) INTO v_exists;
@@ -212,11 +266,6 @@ BEGIN
 			IF v_folder_count >= 500 THEN
 				RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'folder limit reached');
 			END IF;
-
-			INSERT INTO prsn_library_folders (id, user_id, title, description, created_at, updated_at)
-			VALUES (v_folder_id, p_user_id, v_title, v_description, v_now, v_now);
-
-			v_touched := array_append(v_touched, v_folder_id);
 
 			IF v_op ? 'creation_ids' OR v_op ? 'creationIds' THEN
 				SELECT ARRAY(
@@ -234,23 +283,44 @@ BEGIN
 						RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'creation not owned');
 					END IF;
 
-					UPDATE prsn_library_folders f
-					SET updated_at = v_now
-					WHERE f.user_id = p_user_id
-						AND f.id IN (
-							SELECT i.folder_id
-							FROM prsn_library_folder_items i
-							WHERE i.user_id = p_user_id AND i.creation_id = ANY (v_creation_ids)
-						);
+					SELECT ARRAY(
+						SELECT DISTINCT NULLIF(trim(f.meta #>> '{parascene_desktop,project_id}'), '')
+						FROM prsn_library_folder_items i
+						JOIN prsn_library_folders f ON f.id = i.folder_id AND f.user_id = i.user_id
+						WHERE i.user_id = p_user_id AND i.creation_id = ANY (v_creation_ids)
+							AND NULLIF(trim(f.meta #>> '{parascene_desktop,project_id}'), '') IS NOT NULL
+					) INTO v_source_project_ids;
+					IF coalesce(array_length(v_source_project_ids, 1), 0) > 1
+						OR (coalesce(array_length(v_source_project_ids, 1), 0) = 1
+							AND v_project_id IS DISTINCT FROM lower(v_source_project_ids[1])) THEN
+						RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project folder is locked on this client');
+					END IF;
 
-					DELETE FROM prsn_library_folder_items
-					WHERE user_id = p_user_id AND creation_id = ANY (v_creation_ids);
-
-					FOREACH v_creation_id IN ARRAY v_creation_ids LOOP
-						INSERT INTO prsn_library_folder_items (user_id, folder_id, creation_id, added_at)
-						VALUES (p_user_id, v_folder_id, v_creation_id, v_now);
-					END LOOP;
 				END IF;
+			END IF;
+
+			INSERT INTO prsn_library_folders (id, user_id, title, description, meta, created_at, updated_at)
+			VALUES (v_folder_id, p_user_id, v_title, v_description, v_meta, v_now, v_now);
+
+			v_touched := array_append(v_touched, v_folder_id);
+
+			IF coalesce(array_length(v_creation_ids, 1), 0) > 0 THEN
+				UPDATE prsn_library_folders f
+				SET updated_at = v_now
+				WHERE f.user_id = p_user_id
+					AND f.id IN (
+						SELECT i.folder_id
+						FROM prsn_library_folder_items i
+						WHERE i.user_id = p_user_id AND i.creation_id = ANY (v_creation_ids)
+					);
+
+				DELETE FROM prsn_library_folder_items
+				WHERE user_id = p_user_id AND creation_id = ANY (v_creation_ids);
+
+				FOREACH v_creation_id IN ARRAY v_creation_ids LOOP
+					INSERT INTO prsn_library_folder_items (user_id, folder_id, creation_id, added_at)
+					VALUES (p_user_id, v_folder_id, v_creation_id, v_now);
+				END LOOP;
 			END IF;
 
 		ELSIF v_op_type = 'update' THEN
@@ -269,6 +339,9 @@ BEGIN
 			IF NOT v_exists THEN
 				RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'folder not found');
 			END IF;
+			SELECT meta INTO v_existing_meta
+			FROM prsn_library_folders WHERE id = v_folder_id AND user_id = p_user_id;
+			v_existing_project_id := NULLIF(trim(v_existing_meta #>> '{parascene_desktop,project_id}'), '');
 
 			IF v_op ? 'title' THEN
 				v_title := trim(COALESCE(v_op->>'title', ''));
@@ -291,9 +364,45 @@ BEGIN
 				SELECT description INTO v_description FROM prsn_library_folders WHERE id = v_folder_id;
 			END IF;
 
+			IF v_op ? 'meta' THEN
+				v_meta := v_op->'meta';
+				IF jsonb_typeof(v_meta) <> 'object' THEN
+					RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'meta must be an object');
+				END IF;
+				IF octet_length(v_meta::text) > 16384 THEN
+					RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'meta too large');
+				END IF;
+			ELSE
+				v_meta := v_existing_meta;
+			END IF;
+			v_marker_project_id := NULLIF(trim(v_meta #>> '{parascene_desktop,project_id}'), '');
+			IF v_marker_project_id IS NOT NULL THEN
+				BEGIN
+					v_marker_project_id := (v_marker_project_id::uuid)::text;
+				EXCEPTION WHEN others THEN
+					RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'project folder marker must contain a uuid project_id');
+				END;
+			END IF;
+			IF v_existing_project_id IS NOT NULL THEN
+				BEGIN
+					v_existing_project_id := (v_existing_project_id::uuid)::text;
+				EXCEPTION WHEN others THEN
+					RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project folder has an invalid marker');
+				END;
+				IF v_project_id IS DISTINCT FROM v_existing_project_id THEN
+					RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project folder is locked on this client');
+				END IF;
+				IF v_marker_project_id IS DISTINCT FROM v_existing_project_id THEN
+					RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project folder marker cannot be changed');
+				END IF;
+			ELSIF v_marker_project_id IS NOT NULL AND v_project_id IS DISTINCT FROM v_marker_project_id THEN
+				RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project_id must match the project folder marker');
+			END IF;
+
 			UPDATE prsn_library_folders
 			SET title = v_title,
 				description = v_description,
+				meta = v_meta,
 				updated_at = v_now
 			WHERE id = v_folder_id AND user_id = p_user_id;
 
@@ -307,6 +416,23 @@ BEGIN
 			END;
 			IF v_folder_id IS NULL THEN
 				RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'delete.id is required');
+			END IF;
+
+			SELECT meta INTO v_existing_meta
+			FROM prsn_library_folders WHERE id = v_folder_id AND user_id = p_user_id;
+			IF NOT FOUND THEN
+				RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'folder not found');
+			END IF;
+			v_existing_project_id := NULLIF(trim(v_existing_meta #>> '{parascene_desktop,project_id}'), '');
+			IF v_existing_project_id IS NOT NULL THEN
+				BEGIN
+					v_existing_project_id := (v_existing_project_id::uuid)::text;
+				EXCEPTION WHEN others THEN
+					RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project folder has an invalid marker');
+				END;
+				IF v_project_id IS DISTINCT FROM v_existing_project_id THEN
+					RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project folder is locked on this client');
+				END IF;
 			END IF;
 
 			DELETE FROM prsn_library_folders
@@ -331,11 +457,21 @@ BEGIN
 			END IF;
 
 			IF v_folder_id IS NOT NULL THEN
-				SELECT EXISTS(
-					SELECT 1 FROM prsn_library_folders WHERE id = v_folder_id AND user_id = p_user_id
-				) INTO v_exists;
-				IF NOT v_exists THEN
+				SELECT meta INTO v_existing_meta
+				FROM prsn_library_folders WHERE id = v_folder_id AND user_id = p_user_id;
+				IF NOT FOUND THEN
 					RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'folder not found');
+				END IF;
+				v_existing_project_id := NULLIF(trim(v_existing_meta #>> '{parascene_desktop,project_id}'), '');
+				IF v_existing_project_id IS NOT NULL THEN
+					BEGIN
+						v_existing_project_id := (v_existing_project_id::uuid)::text;
+					EXCEPTION WHEN others THEN
+						RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project folder has an invalid marker');
+					END;
+					IF v_project_id IS DISTINCT FROM v_existing_project_id THEN
+						RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project folder is locked on this client');
+					END IF;
 				END IF;
 			END IF;
 
@@ -355,6 +491,19 @@ BEGIN
 			WHERE ci.user_id = p_user_id AND ci.id = ANY (v_creation_ids);
 			IF v_owned_count <> array_length(v_creation_ids, 1) THEN
 				RETURN jsonb_build_object('ok', false, 'error', 'validation', 'message', 'creation not owned');
+			END IF;
+
+			SELECT ARRAY(
+				SELECT DISTINCT NULLIF(trim(f.meta #>> '{parascene_desktop,project_id}'), '')
+				FROM prsn_library_folder_items i
+				JOIN prsn_library_folders f ON f.id = i.folder_id AND f.user_id = i.user_id
+				WHERE i.user_id = p_user_id AND i.creation_id = ANY (v_creation_ids)
+					AND NULLIF(trim(f.meta #>> '{parascene_desktop,project_id}'), '') IS NOT NULL
+			) INTO v_source_project_ids;
+			IF coalesce(array_length(v_source_project_ids, 1), 0) > 1
+				OR (coalesce(array_length(v_source_project_ids, 1), 0) = 1
+					AND v_project_id IS DISTINCT FROM lower(v_source_project_ids[1])) THEN
+				RETURN jsonb_build_object('ok', false, 'error', 'protected', 'message', 'project folder is locked on this client');
 			END IF;
 
 			-- Touch folders that lose members.

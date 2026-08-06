@@ -3,6 +3,10 @@ export const LIBRARY_FOLDER_DESCRIPTION_MAX = 2000;
 export const LIBRARY_FOLDER_OPS_MAX = 100;
 export const LIBRARY_FOLDER_CREATION_IDS_MAX = 500;
 export const LIBRARY_FOLDER_COUNT_MAX = 500;
+export const LIBRARY_FOLDER_META_MAX_BYTES = 16 * 1024;
+
+const PROJECT_META_NAMESPACE = "parascene_desktop";
+const PROJECT_META_ID = "project_id";
 
 const UUID_RE =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -14,6 +18,34 @@ export function isUuid(value) {
 export function normalizeFolderTitle(raw) {
 	const title = typeof raw === "string" ? raw.trim() : "";
 	return title || "Untitled folder";
+}
+
+function normalizeMeta(raw) {
+	if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+		return { error: "meta must be an object" };
+	}
+	let encoded;
+	try {
+		encoded = JSON.stringify(raw);
+	} catch {
+		return { error: "meta must be valid JSON" };
+	}
+	if (Buffer.byteLength(encoded, "utf8") > LIBRARY_FOLDER_META_MAX_BYTES) {
+		return { error: "meta too large" };
+	}
+	return { meta: JSON.parse(encoded) };
+}
+
+export function projectIdFromFolderMeta(meta) {
+	const projectId = meta?.[PROJECT_META_NAMESPACE]?.[PROJECT_META_ID];
+	return isUuid(projectId) ? projectId.trim().toLowerCase() : null;
+}
+
+function readProjectId(raw) {
+	const value = raw?.project_id ?? raw?.projectId;
+	if (value == null || value === "") return { projectId: null };
+	if (!isUuid(value)) return { error: "project_id must be a uuid" };
+	return { projectId: value.trim().toLowerCase() };
 }
 
 function readCreationIds(op) {
@@ -80,6 +112,18 @@ export function normalizeLibraryFolderOperations(rawOperations) {
 				return { error: "description too long" };
 			}
 			const op = { op: "create", id, title, description };
+			if (Object.prototype.hasOwnProperty.call(raw, "meta")) {
+				const parsed = normalizeMeta(raw.meta);
+				if (parsed.error) return { error: parsed.error };
+				op.meta = parsed.meta;
+			}
+			const project = readProjectId(raw);
+			if (project.error) return { error: project.error };
+			if (project.projectId) op.project_id = project.projectId;
+			const markerProjectId = projectIdFromFolderMeta(op.meta);
+			if (markerProjectId && markerProjectId !== project.projectId) {
+				return { error: "project_id must match the project folder marker" };
+			}
 			if (raw.creation_ids != null || raw.creationIds != null) {
 				const parsed = readCreationIds(raw);
 				if (parsed.error) return { error: parsed.error };
@@ -109,8 +153,20 @@ export function normalizeLibraryFolderOperations(rawOperations) {
 				}
 				op.description = description;
 			}
-			if (op.title === undefined && op.description === undefined) {
-				return { error: "update requires title and/or description" };
+			if (Object.prototype.hasOwnProperty.call(raw, "meta")) {
+				const parsed = normalizeMeta(raw.meta);
+				if (parsed.error) return { error: parsed.error };
+				op.meta = parsed.meta;
+			}
+			const project = readProjectId(raw);
+			if (project.error) return { error: project.error };
+			if (project.projectId) op.project_id = project.projectId;
+			const markerProjectId = projectIdFromFolderMeta(op.meta);
+			if (markerProjectId && markerProjectId !== project.projectId) {
+				return { error: "project_id must match the project folder marker" };
+			}
+			if (op.title === undefined && op.description === undefined && op.meta === undefined) {
+				return { error: "update requires title, description, and/or meta" };
 			}
 			operations.push(op);
 			continue;
@@ -121,7 +177,11 @@ export function normalizeLibraryFolderOperations(rawOperations) {
 			if (!isUuid(id)) {
 				return { error: "delete.id must be a uuid" };
 			}
-			operations.push({ op: "delete", id });
+			const project = readProjectId(raw);
+			if (project.error) return { error: project.error };
+			const op = { op: "delete", id };
+			if (project.projectId) op.project_id = project.projectId;
+			operations.push(op);
 			continue;
 		}
 
@@ -146,11 +206,15 @@ export function normalizeLibraryFolderOperations(rawOperations) {
 			if (!parsed.ids || parsed.ids.length < 1) {
 				return { error: "move.creation_ids required" };
 			}
-			operations.push({
+			const project = readProjectId(raw);
+			if (project.error) return { error: project.error };
+			const op = {
 				op: "move",
 				folder_id: folderId,
 				creation_ids: parsed.ids
-			});
+			};
+			if (project.projectId) op.project_id = project.projectId;
+			operations.push(op);
 			continue;
 		}
 
@@ -178,6 +242,10 @@ export function formatLibraryFoldersSnapshot(snapshot) {
 			id: String(folder.id),
 			title: typeof folder.title === "string" ? folder.title : "",
 			description: typeof folder.description === "string" ? folder.description : "",
+			meta:
+				folder.meta && typeof folder.meta === "object" && !Array.isArray(folder.meta)
+					? folder.meta
+					: {},
 			created_at: folder.created_at ?? null,
 			updated_at: folder.updated_at ?? null,
 			creation_ids: Array.isArray(folder.creation_ids)

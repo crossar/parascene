@@ -5,12 +5,18 @@ import createLibraryFoldersRoutes from "../api_routes/library_folders.js";
 import {
 	normalizeLibraryFolderOperations,
 	parseBaseRevision,
-	formatLibraryFoldersSnapshot
+	formatLibraryFoldersSnapshot,
+	projectIdFromFolderMeta
 } from "../api_routes/utils/libraryFolders.js";
 
 const FOLDER_A = "11111111-1111-4111-8111-111111111111";
 const FOLDER_B = "22222222-2222-4222-8222-222222222222";
 const FOLDER_C = "33333333-3333-4333-8333-333333333333";
+const PROJECT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+function projectMeta(projectId = PROJECT_A) {
+	return { parascene_desktop: { project_id: projectId } };
+}
 
 function createMemoryLibraryFoldersStore() {
 	/** @type {Map<number, { revision: number, folders: Map<string, any>, ownedCreationIds: Set<number> }>} */
@@ -39,6 +45,7 @@ function createMemoryLibraryFoldersStore() {
 				description: f.description,
 				created_at: f.created_at,
 				updated_at: f.updated_at,
+				meta: f.meta ?? {},
 				creation_ids: [...f.creation_ids]
 			}))
 			.sort((a, b) => {
@@ -57,6 +64,14 @@ function createMemoryLibraryFoldersStore() {
 				folder.updated_at = new Date().toISOString();
 			}
 		}
+	}
+
+	function assertFolderAccess(folder, projectId) {
+		const owner = projectIdFromFolderMeta(folder?.meta);
+		if (owner && owner !== projectId) {
+			return { ok: false, error: "protected", message: "project folder is locked on this client" };
+		}
+		return null;
 	}
 
 	return {
@@ -91,9 +106,19 @@ function createMemoryLibraryFoldersStore() {
 								return { ok: false, error: "validation", message: "folder limit reached" };
 							}
 							const creationIds = Array.isArray(op.creation_ids) ? op.creation_ids : [];
+							const marker = projectIdFromFolderMeta(op.meta);
+							if (marker && marker !== op.project_id) {
+								return { ok: false, error: "protected", message: "project_id must match the project folder marker" };
+							}
 							for (const cid of creationIds) {
 								if (!state.ownedCreationIds.has(cid)) {
 									return { ok: false, error: "validation", message: "creation not owned" };
+								}
+								for (const folder of state.folders.values()) {
+									if (folder.creation_ids.includes(cid)) {
+										const denied = assertFolderAccess(folder, op.project_id);
+										if (denied) return denied;
+									}
 								}
 							}
 							for (const cid of creationIds) removeCreationFromAll(state, cid);
@@ -101,6 +126,7 @@ function createMemoryLibraryFoldersStore() {
 								id: op.id,
 								title: op.title,
 								description: op.description ?? "",
+								meta: op.meta ?? {},
 								created_at: now,
 								updated_at: now,
 								creation_ids: [...creationIds]
@@ -111,13 +137,27 @@ function createMemoryLibraryFoldersStore() {
 							if (!folder) {
 								return { ok: false, error: "validation", message: "folder not found" };
 							}
+							const denied = assertFolderAccess(folder, op.project_id);
+							if (denied) return denied;
+							const oldMarker = projectIdFromFolderMeta(folder.meta);
+							const newMarker = op.meta === undefined ? oldMarker : projectIdFromFolderMeta(op.meta);
+							if (oldMarker && newMarker !== oldMarker) {
+								return { ok: false, error: "protected", message: "project folder marker cannot be changed" };
+							}
+							if (!oldMarker && newMarker && newMarker !== op.project_id) {
+								return { ok: false, error: "protected", message: "project_id must match the project folder marker" };
+							}
 							if (op.title !== undefined) folder.title = op.title;
 							if (op.description !== undefined) folder.description = op.description;
+							if (op.meta !== undefined) folder.meta = op.meta;
 							folder.updated_at = now;
 						} else if (op.op === "delete") {
-							if (!state.folders.has(op.id)) {
+							const folder = state.folders.get(op.id);
+							if (!folder) {
 								return { ok: false, error: "validation", message: "folder not found" };
 							}
+							const denied = assertFolderAccess(folder, op.project_id);
+							if (denied) return denied;
 							state.folders.delete(op.id);
 							allFolderIds.delete(op.id);
 						} else if (op.op === "move") {
@@ -129,6 +169,18 @@ function createMemoryLibraryFoldersStore() {
 							}
 							if (op.folder_id != null && !state.folders.has(op.folder_id)) {
 								return { ok: false, error: "validation", message: "folder not found" };
+							}
+							if (op.folder_id != null) {
+								const denied = assertFolderAccess(state.folders.get(op.folder_id), op.project_id);
+								if (denied) return denied;
+							}
+							for (const cid of creationIds) {
+								for (const folder of state.folders.values()) {
+									if (folder.creation_ids.includes(cid)) {
+										const denied = assertFolderAccess(folder, op.project_id);
+										if (denied) return denied;
+									}
+								}
 							}
 							for (const cid of creationIds) removeCreationFromAll(state, cid);
 							if (op.folder_id != null) {
@@ -239,11 +291,36 @@ describe("libraryFolders utils", () => {
 	it("formats snapshot member_count", () => {
 		const formatted = formatLibraryFoldersSnapshot({
 			revision: 3,
-			folders: [{ id: FOLDER_A, title: "A", description: "", creation_ids: [9, 8] }]
+			folders: [
+				{ id: FOLDER_A, title: "A", description: "", meta: projectMeta(), creation_ids: [9, 8] }
+			]
 		});
 		expect(formatted.revision).toBe(3);
 		expect(formatted.folders[0].member_count).toBe(2);
 		expect(formatted.folders[0].creation_ids).toEqual([9, 8]);
+		expect(formatted.folders[0].meta).toEqual(projectMeta());
+	});
+
+	it("normalizes project metadata and ownership assertions", () => {
+		const normalized = normalizeLibraryFolderOperations([
+			{
+				op: "create",
+				id: FOLDER_A,
+				title: "Project A",
+				meta: projectMeta(),
+				projectId: PROJECT_A
+			}
+		]);
+		expect(normalized.error).toBeUndefined();
+		expect(normalized.operations[0]).toMatchObject({
+			meta: projectMeta(),
+			project_id: PROJECT_A
+		});
+		expect(
+			normalizeLibraryFolderOperations([
+				{ op: "create", id: FOLDER_A, meta: projectMeta() }
+			]).error
+		).toMatch(/must match/i);
 	});
 });
 
@@ -348,6 +425,63 @@ describe("libraryFolders API", () => {
 			const byId = Object.fromEntries(moved.body.folders.map((f) => [f.id, f]));
 			expect(byId[FOLDER_A].creation_ids).toEqual([]);
 			expect(byId[FOLDER_B].creation_ids).toEqual([10]);
+		});
+	});
+
+	it("round-trips project markers and locks generic clients", async () => {
+		await withServer(store.queries, 1, async (baseUrl) => {
+			const created = await api(baseUrl, "POST", "/api/library/folders/mutate", {
+				base_revision: 0,
+				operations: [
+					{
+						op: "create",
+						id: FOLDER_A,
+						title: "Local project",
+						meta: projectMeta(),
+						project_id: PROJECT_A,
+						creation_ids: [10]
+					},
+					{ op: "create", id: FOLDER_B, title: "Regular" }
+				]
+			});
+			expect(created.status).toBe(200);
+			expect(created.body.folders.find((folder) => folder.id === FOLDER_A).meta).toEqual(
+				projectMeta()
+			);
+
+			const genericRename = await api(baseUrl, "POST", "/api/library/folders/mutate", {
+				base_revision: 1,
+				operations: [{ op: "update", id: FOLDER_A, title: "Not allowed" }]
+			});
+			expect(genericRename.status).toBe(400);
+			expect(genericRename.body.error).toMatch(/locked/i);
+
+			const genericMoveOut = await api(baseUrl, "POST", "/api/library/folders/mutate", {
+				base_revision: 1,
+				operations: [{ op: "move", folder_id: FOLDER_B, creation_ids: [10] }]
+			});
+			expect(genericMoveOut.status).toBe(400);
+			expect(genericMoveOut.body.error).toMatch(/locked/i);
+
+			const ownedUpdate = await api(baseUrl, "POST", "/api/library/folders/mutate", {
+				base_revision: 1,
+				operations: [
+					{ op: "update", id: FOLDER_A, title: "Renamed project", project_id: PROJECT_A }
+				]
+			});
+			expect(ownedUpdate.status).toBe(200);
+			expect(ownedUpdate.body.folders.find((folder) => folder.id === FOLDER_A).title).toBe(
+				"Renamed project"
+			);
+
+			const removeMarker = await api(baseUrl, "POST", "/api/library/folders/mutate", {
+				base_revision: 2,
+				operations: [
+					{ op: "update", id: FOLDER_A, meta: {}, project_id: PROJECT_A }
+				]
+			});
+			expect(removeMarker.status).toBe(400);
+			expect(removeMarker.body.error).toMatch(/marker/i);
 		});
 	});
 

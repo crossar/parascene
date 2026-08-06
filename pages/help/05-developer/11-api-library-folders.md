@@ -31,6 +31,7 @@ Each folder object:
 | `id` | string (uuid) | Stable folder id (client-generated on create) |
 | `title` | string | Display title (max 200; empty becomes `Untitled folder`) |
 | `description` | string | Optional text (max 2000) |
+| `meta` | object | Opaque folder metadata (max 16 KiB; defaults to `{}`) |
 | `created_at` | string | ISO timestamp |
 | `updated_at` | string | ISO timestamp |
 | `creation_ids` | number[] | Owned creation ids in this folder, ordered by `added_at` then id |
@@ -42,6 +43,8 @@ Semantics match desktop Library folders today:
 - A creation belongs to **at most one** folder per user.
 - Moving a creation into a folder removes it from any previous folder.
 - `folder_id: null` on move means **unfiled**.
+- A folder with `meta.parascene_desktop.project_id` is protected. Clients without
+  that local project should show it read-only.
 
 Limits:
 
@@ -98,6 +101,8 @@ Apply a batch of operations if `base_revision` matches the current server revisi
 | `title` | string | no | Defaults to `Untitled folder` |
 | `description` | string | no | Defaults to `""` |
 | `creation_ids` | number[] | no | Optional initial members (`creationIds` alias) |
+| `meta` | object | no | Opaque metadata; use the protected marker described below |
+| `project_id` | uuid string | conditional | Must match a project marker when creating one (`projectId` alias) |
 
 #### `update`
 
@@ -107,8 +112,10 @@ Apply a batch of operations if `base_revision` matches the current server revisi
 | `id` | uuid string | yes | Existing folder |
 | `title` | string | one of* | New title |
 | `description` | string | one of* | New description |
+| `meta` | object | one of* | Complete replacement metadata object |
+| `project_id` | uuid string | conditional | Required when the folder is project-marked |
 
-\* Provide at least one of `title` / `description`.
+\* Provide at least one of `title` / `description` / `meta`.
 
 #### `delete`
 
@@ -116,6 +123,7 @@ Apply a batch of operations if `base_revision` matches the current server revisi
 | --- | --- | --- | --- |
 | `op` | `"delete"` | yes | |
 | `id` | uuid string | yes | Folder to delete (memberships removed) |
+| `project_id` | uuid string | conditional | Required when deleting a project-marked folder |
 
 #### `move`
 
@@ -124,8 +132,38 @@ Apply a batch of operations if `base_revision` matches the current server revisi
 | `op` | `"move"` | yes | |
 | `folder_id` | uuid \| null | yes | Target folder, or `null` to unfile (`folderId` alias) |
 | `creation_ids` | number[] | yes | Creations to move (`creationIds` alias) |
+| `project_id` | uuid string | conditional | Required when the source or destination is project-marked |
 
 Creations must belong to the authenticated user. Unknown or foreign creation ids fail the whole batch with **400**.
+
+### Protected desktop project folders
+
+Projects remain local to parascene-desktop. The server stores only an opaque folder
+marker and does not assert that a project document exists:
+
+```json
+{
+  "meta": {
+    "parascene_desktop": {
+      "project_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    }
+  },
+  "project_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+}
+```
+
+The `project_id` alongside a mutation is an ownership assertion, not a separate
+stored column. It must match the marker when creating or modifying the marked
+folder. Generic clients that omit it cannot rename/delete the folder, move files
+into it, or move its files elsewhere. The marker cannot be removed or rebound by
+an update; a future explicit release operation should be added if project deletion
+needs that behavior.
+
+A desktop should send `project_id` only when the matching local project document
+exists. A desktop without that project may browse/download the folder but should
+render it locked. This is an account-level safety mechanism for mixed client
+versions, not authorization against a malicious client: the authenticated account
+can read the marker value.
 
 ### Example
 
