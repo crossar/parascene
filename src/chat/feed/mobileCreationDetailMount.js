@@ -3,7 +3,15 @@
  * Standalone `/creations/:id` remains for desktop, share, and full chrome.
  */
 
-import { readCreationDetailSeed, writeCreationDetailSeed, feedItemToCreationDetailSeed, creationDetailChromeHtmlFromSeed, bindCreationDetailDescriptionCollapse } from '../../shared/creationDetailSeed.js';
+import {
+	readCreationDetailSeed,
+	writeCreationDetailSeed,
+	feedItemToCreationDetailSeed,
+	creationDetailChromeHtmlFromSeed,
+	bindCreationDetailDescriptionCollapse,
+	applyViewerComposerCacheToSeed,
+	readViewerComposerCache,
+} from '../../shared/creationDetailSeed.js';
 
 function escapeHtml(str) {
 	return String(str ?? '')
@@ -61,54 +69,149 @@ function seedToHeroHtml(seed, creationId) {
 async function hydrateFromApi(root, creationId, onNavigate) {
 	try {
 		const res = await fetch(`/api/create/images/${creationId}`, { credentials: 'include' });
-		if (!res.ok) return;
-		const creation = await res.json();
-		const seed = feedItemToCreationDetailSeed({
-			created_image_id: creation.id || creationId,
-			image_url: creation.url || creation.image_url,
-			thumbnail_url: creation.thumbnail_url,
-			video_url: creation.video_url,
-			media_type: creation.media_type,
-			width: creation.width,
-			height: creation.height,
-			title: creation.title,
-			summary: creation.summary || creation.description,
-			like_count: creation.like_count,
-			viewer_liked: creation.viewer_liked,
-			nsfw: creation.nsfw,
-			user_id: creation.user_id,
-			author_user_name: creation.creator?.user_name,
-			author_display_name: creation.creator?.display_name,
-			author_avatar_url: creation.creator?.avatar_url,
-			author_plan: creation.creator?.plan === 'founder' ? 'founder' : '',
-			created_at: creation.created_at,
-			published_at: creation.published_at || creation.created_at,
-			published: creation.published,
-			meta: creation.meta,
-		});
-		if (seed) writeCreationDetailSeed(seed);
-		const imgEl = root.querySelector('.mobile-creation-detail-img');
-		const nextUrl = seed?.image_url || seed?.thumbnail_url;
-		if (imgEl instanceof HTMLImageElement && nextUrl && imgEl.src !== nextUrl) {
-			imgEl.src = nextUrl;
-		}
-		const hero = root.querySelector('.mobile-creation-detail-hero');
-		const w = Number(seed?.width);
-		const h = Number(seed?.height);
-		if (hero instanceof HTMLElement && Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
-			hero.style.setProperty('--hero-aspect-ratio', `${w} / ${h}`);
-		}
-		const panel = root.querySelector('[data-mobile-creation-panel]');
-		if (panel instanceof HTMLElement && seed) {
-			const related = panel.querySelector('[data-mobile-creation-related]');
-			const relatedHtml = related instanceof HTMLElement ? related.outerHTML : '';
-			panel.innerHTML = `${creationDetailChromeHtmlFromSeed(seed)}${relatedHtml}`;
-			bindCreationDetailDescriptionCollapse(panel);
+		if (res.ok) {
+			const creation = await res.json();
+			const seed = applyViewerComposerCacheToSeed(feedItemToCreationDetailSeed({
+				created_image_id: creation.id || creationId,
+				image_url: creation.url || creation.image_url,
+				thumbnail_url: creation.thumbnail_url,
+				video_url: creation.video_url,
+				media_type: creation.media_type,
+				width: creation.width,
+				height: creation.height,
+				title: creation.title,
+				summary: creation.summary || creation.description,
+				like_count: creation.like_count,
+				viewer_liked: creation.viewer_liked,
+				nsfw: creation.nsfw,
+				user_id: creation.user_id,
+				author_user_name: creation.creator?.user_name,
+				author_display_name: creation.creator?.display_name,
+				author_avatar_url: creation.creator?.avatar_url,
+				author_plan: creation.creator?.plan === 'founder' ? 'founder' : '',
+				created_at: creation.created_at,
+				published_at: creation.published_at || creation.created_at,
+				published: creation.published,
+				meta: creation.meta,
+				comment_count: creation.comment_count,
+			}));
+			if (seed) writeCreationDetailSeed(seed);
+			const imgEl = root.querySelector('.mobile-creation-detail-img');
+			const nextUrl = seed?.image_url || seed?.thumbnail_url;
+			if (imgEl instanceof HTMLImageElement && nextUrl && imgEl.src !== nextUrl) {
+				imgEl.src = nextUrl;
+			}
+			const hero = root.querySelector('.mobile-creation-detail-hero');
+			const w = Number(seed?.width);
+			const h = Number(seed?.height);
+			if (hero instanceof HTMLElement && Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
+				hero.style.setProperty('--hero-aspect-ratio', `${w} / ${h}`);
+			}
+			const panel = root.querySelector('[data-mobile-creation-panel]');
+			if (panel instanceof HTMLElement && seed) {
+				replacePanelChrome(panel, seed);
+			}
 		}
 	} catch {
 		// keep seed paint
 	}
 	void loadRelated(root, creationId, onNavigate);
+}
+
+function relatedSectionHtml() {
+	return `<div class="mobile-creation-detail-related" data-mobile-creation-related>
+					<h2 class="mobile-creation-detail-related-heading">Related</h2>
+					<div class="mobile-creation-detail-related-grid" data-mobile-creation-related-grid></div>
+				</div>`;
+}
+
+/** Swap title/actions/description from API without destroying a live comments thread. */
+function replacePanelChrome(panel, seed) {
+	const relatedEl = panel.querySelector('[data-mobile-creation-related]');
+	const commentsEl = panel.querySelector('[data-creation-comments-host]');
+	const relatedLive = relatedEl instanceof HTMLElement ? relatedEl : null;
+	const commentsLive = commentsEl instanceof HTMLElement ? commentsEl : null;
+	panel.innerHTML = `${creationDetailChromeHtmlFromSeed(seed)}${relatedLive ? '' : relatedSectionHtml()}`;
+	bindCreationDetailDescriptionCollapse(panel);
+	const nextComments = panel.querySelector('[data-creation-comments-host]');
+	if (commentsLive && nextComments && nextComments !== commentsLive) {
+		nextComments.replaceWith(commentsLive);
+	}
+	if (relatedLive) panel.appendChild(relatedLive);
+}
+
+function commentsViewerFromSeed(creationId) {
+	const seed = readCreationDetailSeed(creationId);
+	const cached = readViewerComposerCache() || {};
+	const viewerId = Number(seed?.viewer_user_id ?? cached.userId ?? cached.id);
+	return {
+		id: Number.isFinite(viewerId) && viewerId > 0 ? viewerId : null,
+		userName: String(seed?.viewer_user_name || cached.userName || '').trim(),
+		displayName: String(seed?.viewer_display_name || cached.displayName || '').trim(),
+		avatarUrl: String(seed?.viewer_avatar_url || cached.avatarUrl || '').trim(),
+		plan: seed?.viewer_plan === 'founder' || cached.plan === 'founder' ? 'founder' : '',
+	};
+}
+
+async function mountCommentsIfNeeded(root, creationId, state) {
+	const host = root.querySelector('[data-creation-comments-host]');
+	if (state.torn) return;
+	if (!(host instanceof HTMLElement)) {
+		if (typeof state.teardown === 'function') {
+			try {
+				state.teardown();
+			} catch {
+				// ignore
+			}
+			state.teardown = null;
+			state.mountedHost = null;
+			state.pendingHost = null;
+		}
+		return;
+	}
+	if (state.mountedHost === host || state.pendingHost === host) return;
+	if (typeof state.teardown === 'function') {
+		try {
+			state.teardown();
+		} catch {
+			// ignore
+		}
+		state.teardown = null;
+		state.mountedHost = null;
+	}
+	state.pendingHost = host;
+	const gen = ++state.gen;
+	const { mountCreationCommentsThread } = await import('/shared/creationCommentsThread.js');
+	if (state.torn || gen !== state.gen) {
+		if (state.pendingHost === host) state.pendingHost = null;
+		return;
+	}
+	const hostNow = root.querySelector('[data-creation-comments-host]');
+	if (hostNow !== host) {
+		if (state.pendingHost === host) state.pendingHost = null;
+		await mountCommentsIfNeeded(root, creationId, state);
+		return;
+	}
+	const seedCount = Object.prototype.hasOwnProperty.call(host.dataset, 'seedCommentCount')
+		? Number(host.dataset.seedCommentCount)
+		: NaN;
+	const handle = await mountCreationCommentsThread(host, {
+		createdImageId: creationId,
+		initialCommentCount: Number.isFinite(seedCount) && seedCount >= 0 ? seedCount : undefined,
+		viewer: commentsViewerFromSeed(creationId),
+		autoScrollOnHash: true,
+	});
+	if (state.torn || gen !== state.gen) {
+		try {
+			handle?.teardown?.();
+		} catch {
+			// ignore
+		}
+		return;
+	}
+	state.teardown = handle?.teardown ?? null;
+	state.mountedHost = host;
+	if (state.pendingHost === host) state.pendingHost = null;
 }
 
 async function loadRelated(root, creationId, onNavigate) {
@@ -159,12 +262,27 @@ export function mountInShellCreationDetail(rootEl, opts) {
 	if (!(rootEl instanceof HTMLElement)) return () => {};
 	const creationId = Number(opts?.creationId);
 	if (!Number.isFinite(creationId) || creationId <= 0) return () => {};
-	const seed = readCreationDetailSeed(creationId);
+	const seed = applyViewerComposerCacheToSeed(readCreationDetailSeed(creationId));
 	rootEl.innerHTML = seedToHeroHtml(seed, creationId);
 	bindCreationDetailDescriptionCollapse(rootEl);
 	rootEl.scrollTop = 0;
-	void hydrateFromApi(rootEl, creationId, opts.onNavigate);
+	const commentsState = { torn: false, gen: 0, teardown: null, mountedHost: null, pendingHost: null };
+	void mountCommentsIfNeeded(rootEl, creationId, commentsState);
+	void hydrateFromApi(rootEl, creationId, opts.onNavigate).then(() => {
+		void mountCommentsIfNeeded(rootEl, creationId, commentsState);
+	});
 	return () => {
+		commentsState.torn = true;
+		commentsState.gen += 1;
+		if (typeof commentsState.teardown === 'function') {
+			try {
+				commentsState.teardown();
+			} catch {
+				// ignore
+			}
+		}
+		commentsState.teardown = null;
+		commentsState.mountedHost = null;
 		rootEl.innerHTML = '';
 	};
 }
