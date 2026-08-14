@@ -21,23 +21,8 @@ function escapeHtml(str) {
 		.replace(/"/g, '&quot;');
 }
 
-function isMobileChatLayout() {
-	try {
-		return window.matchMedia('(max-width: 768px)').matches;
-	} catch {
-		return false;
-	}
-}
-
 export function shouldUseInShellCreationDetail() {
-	if (typeof window === 'undefined') return false;
-	if (!isMobileChatLayout()) return false;
-	const body = document.body;
-	return Boolean(
-		body?.classList?.contains('chat-page') ||
-			document.documentElement?.classList?.contains('chat-page') ||
-			body?.dataset?.entry === 'chat'
-	);
+	return false;
 }
 
 function seedToHeroHtml(seed, creationId) {
@@ -125,19 +110,86 @@ function relatedSectionHtml() {
 				</div>`;
 }
 
-/** Swap title/actions/description from API without destroying a live comments thread. */
+/** Swap title/description from API without destroying live comments or the action strip. */
 function replacePanelChrome(panel, seed) {
 	const relatedEl = panel.querySelector('[data-mobile-creation-related]');
 	const commentsEl = panel.querySelector('[data-creation-comments-host]');
+	const stripEl = panel.querySelector('.creation-detail-action-strip');
 	const relatedLive = relatedEl instanceof HTMLElement ? relatedEl : null;
 	const commentsLive = commentsEl instanceof HTMLElement ? commentsEl : null;
+	const stripLive = stripEl instanceof HTMLElement ? stripEl : null;
 	panel.innerHTML = `${creationDetailChromeHtmlFromSeed(seed)}${relatedLive ? '' : relatedSectionHtml()}`;
 	bindCreationDetailDescriptionCollapse(panel);
+	const nextStrip = panel.querySelector('.creation-detail-action-strip');
+	if (stripLive && nextStrip && nextStrip !== stripLive) {
+		nextStrip.replaceWith(stripLive);
+	}
 	const nextComments = panel.querySelector('[data-creation-comments-host]');
 	if (commentsLive && nextComments && nextComments !== commentsLive) {
 		nextComments.replaceWith(commentsLive);
 	}
 	if (relatedLive) panel.appendChild(relatedLive);
+}
+
+function bindNativeActionStrip(root, creationId, onNavigate) {
+	if (!(root instanceof HTMLElement) || root.dataset.nativeActionsBound === '1') return;
+	root.dataset.nativeActionsBound = '1';
+	void import('/shared/likes.js')
+		.then((mod) => {
+			const seed = readCreationDetailSeed(creationId);
+			const likeBtn = root.querySelector('button[data-like-button]');
+			if (likeBtn instanceof HTMLElement) {
+				mod.initLikeButton(likeBtn, {
+					id: creationId,
+					like_count: seed?.like_count,
+					viewer_liked: seed?.viewer_liked,
+				});
+			}
+			mod.enableLikeButtons(root);
+		})
+		.catch(() => {});
+	root.addEventListener('click', (e) => {
+		const t = e.target;
+		if (!(t instanceof Element)) return;
+		const mutate = t.closest('[data-mutate-btn]');
+		if (mutate instanceof HTMLElement) {
+			e.preventDefault();
+			if (typeof onNavigate === 'function') onNavigate(`/creations/${creationId}/mutate`);
+			return;
+		}
+		const edit = t.closest('[data-edit-btn]');
+		if (edit instanceof HTMLElement) {
+			e.preventDefault();
+			if (typeof onNavigate === 'function') onNavigate(`/creations/${creationId}/edit`);
+			return;
+		}
+		const publish = t.closest('[data-publish-btn]');
+		if (publish instanceof HTMLElement) {
+			e.preventDefault();
+			document.dispatchEvent(new CustomEvent('open-publish-modal', { detail: { creationId } }));
+			return;
+		}
+		const share = t.closest('[data-share-btn]');
+		if (share instanceof HTMLElement) {
+			e.preventDefault();
+			document.dispatchEvent(new CustomEvent('open-share-modal', { detail: { creationId } }));
+			return;
+		}
+		const tip = t.closest('[data-tip-creator-button]');
+		if (tip instanceof HTMLElement) {
+			e.preventDefault();
+			const seed = readCreationDetailSeed(creationId);
+			document.dispatchEvent(
+				new CustomEvent('open-tip-creator-modal', {
+					detail: {
+						userId: seed?.user_id,
+						userName: seed?.author_user_name || seed?.author_display_name,
+						createdImageId: creationId,
+					},
+				})
+			);
+		}
+	});
 }
 
 function commentsViewerFromSeed(creationId) {
@@ -265,6 +317,7 @@ export function mountInShellCreationDetail(rootEl, opts) {
 	const seed = applyViewerComposerCacheToSeed(readCreationDetailSeed(creationId));
 	rootEl.innerHTML = seedToHeroHtml(seed, creationId);
 	bindCreationDetailDescriptionCollapse(rootEl);
+	bindNativeActionStrip(rootEl, creationId, opts.onNavigate);
 	rootEl.scrollTop = 0;
 	const commentsState = { torn: false, gen: 0, teardown: null, mountedHost: null, pendingHost: null };
 	void mountCommentsIfNeeded(rootEl, creationId, commentsState);

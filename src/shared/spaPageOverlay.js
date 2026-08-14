@@ -1126,19 +1126,10 @@ function updateOverlayChromeTitle(kind) {
 	titleEl.textContent = overlayTitleForKind(kind);
 }
 
-function useNativeCreationDetail(target) {
-	if (target?.kind !== 'creation-detail') return false;
-	try {
-		if (!window.matchMedia('(max-width: 768px)').matches) return false;
-	} catch {
-		return false;
-	}
-	const body = document.body;
-	return Boolean(
-		body?.classList?.contains('chat-page') ||
-			document.documentElement?.classList?.contains('chat-page') ||
-			body?.dataset?.entry === 'chat'
-	);
+function useNativeCreationDetail(_target) {
+	// Mobile uses the same embed page as desktop. The in-shell mount skipped group
+	// carousel, import players, and owner-gated actions, so seed vs hydrate diverged.
+	return false;
 }
 
 let creationDetailSeedLookup = null;

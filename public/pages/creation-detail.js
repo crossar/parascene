@@ -649,21 +649,19 @@ function patchCreationDetailActionStrip(stickyStrip, nextStrip) {
 		const k = creationDetailStripChildKey(el);
 		if (k && !stickyByKey.has(k)) stickyByKey.set(k, el);
 	}
-	let cursor = stickyScroll.firstChild;
+	const ordered = [];
 	for (const nextEl of nextKids) {
 		const k = creationDetailStripChildKey(nextEl);
 		const existing = k ? stickyByKey.get(k) : null;
 		if (existing) {
-			const kept = patchCreationDetailStripChild(existing, nextEl);
-			if (kept !== cursor) stickyScroll.insertBefore(kept, cursor);
-			cursor = kept.nextSibling;
+			ordered.push(patchCreationDetailStripChild(existing, nextEl));
 			stickyByKey.delete(k);
 		} else {
-			stickyScroll.insertBefore(nextEl, cursor);
-			cursor = nextEl.nextSibling;
+			ordered.push(nextEl);
 		}
 	}
 	for (const leftover of stickyByKey.values()) leftover.remove();
+	stickyScroll.replaceChildren(...ordered);
 }
 
 function patchCreationDetailGroupSlot(stickySlot, nextSlot) {
@@ -1121,15 +1119,8 @@ const STRIP_SEGMENT_DEFS = [
 					</div>`
 	},
 	{
-		key: 'follow',
-		show: (d) => !d.hideActions && !d.isAdmin && d.canShowFollowButton && !d.viewerFollowsCreator,
-		render: (d, escapeFn) => html`
-					<button type="button" class="creation-detail-action-strip-follow" data-follow-button
-						data-follow-user-id="${escapeFn(d.creatorId)}">Follow</button>`
-	},
-	{
 		key: 'like',
-		show: (d) => !d.hideActions && d.hasEngagementActions && !d.shareMountedPrivate && !d.isAdmin,
+		show: (d) => !d.hideActions && d.hasEngagementActions && !d.shareMountedPrivate,
 		render: (d) => html`
 					<button type="button" class="creation-detail-action-strip-pill${d.creationWithLikes?.viewer_liked ? ' is-liked' : ''}"
 						aria-label="Like" aria-pressed="${d.creationWithLikes?.viewer_liked ? 'true' : 'false'}" data-like-button>
@@ -1143,13 +1134,20 @@ const STRIP_SEGMENT_DEFS = [
 					</button>`
 	},
 	{
+		key: 'follow',
+		show: (d) => !d.hideActions && !d.isAdmin && d.canShowFollowButton && !d.viewerFollowsCreator,
+		render: (d, escapeFn) => html`
+					<button type="button" class="creation-detail-action-strip-follow" data-follow-button
+						data-follow-user-id="${escapeFn(d.creatorId)}">Follow</button>`
+	},
+	{
 		key: 'pills',
 		show: (d) => !d.hideActions,
 		render: (d) => renderCreationDetailActionStripPills(d.actionsContext)
 	},
 	{
 		key: 'tip',
-		show: (d) => !d.hideActions && !d.isOwner && !d.isAdmin,
+		show: (d) => !d.hideActions && !d.isOwner,
 		render: () => html`
 					<button type="button" class="creation-detail-action-strip-pill" data-tip-creator-button aria-label="Tip">
 						<span class="creation-detail-action-strip-pill-icon">${creditIcon('')}</span>

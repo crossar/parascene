@@ -914,9 +914,8 @@ function seedStatus(seed) {
 function seedIsOwner(seed) {
 	const viewer = numId(seed?.viewer_user_id);
 	const owner = numId(seed?.user_id);
-	if (viewer && owner) return viewer === owner;
-	if (!seedIsPublished(seed) && !seedHideIdentifyChrome(seed)) return true;
-	return false;
+	if (!viewer || !owner) return false;
+	return viewer === owner;
 }
 
 function seedShowComments(seed) {
@@ -1272,7 +1271,7 @@ export function creationDetailChromeHtmlFromSeed(seed) {
 
 	const showMutate = !isImportEmbed && completed;
 	const showShare = !isImportEmbed && completed;
-	const showLike = isPublished && !isOwner;
+	const showLike = isPublished && completed;
 	const showTip = isPublished && !isOwner;
 	const showPublish = isOwner && !isPublished && completed;
 	const showEdit = isOwner && completed;
