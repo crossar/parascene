@@ -564,9 +564,7 @@ export function createChallengeVoteModal(opts) {
 	}
 
 	/**
-	 * Vote UI for Suno: same markup on all sizes.
-	 * Mobile CSS: cover art + compact (19/6) player at center-bottom (swipe-friendly).
-	 * Desktop CSS: full-bleed official embed.
+	 * Vote UI for Suno: cover art + compact 315×100 player at center-bottom (all sizes).
 	 */
 	function injectVoteMediaFromCreation(stage, c, cid) {
 		const mediaType = typeof c.media_type === 'string' ? c.media_type : 'image';

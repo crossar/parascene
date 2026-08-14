@@ -2383,8 +2383,8 @@ body.chat-page #chat-doom-scroll-overlay video.chat-doom-video::-webkit-media-co
 }
 
 /*
- * Challenge vote Suno: mobile compact dock (max 285×100, center-bottom over cover art).
- * Desktop full-bleed. Mirrored here because chat.html loads chat.bundle.css before this file
+ * Challenge vote Suno: compact dock (315×100, center-bottom over cover art) on all sizes.
+ * Mirrored here because chat.html loads chat.bundle.css before this file
  * and the generated bundle can lag global.css.
  */
 .challenge-vote-modal-media--suno {
@@ -2439,7 +2439,7 @@ body.chat-page #chat-doom-scroll-overlay video.chat-doom-video::-webkit-media-co
 	bottom: 10px;
 	transform: translateX(-50%);
 	box-sizing: border-box;
-	width: 250px;
+	width: 315px;
 	height: 100px;
 	max-width: none;
 	max-height: none;
@@ -2457,25 +2457,6 @@ body.chat-page #chat-doom-scroll-overlay video.chat-doom-video::-webkit-media-co
 	height: 100%;
 	border: 0;
 	background: #0b1220;
-}
-
-@media (min-width: 769px) {
-	.challenge-vote-modal-suno-art {
-		display: none;
-	}
-
-	.challenge-vote-modal-suno-dock {
-		inset: 0;
-		left: 0;
-		bottom: 0;
-		transform: none;
-		width: 100%;
-		height: 100%;
-		max-width: none;
-		max-height: none;
-		border-radius: 0;
-		box-shadow: none;
-	}
 }
 
 /*
@@ -2498,6 +2479,10 @@ body.chat-page #chat-doom-scroll-overlay video.chat-doom-video::-webkit-media-co
 	margin-right: auto;
 	z-index: 4;
 	pointer-events: auto;
+}
+
+.challenge-vote-modal-media-column > .feed-card-group-nav[data-challenge-vote-next] {
+	margin-bottom: 12px;
 }
 
 .challenge-vote-modal-media-column > .feed-card-group-nav.challenge-vote-nav-out:hover,

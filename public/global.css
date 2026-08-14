@@ -8346,7 +8346,8 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 8px;
-	margin-top: 10px;
+	margin-top: 0;
+	margin-bottom: 10px;
 }
 
 .challenge-pane-hero-stat {
@@ -8825,8 +8826,7 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	touch-action: none;
 }
 
-/* Suno vote — mobile-first: cover art + smallest (19/6) player at center-bottom.
-   Desktop (min-width 769px): full-bleed official embed. */
+/* Suno vote: cover art + compact 315×100 player at center-bottom (all sizes). */
 .challenge-vote-modal-media--suno {
 	background: #0b1220;
 }
@@ -8880,7 +8880,7 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	transform: translateX(-50%);
 	box-sizing: border-box;
 	/* Compact Suno strip — fixed small player size. */
-	width: 250px;
+	width: 315px;
 	height: 100px;
 	max-width: none;
 	max-height: none;
@@ -8912,25 +8912,6 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	background: #0b1220;
 }
 
-@media (min-width: 769px) {
-	.challenge-vote-modal-suno-art {
-		display: none;
-	}
-
-	.challenge-vote-modal-suno-dock {
-		inset: 0;
-		left: 0;
-		bottom: 0;
-		transform: none;
-		width: 100%;
-		height: 100%;
-		max-width: none;
-		max-height: none;
-		border-radius: 0;
-		box-shadow: none;
-	}
-}
-
 .challenge-vote-modal-media-column > .feed-card-group-nav.challenge-vote-nav-out,
 .challenge-vote-modal-media-column > .feed-card-group-nav[data-challenge-vote-prev],
 .challenge-vote-modal-media-column > .feed-card-group-nav[data-challenge-vote-next] {
@@ -8947,6 +8928,10 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	margin-right: auto;
 	z-index: 2;
 	pointer-events: auto;
+}
+
+.challenge-vote-modal-media-column > .feed-card-group-nav[data-challenge-vote-next] {
+	margin-bottom: 12px;
 }
 
 .challenge-vote-modal-media-column > .feed-card-group-nav.challenge-vote-nav-out:hover,
@@ -8986,7 +8971,7 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	box-sizing: border-box;
 	width: 100%;
 	min-width: 0;
-	padding: 6px 2px 10px;
+	padding: 12px 2px 10px;
 	outline: none;
 }
 
@@ -9217,7 +9202,7 @@ body.chat-page .chat-page-messages .route-loading-skeleton.chat-page-thread-load
 	}
 
 	.challenge-vote-modal-heat {
-		padding: 2px 0 4px;
+		padding: 14px 0 8px;
 		--heat-pad: 14px;
 	}
 
@@ -20323,7 +20308,7 @@ app-modal-creation-details .creation-details-args-hint code {
 	transform: none;
 }
 
-/* Creation detail: click-to-play Suno — full-bleed over hero when playing */
+/* Creation detail: YouTube click-to-play overlay; Suno uses cover + docked player */
 .creation-detail-image-wrapper.hero-audio-pending .creation-detail-suno-play {
 	position: absolute;
 	left: 50%;
@@ -20353,28 +20338,29 @@ app-modal-creation-details .creation-details-args-hint code {
 	display: none;
 }
 
-.creation-detail-image-wrapper.hero-audio-playing .creation-detail-suno-embed {
+/* Compact Suno strip — same fixed size as challenge vote, all breakpoints. */
+.creation-detail-image-wrapper.hero-audio-playing:not(.hero-youtube-playing) .creation-detail-suno-embed {
 	position: absolute;
-	inset: 0;
 	z-index: 3;
+	left: 50%;
+	bottom: 10px;
+	transform: translateX(-50%);
+	box-sizing: border-box;
+	width: 315px;
+	height: 100px;
 	margin: 0;
-	border-radius: inherit;
+	border-radius: 10px;
 	overflow: hidden;
 	background: #0b1220;
+	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
 }
 
-.creation-detail-image-wrapper.hero-audio-playing .creation-detail-suno-embed-iframe {
+.creation-detail-image-wrapper.hero-audio-playing:not(.hero-youtube-playing) .creation-detail-suno-embed-iframe {
 	display: block;
 	width: 100%;
 	height: 100%;
 	border: 0;
 	background: #0b1220;
-}
-
-.creation-detail-image-wrapper.hero-audio-playing [data-image],
-.creation-detail-image-wrapper.hero-audio-playing [data-background] {
-	opacity: 0;
-	pointer-events: none;
 }
 
 /* YouTube import: full-bleed embed over the hero */

@@ -5,7 +5,7 @@ import {
 	renderNextChallengeSection,
 	renderPastChallengesSection
 } from './views/emptyParticipantView.js';
-import { renderHeroSection } from './views/heroView.js';
+import { renderHeroSection, renderHeroStats } from './views/heroView.js';
 import { participantHeroViewModel } from './views/presentParticipantHero.js';
 import { renderChallengeCountdowns } from './views/countdownView.js';
 import { renderChallengeHeroImage, renderDetailsAndReward } from './views/detailsRewardView.js';
@@ -249,10 +249,10 @@ function renderLegacySingleChallengePane(item, opts) {
 		title: heroVm.title,
 		phase,
 		track,
-		stats: heroVm.stats,
 		countdownHtml: renderChallengeCountdowns(latestConfig, phase, opts.nowMs)
 	});
 	html += renderChallengeHeroImage(latestConfig, heroVm.title);
+	html += renderHeroStats(heroVm.stats, track);
 	html += renderChallengeVoteHeroCta({
 		phase,
 		viewerId: opts.viewerId ?? null,
@@ -294,11 +294,11 @@ function renderChallengeDetailView(item, opts) {
 		title: heroVm.title,
 		phase,
 		track,
-		stats: heroVm.stats,
 		countdownHtml: renderChallengeCountdowns(latestConfig, phase, opts.nowMs),
 		omitTitle: true
 	});
 	html += renderChallengeHeroImage(latestConfig, heroVm.title);
+	html += renderHeroStats(heroVm.stats, track);
 	html += renderChallengeVoteHeroCta({
 		phase,
 		viewerId: opts.viewerId ?? null,
@@ -378,10 +378,10 @@ function renderStackedChallengePane(liveItems, opts) {
 			title: heroVm.title,
 			phase,
 			track,
-			stats: heroVm.stats,
 			countdownHtml: renderChallengeCountdowns(latestConfig, phase, opts.nowMs)
 		});
 		html += renderChallengeHeroImage(latestConfig, heroVm.title);
+		html += renderHeroStats(heroVm.stats, track);
 		html += renderStackedChallengeActions({
 			phase,
 			challengeId,

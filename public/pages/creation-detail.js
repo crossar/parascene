@@ -2336,7 +2336,7 @@ function isExternalImportCreation(mediaType, meta) {
 }
 
 /**
- * Mount Suno embed immediately over the hero (no click-to-play gate).
+ * Mount Suno as cover art + compact docked player (same as challenge vote, all sizes).
  * YouTube imports keep click-to-play separately.
  * @param {HTMLElement | null | undefined} imageWrapper
  * @param {object | null | undefined} meta
