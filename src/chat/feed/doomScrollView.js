@@ -16,7 +16,7 @@ import { createChatPageHeader } from '../../shared/chatPageHeader.js';
 import {
 	DOOM_YOUTUBE_CHROME_GAP_PX,
 	doomYoutubeFrameCssText,
-	doomYoutubeFrameRect
+	doomYoutubeFrameInsets
 } from './doomYoutubeLayout.js';
 
 /**
@@ -243,10 +243,27 @@ function bindDoomYoutubeAspectFit(mediaWrap, mediaFrame, overlay) {
 			mediaWrap.closest('.chat-doom-scroll-root') ||
 			mediaWrap.closest('#chat-doom-scroll-overlay');
 		const topbar = root instanceof HTMLElement ? root.querySelector('.chat-doom-topbar') : null;
-		const topInset =
-			topbar instanceof HTMLElement && topbar.getBoundingClientRect().height > 0
-				? topbar.getBoundingClientRect().height
-				: 0;
+		let topInset = 0;
+		if (topbar instanceof HTMLElement) {
+			const wrapTop = mediaWrap.getBoundingClientRect().top;
+			let controlsBottom = wrapTop;
+			const controls = topbar.querySelectorAll(
+				'.chat-page-back, .creation-detail-video-muted-badge, [data-chat-doom-mute]'
+			);
+			for (const el of controls) {
+				if (!(el instanceof HTMLElement) || el.hidden) continue;
+				const r = el.getBoundingClientRect();
+				if (r.height <= 0) continue;
+				controlsBottom = Math.max(controlsBottom, r.bottom);
+			}
+			if (controlsBottom > wrapTop) {
+				topInset = controlsBottom - wrapTop;
+			} else {
+				const padBottom = parseFloat(window.getComputedStyle(topbar).paddingBottom) || 0;
+				const h = topbar.getBoundingClientRect().height;
+				topInset = Math.max(0, h - padBottom);
+			}
+		}
 		let bottomInset = 0;
 		if (overlay instanceof HTMLElement) {
 			const bottom = overlay.querySelector('.chat-doom-bottom');
@@ -258,20 +275,20 @@ function bindDoomYoutubeAspectFit(mediaWrap, mediaFrame, overlay) {
 			bottomInset = pad + bh;
 		}
 		return {
-			topInset: topInset + DOOM_YOUTUBE_CHROME_GAP_PX,
+			topInset,
 			bottomInset: bottomInset + DOOM_YOUTUBE_CHROME_GAP_PX
 		};
 	};
 
-	const applyBox = (el, rect) => {
+	const applyBox = (el, insets) => {
 		if (!(el instanceof HTMLElement)) return;
-		el.style.cssText = doomYoutubeFrameCssText(rect);
+		el.style.cssText = doomYoutubeFrameCssText(insets);
 	};
 
 	const syncFrameLayout = () => {
-		const rect = doomYoutubeFrameRect(mediaWrap.clientWidth, mediaWrap.clientHeight, measureInsets());
-		if (!rect) return;
-		applyBox(mediaFrame, rect);
+		const insets = doomYoutubeFrameInsets(mediaWrap.clientHeight, measureInsets());
+		if (!insets) return;
+		applyBox(mediaFrame, insets);
 	};
 
 	syncFrameLayout();

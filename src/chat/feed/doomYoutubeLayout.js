@@ -1,54 +1,44 @@
 /**
- * YouTube in doom scroll: full-width player, height limited to the band between
- * the topbar and the username row (no crop, no 9:16 side-letterbox).
+ * YouTube in doom scroll: full-bleed width; height limited to the band between
+ * the topbar and the username row. Horizontal fit is left to the YouTube player.
  */
 
-/** Breathing room between the player and reserved chrome. */
+/** Breathing room between the player and the username row. */
 export const DOOM_YOUTUBE_CHROME_GAP_PX = 8;
 
 /**
- * @typedef {{ left: number, top: number, width: number, height: number }} DoomYoutubeFrameRect
- * @typedef {{ topInset?: number, bottomInset?: number }} DoomYoutubeFrameInsets
+ * @typedef {{ top: number, bottom: number }} DoomYoutubeFrameInsets
  */
 
 /**
- * Full-width box in `wrapW` × `wrapH`, height clipped by chrome insets.
+ * Vertical insets for a full-width YouTube frame. `bottom` is distance from the wrap bottom.
  *
- * @param {number} wrapW
  * @param {number} wrapH
- * @param {DoomYoutubeFrameInsets} [insets]
- * @returns {DoomYoutubeFrameRect | null}
+ * @param {{ topInset?: number, bottomInset?: number }} [insets]
+ * @returns {DoomYoutubeFrameInsets | null}
  */
-export function doomYoutubeFrameRect(wrapW, wrapH, insets = {}) {
-	if (!Number.isFinite(wrapW) || !Number.isFinite(wrapH) || wrapW <= 0 || wrapH <= 0) {
-		return null;
-	}
-	const topInset = Math.max(0, Number(insets.topInset) || 0);
-	const bottomInset = Math.max(0, Number(insets.bottomInset) || 0);
-	const height = wrapH - topInset - bottomInset;
-	if (height <= 0) return null;
-	return {
-		left: 0,
-		top: topInset,
-		width: wrapW,
-		height
-	};
+export function doomYoutubeFrameInsets(wrapH, insets = {}) {
+	if (!Number.isFinite(wrapH) || wrapH <= 0) return null;
+	const top = Math.max(0, Number(insets.topInset) || 0);
+	const bottom = Math.max(0, Number(insets.bottomInset) || 0);
+	if (top + bottom >= wrapH) return null;
+	return { top, bottom };
 }
 
 /**
- * @param {DoomYoutubeFrameRect} rect
+ * @param {DoomYoutubeFrameInsets} insets
  * @returns {string}
  */
-export function doomYoutubeFrameCssText(rect) {
+export function doomYoutubeFrameCssText(insets) {
 	return [
 		'position:absolute',
-		`left:${rect.left}px`,
-		`top:${rect.top}px`,
-		`width:${rect.width}px`,
-		`height:${rect.height}px`,
+		'left:0',
+		'right:0',
+		'width:100%',
+		`top:${insets.top}px`,
+		`bottom:${insets.bottom}px`,
+		'height:auto',
 		'overflow:hidden',
-		'right:auto',
-		'bottom:auto',
 		'transform:none'
 	].join(';');
 }

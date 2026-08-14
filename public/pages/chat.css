@@ -4776,7 +4776,7 @@ body.chat-page.chat-page--doom-scroll .chat-route {
  * YouTube: full width; height is the band between topbar and username (JS sets pixels).
  */
 .chat-doom-slide-media-frame--youtube {
-	--doom-yt-top: calc(env(safe-area-inset-top, 0px) + 68px);
+	--doom-yt-top: calc(env(safe-area-inset-top, 0px) + 54px);
 	--doom-yt-bottom: calc(env(safe-area-inset-bottom, 0px) + 88px);
 	inset: auto;
 	left: 0;
@@ -4784,6 +4784,7 @@ body.chat-page.chat-page--doom-scroll .chat-route {
 	top: var(--doom-yt-top);
 	bottom: var(--doom-yt-bottom);
 	width: 100%;
+	max-width: none;
 	height: auto;
 	transform: none;
 }
