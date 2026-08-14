@@ -182,19 +182,53 @@
 		<span class="skeleton skeleton-line" style="display: block; margin-bottom: 12px; width: 95%;"></span>
 		<span class="skeleton skeleton-line skeleton-line--medium" style="display: block; margin-bottom: 12px;"></span>
 	</div>
-	<div class="comment-input">
+	<div data-creation-comments-host>
+	<div class="comment-input" data-comment-input-skeleton>
 		<div class="comment-avatar"><span class="skeleton skeleton-circle" style="width: 32px; height: 32px;" aria-hidden="true"></span></div>
 		<div class="comment-input-body">
 			<span class="skeleton skeleton-line" style="display: block; height: 40px; border-radius: 8px;"></span>
 		</div>
 	</div>
+	<div class="creation-detail-comments-section" data-comments-section>
 	<div class="comments-toolbar">
-		<div class="skeleton skeleton-line" style="width: 120px;"></div>
-		<div class="skeleton skeleton-line" style="width: 100px; margin-left: auto;"></div>
+		<h3 class="comments-heading"><span data-comment-count>Comments</span></h3>
+		<div class="comments-sort">
+			<label class="comments-sort-label" for="comments-sort-pending">Sort by</label>
+			<select class="comments-sort-select" id="comments-sort-pending" data-comments-sort disabled>
+				<option value="asc">Oldest</option>
+				<option value="desc">Most recent</option>
+			</select>
+		</div>
 	</div>
-	<div class="comment-list">
-		<div class="creation-detail-skeleton-comment"><span class="skeleton skeleton-circle" style="width: 32px; height: 32px;" aria-hidden="true"></span><div><span class="skeleton skeleton-line skeleton-line--short" style="display: block; margin-bottom: 4px;"></span><span class="skeleton skeleton-line skeleton-line--medium" style="display: block;"></span></div></div>
-		<div class="creation-detail-skeleton-comment"><span class="skeleton skeleton-circle" style="width: 32px; height: 32px;" aria-hidden="true"></span><div><span class="skeleton skeleton-line skeleton-line--medium" style="display: block; margin-bottom: 4px;"></span><span class="skeleton skeleton-line skeleton-line--short" style="display: block;"></span></div></div>
+	<div class="comment-list" data-comment-list>
+		<div class="creation-comments-loading" role="status" aria-live="polite" aria-busy="true">
+			<div class="creation-comments-skeleton-row">
+				<div class="skeleton skeleton-circle" style="width:32px;height:32px;border-radius:50%"></div>
+				<div class="creation-comments-skeleton-body">
+					<div class="skeleton skeleton-line skeleton-line--short"></div>
+					<div class="skeleton skeleton-line skeleton-line--medium"></div>
+					<div class="skeleton skeleton-line" style="max-width:72%"></div>
+				</div>
+			</div>
+			<div class="creation-comments-skeleton-row">
+				<div class="skeleton skeleton-circle" style="width:32px;height:32px;border-radius:50%"></div>
+				<div class="creation-comments-skeleton-body">
+					<div class="skeleton skeleton-line skeleton-line--medium"></div>
+					<div class="skeleton skeleton-line skeleton-line--short"></div>
+					<div class="skeleton skeleton-line" style="max-width:58%"></div>
+				</div>
+			</div>
+			<div class="creation-comments-skeleton-row">
+				<div class="skeleton skeleton-circle" style="width:32px;height:32px;border-radius:50%"></div>
+				<div class="creation-comments-skeleton-body">
+					<div class="skeleton skeleton-line skeleton-line--short"></div>
+					<div class="skeleton skeleton-line"></div>
+					<div class="skeleton skeleton-line skeleton-line--medium"></div>
+				</div>
+			</div>
+		</div>
+	</div>
+	</div>
 	</div>
 </div></div>
 			</div>

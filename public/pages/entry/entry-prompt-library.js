@@ -2,6 +2,8 @@
  * Prompt library: nav, nav-mobile, app-tabs, modals (profile, credits, notifications).
  */
 
+import { embedWaitTags, importStandaloneAppChrome } from '../../shared/embedPageRuntime.js';
+
 const TAGS = [
 	'app-navigation',
 	'app-navigation-mobile',
@@ -18,14 +20,9 @@ function getImportQuery(version) {
 export async function init(version) {
 	const qs = getImportQuery(version);
 	await Promise.all([
-		import(`../../components/navigation/index.js${qs}`),
-		import(`../../components/navigation/mobile.js${qs}`),
+		importStandaloneAppChrome(qs),
 		import(`../../components/elements/tabs.js${qs}`),
-		import(`../../components/modals/profile.js${qs}`),
-		import(`../../components/modals/about.js`),
-		import(`../../components/modals/credits.js${qs}`),
-		import(`../../components/modals/notifications.js${qs}`),
 	]);
 	const { waitForComponents } = await import(`../../shared/pageInit.js${qs}`);
-	await waitForComponents(TAGS);
+	await waitForComponents(embedWaitTags(TAGS));
 }

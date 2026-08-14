@@ -2479,12 +2479,13 @@ body.creation-detail-page main>section:first-of-type {
 }
 
 .creation-detail-image-wrapper.hero-layout-portrait.image-loading,
-.creation-detail-image-wrapper.hero-layout-portrait.image-error {
+.creation-detail-image-wrapper.hero-layout-portrait.image-error,
+.creation-detail-image-wrapper.hero-layout-portrait.hero-aspect-pending {
 	aspect-ratio: var(--hero-aspect-ratio);
 	display: block;
 }
 
-.creation-detail-image-wrapper.hero-layout-portrait:not(.image-loading):not(.image-error) {
+.creation-detail-image-wrapper.hero-layout-portrait:not(.image-loading):not(.image-error):not(.hero-aspect-pending) {
 	aspect-ratio: auto;
 	max-height: none;
 }
@@ -2503,11 +2504,12 @@ body.creation-detail-page main>section:first-of-type {
 }
 
 .creation-detail-image-wrapper.hero-layout-landscape.image-loading,
-.creation-detail-image-wrapper.hero-layout-landscape.image-error {
+.creation-detail-image-wrapper.hero-layout-landscape.image-error,
+.creation-detail-image-wrapper.hero-layout-landscape.hero-aspect-pending {
 	aspect-ratio: var(--hero-aspect-ratio, 16 / 9);
 }
 
-.creation-detail-image-wrapper.hero-layout-landscape:not(.image-loading):not(.image-error) {
+.creation-detail-image-wrapper.hero-layout-landscape:not(.image-loading):not(.image-error):not(.hero-aspect-pending) {
 	aspect-ratio: auto;
 	max-height: none;
 }
@@ -3274,27 +3276,8 @@ body.view-nsfw .creation-detail-image-wrapper.nsfw::after {
 	margin-bottom: 16px;
 }
 
-.creation-detail-skeleton .comments-toolbar {
-	margin-top: 20px;
-	margin-bottom: 12px;
-}
-
 .creation-detail-skeleton .comment-list {
 	margin-top: 4px;
-}
-
-.creation-detail-skeleton-comment {
-	display: grid;
-	grid-template-columns: 32px 1fr;
-	gap: 10px;
-	align-items: start;
-	padding-top: 12px;
-	border-top: 1px solid var(--border);
-}
-
-.creation-detail-skeleton-comment:first-child {
-	padding-top: 0;
-	border-top: none;
 }
 
 .creation-detail-author {
@@ -3929,6 +3912,18 @@ body.view-nsfw .creation-detail-image-wrapper.nsfw::after {
 	max-width: 36rem;
 }
 
+.creation-detail-challenge-slot {
+	margin: 4px 0 0;
+}
+
+.creation-detail-challenge-slot:empty {
+	display: none;
+}
+
+.creation-detail-challenge-slot .creation-detail-challenge-banner:first-child {
+	margin-top: 8px;
+}
+
 .creation-detail-challenge-actions-btns {
 	display: flex;
 	flex-wrap: wrap;
@@ -4517,6 +4512,7 @@ body.view-nsfw .creation-detail-image-wrapper.nsfw::after {
 	width: 100%;
 	height: 100%;
 	border: 1px solid var(--border);
+	border-radius: 10px;
 	background: var(--surface-muted);
 	overflow: hidden;
 	display: flex;

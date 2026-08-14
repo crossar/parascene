@@ -757,11 +757,24 @@ function stampChatCreationsBulkDatasetOnFeedCard(card, item, preferThumbnail) {
 	const parsedMeta = parseFeedItemMeta(item);
 	const isGroupCreation = parsedMeta?.group?.kind === 'group_creations';
 	card.dataset.groupCreation = isGroupCreation ? '1' : '0';
+	const groupSourceCount = Array.isArray(parsedMeta?.group?.source_creations)
+		? parsedMeta.group.source_creations.length
+		: 0;
+	if (isGroupCreation && groupSourceCount > 0) card.dataset.groupSourceCount = String(groupSourceCount);
 	const imageUrlRaw = feedItemCardImageUrl(item, preferThumbnail);
 	card.dataset.imageUrl = typeof imageUrlRaw === 'string' ? imageUrlRaw.trim() : '';
 	const fullImageUrlRaw = feedItemCardImageUrl(item, false);
 	card.dataset.imageUrlFull =
 		typeof fullImageUrlRaw === 'string' ? fullImageUrlRaw.trim() : card.dataset.imageUrl;
+	const seedCommentCount = Number(item?.comment_count);
+	if (
+		item?.comment_count != null &&
+		item?.comment_count !== '' &&
+		Number.isFinite(seedCommentCount) &&
+		seedCommentCount >= 0
+	) {
+		card.dataset.commentCount = String(seedCommentCount);
+	}
 }
 
 function buildFeedCreationCard(
@@ -775,10 +788,36 @@ function buildFeedCreationCard(
 	performCreationNavigation = null
 ) {
 	const card = document.createElement("div");
+	card.dataset.published = item.published === true || item.published === 1 ? "1" : "0";
 	const mediaType = typeof item.media_type === "string" ? item.media_type : "image";
 	const isVideo = mediaType === "video" && typeof item.video_url === "string" && item.video_url;
 
 	const parsedMeta = parseFeedItemMeta(item);
+	card.dataset.mediaType = typeof mediaType === "string" && mediaType.trim() ? mediaType.trim().toLowerCase() : "image";
+	const seedUserId = Number(item?.user_id);
+	if (Number.isFinite(seedUserId) && seedUserId > 0) card.dataset.userId = String(seedUserId);
+	const seedCommentCount = Number(item?.comment_count);
+	if (
+		item?.comment_count != null &&
+		item?.comment_count !== '' &&
+		Number.isFinite(seedCommentCount) &&
+		seedCommentCount >= 0
+	) {
+		card.dataset.commentCount = String(seedCommentCount);
+	}
+	if (item?.editorial_pin === true) card.dataset.editorialPin = "1";
+	if (item?.editorial_pin_show_metadata === false) card.dataset.editorialPinShowMetadata = "0";
+	const importProvider =
+		parsedMeta?.import && typeof parsedMeta.import.provider === "string"
+			? parsedMeta.import.provider.trim().toLowerCase()
+			: "";
+	if (importProvider) card.dataset.importProvider = importProvider;
+	const isGroupCreationCard = parsedMeta?.group?.kind === 'group_creations';
+	card.dataset.groupCreation = isGroupCreationCard ? '1' : '0';
+	const groupSourceCount = Array.isArray(parsedMeta?.group?.source_creations)
+		? parsedMeta.group.source_creations.length
+		: 0;
+	if (isGroupCreationCard && groupSourceCount > 0) card.dataset.groupSourceCount = String(groupSourceCount);
 	// Audio/Suno covers stay visible — challenge blur is for image/video submission art.
 	const challengeThumbnailBlur =
 		creationMetaHasChallengeSubmission(parsedMeta) && !item.nsfw && mediaType !== 'audio';

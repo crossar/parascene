@@ -102,6 +102,17 @@ export function createConnectCommentRowElement(comment, opts = {}) {
 		row.setAttribute('role', 'link');
 		row.tabIndex = 0;
 		row.dataset.href = href;
+		row.dataset.creationId = String(createdImageId);
+		const creatorUid = Number(comment?.created_image_user_id);
+		if (Number.isFinite(creatorUid) && creatorUid > 0) row.dataset.userId = String(creatorUid);
+		const pub = comment?.created_image_published;
+		if (pub === true || pub === 1) row.dataset.published = '1';
+		else if (pub === false || pub === 0) row.dataset.published = '0';
+		const mediaType =
+			typeof comment?.created_image_media_type === 'string'
+				? comment.created_image_media_type.trim().toLowerCase()
+				: '';
+		if (mediaType === 'video' || mediaType === 'audio') row.dataset.mediaType = mediaType;
 		const previewFull = imageUrl || resolvedThumb;
 		if (previewFull) row.dataset.previewImageUrl = previewFull;
 		row.setAttribute('aria-label', `Open ${createdImageTitle}`);

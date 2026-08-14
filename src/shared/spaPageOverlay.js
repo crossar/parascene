@@ -11,6 +11,17 @@ import {
 	applyCreationDetailEmbedShellSync,
 	CREATION_DETAIL_SHELL_SYNC_MESSAGE,
 } from './creationDetailEmbedShell.js';
+import {
+	creationDetailSeedFromClick,
+	feedItemToCreationDetailSeed,
+	mergeCreationDetailSeeds,
+	writeCreationDetailSeed,
+	applyCreatorStripCacheToSeed,
+	applyViewerComposerToSeed,
+	writeViewerComposerCache,
+	prefetchCreatorStrip,
+	enrichCreationDetailSeedCreatorStrip,
+} from './creationDetailSeed.js';
 
 const OVERLAY_ID = 'prsn-spa-page-overlay';
 const SHELL_OUT_VEIL_ID = 'prsn-spa-page-shell-out-veil';
@@ -45,6 +56,8 @@ function getOverlayStore() {
 			overlayBodyScrollLockTop: null,
 			overlayPushCount: 0,
 			overlayDismissEntirePending: false,
+			overlayNativeRoot: null,
+			overlayNativeUnmount: null,
 		};
 	}
 	return window[OVERLAY_STORE_KEY];
@@ -490,11 +503,16 @@ function assignOverlayFrameUrl(frame, url, target) {
 
 function syncOverlayFrameToTarget(target, options = {}) {
 	const store = getOverlayStore();
-	if (!(store.overlayFrame instanceof HTMLIFrameElement)) return;
 	if (!options.forceReload && store.overlayFramePath === target.canonicalUrl) return;
 	store.overlayPage = target.kind;
 	store.overlayCreationId = target.creationId;
 	store.overlayFramePath = target.canonicalUrl;
+	if (store.overlayNativeRoot instanceof HTMLElement && useNativeCreationDetail(target)) {
+		attachNativeCreationDetail(store, target);
+		updateOverlayChromeTitle(target.kind);
+		return;
+	}
+	if (!(store.overlayFrame instanceof HTMLIFrameElement)) return;
 	assignOverlayFrameUrl(store.overlayFrame, target.embedUrl, target);
 	updateOverlayChromeTitle(target.kind);
 }
@@ -752,6 +770,15 @@ export function closeSpaPageOverlay(options = {}) {
 	if (store.overlayFrame) {
 		requestEmbedFrameStopPlayback(store.overlayFrame);
 	}
+	if (typeof store.overlayNativeUnmount === 'function') {
+		try {
+			store.overlayNativeUnmount();
+		} catch {
+			// ignore
+		}
+	}
+	store.overlayNativeUnmount = null;
+	store.overlayNativeRoot = null;
 	store.overlayFrame = null;
 	store.overlayCreationId = null;
 	store.overlayPage = null;
@@ -1091,6 +1118,135 @@ function updateOverlayChromeTitle(kind) {
 	titleEl.textContent = overlayTitleForKind(kind);
 }
 
+function useNativeCreationDetail(target) {
+	if (target?.kind !== 'creation-detail') return false;
+	try {
+		if (!window.matchMedia('(max-width: 768px)').matches) return false;
+	} catch {
+		return false;
+	}
+	const body = document.body;
+	return Boolean(
+		body?.classList?.contains('chat-page') ||
+			document.documentElement?.classList?.contains('chat-page') ||
+			body?.dataset?.entry === 'chat'
+	);
+}
+
+let creationDetailSeedLookup = null;
+let creationDetailSeedViewerIdFn = null;
+
+/** Parent (chat/app) can supply the in-memory feed/creations row for instant detail chrome. */
+export function setCreationDetailSeedLookup(fn) {
+	creationDetailSeedLookup = typeof fn === 'function' ? fn : null;
+}
+
+/** Parent can supply signed-in viewer chrome so the comment composer is adorned on first paint. */
+export function setCreationDetailSeedViewerId(fn) {
+	creationDetailSeedViewerIdFn = typeof fn === 'function' ? fn : null;
+}
+
+function scrapeImgSrc(root) {
+	if (!(root instanceof Element)) return '';
+	const img = root.querySelector('img');
+	if (img instanceof HTMLImageElement) {
+		return String(img.currentSrc || img.src || img.getAttribute('src') || '').trim();
+	}
+	return '';
+}
+
+function scrapeViewerComposerFromDom() {
+	const wrap = document.querySelector('[data-chat-sidebar-user-avatar]');
+	const profileBtn = document.querySelector('.profile-button, [data-mobile-menu-action="profile"]');
+	const avatarUrl = scrapeImgSrc(wrap) || scrapeImgSrc(profileBtn);
+	const founder = Boolean(
+		(wrap instanceof Element && wrap.querySelector('.avatar-with-founder-flair')) ||
+			(profileBtn instanceof Element && profileBtn.querySelector('.avatar-with-founder-flair'))
+	);
+	const displayName =
+		document.querySelector('[data-chat-sidebar-user-label]')?.textContent?.trim() ||
+		profileBtn?.getAttribute?.('aria-label')?.replace(/^account:\s*/i, '').trim() ||
+		'';
+	return {
+		avatarUrl,
+		displayName,
+		plan: founder ? 'founder' : '',
+	};
+}
+
+function currentCreationDetailSeedViewer() {
+	let fromFn = null;
+	if (typeof creationDetailSeedViewerIdFn === 'function') {
+		try {
+			fromFn = creationDetailSeedViewerIdFn();
+		} catch {
+			fromFn = null;
+		}
+	}
+	const fromDom = scrapeViewerComposerFromDom();
+	if (fromFn && typeof fromFn === 'object') {
+		return {
+			id: fromFn.id ?? fromFn.userId,
+			avatarUrl: fromFn.avatarUrl || fromDom.avatarUrl,
+			displayName: fromFn.displayName || fromDom.displayName,
+			userName: fromFn.userName || '',
+			plan: fromFn.plan === 'founder' || fromDom.plan === 'founder' ? 'founder' : fromFn.plan || fromDom.plan,
+		};
+	}
+	const n = Number(fromFn);
+	return {
+		id: Number.isFinite(n) && n > 0 ? n : null,
+		avatarUrl: fromDom.avatarUrl,
+		displayName: fromDom.displayName,
+		plan: fromDom.plan,
+	};
+}
+
+function rememberCreationDetailSeed(href, ev) {
+	const id = parseCreationIdFromHref(href) || parseCreationNavigationTargetId(href);
+	if (!id) return;
+	let fromLookup = null;
+	if (typeof creationDetailSeedLookup === 'function') {
+		try {
+			fromLookup = feedItemToCreationDetailSeed(creationDetailSeedLookup(id));
+		} catch {
+			fromLookup = null;
+		}
+	}
+	const fromClick = creationDetailSeedFromClick(ev, id);
+	let seed = applyCreatorStripCacheToSeed(mergeCreationDetailSeeds(fromLookup, fromClick));
+	const viewer = currentCreationDetailSeedViewer();
+	writeViewerComposerCache(viewer);
+	if (seed) seed = applyViewerComposerToSeed(seed, viewer);
+	if (seed) writeCreationDetailSeed(seed);
+	if (seed?.user_id) prefetchCreatorStrip(seed.user_id);
+}
+
+function attachNativeCreationDetail(store, target) {
+	if (typeof store.overlayNativeUnmount === 'function') {
+		try {
+			store.overlayNativeUnmount();
+		} catch {
+			// ignore
+		}
+		store.overlayNativeUnmount = null;
+	}
+	const root = store.overlayNativeRoot;
+	if (!(root instanceof HTMLElement) || !target?.creationId) return;
+	void import('../chat/feed/mobileCreationDetailMount.js')
+		.then((mod) => {
+			if (store.overlayNativeRoot !== root) return;
+			store.overlayNativeUnmount = mod.mountInShellCreationDetail(root, {
+				creationId: target.creationId,
+				onNavigate: (href) => openSpaPageOverlayFromHref(href),
+			});
+			revealOverlayFrame(root);
+		})
+		.catch(() => {
+			revealOverlayFrame(root);
+		});
+}
+
 function buildOverlayChrome(target) {
 	const kind = target?.kind || 'creation-detail';
 	const closeBtn = document.createElement('button');
@@ -1109,21 +1265,29 @@ function buildOverlayChrome(target) {
 	});
 	backBtn.addEventListener('click', () => dismissSpaPageOverlayViaHistory());
 
-	const frame = document.createElement('iframe');
-	frame.className = 'creation-detail-overlay-frame is-overlay-loading';
-	frame.setAttribute('title', frameTitleForTarget(target));
-	frame.setAttribute('loading', 'eager');
-	const shellBg = getParentShellBackgroundColor();
-	if (shellBg) {
-		frame.style.backgroundColor = shellBg;
+	const native = useNativeCreationDetail(target);
+	let frame;
+	if (native) {
+		frame = document.createElement('div');
+		frame.className = 'creation-detail-overlay-frame creation-detail-overlay-frame--native';
+		frame.setAttribute('data-mobile-creation-detail-root', '1');
+	} else {
+		frame = document.createElement('iframe');
+		frame.className = 'creation-detail-overlay-frame is-overlay-loading';
+		frame.setAttribute('title', frameTitleForTarget(target));
+		frame.setAttribute('loading', 'eager');
+		const shellBg = getParentShellBackgroundColor();
+		if (shellBg) {
+			frame.style.backgroundColor = shellBg;
+		}
+		ensureOverlayFrameLoadHandler(frame);
 	}
-	ensureOverlayFrameLoadHandler(frame);
 
 	const veil = document.createElement('div');
 	veil.className = `${OVERLAY_FRAME_VEIL_CLASS} is-active`;
 	veil.setAttribute('aria-hidden', 'false');
 
-	return { toolbar, frame, veil };
+	return { toolbar, frame, veil, native };
 }
 
 function mountSpaPageOverlayShell(target, store, options = {}) {
@@ -1142,7 +1306,7 @@ function mountSpaPageOverlayShell(target, store, options = {}) {
 	shell.setAttribute('role', 'dialog');
 	shell.setAttribute('aria-modal', 'true');
 
-	const { toolbar, frame, veil } = buildOverlayChrome(target);
+	const { toolbar, frame, veil, native } = buildOverlayChrome(target);
 	shell.append(frame, veil, toolbar);
 	captureOverlayScrollPositions();
 	lockOverlayBodyScroll();
@@ -1150,9 +1314,15 @@ function mountSpaPageOverlayShell(target, store, options = {}) {
 	document.body.classList.add('creation-detail-overlay-open');
 
 	store.overlayEl = shell;
-	store.overlayFrame = frame;
-
-	assignOverlayFrameUrl(frame, target.embedUrl, target);
+	if (native) {
+		store.overlayFrame = null;
+		store.overlayNativeRoot = frame;
+		attachNativeCreationDetail(store, target);
+	} else {
+		store.overlayFrame = frame;
+		store.overlayNativeRoot = null;
+		assignOverlayFrameUrl(frame, target.embedUrl, target);
+	}
 	if (options.skipHistoryPush) {
 		const state = window.history?.state;
 		store.overlayReturnPath =
@@ -1177,6 +1347,7 @@ export function openSpaPageOverlayFromHref(href, options = {}) {
 		shellOutFromSpaPageOverlay(href);
 		return;
 	}
+	if (target.kind === 'creation-detail') rememberCreationDetailSeed(href, options.event);
 
 	const store = getOverlayStore();
 
@@ -1192,7 +1363,7 @@ export function openSpaPageOverlayFromHref(href, options = {}) {
 		return;
 	}
 
-	if (isSpaPageOverlayOpen() && store.overlayFrame) {
+	if (isSpaPageOverlayOpen() && (store.overlayFrame || store.overlayNativeRoot)) {
 		if (store.overlayFramePath === target.canonicalUrl) {
 			if (options.forceReload) {
 				syncOverlayFrameToTarget(target, { forceReload: true });
@@ -1242,15 +1413,45 @@ export function navigateToCreateFromSpa(href = '/create', ev, options = {}) {
 	openSpaPageOverlayFromHref(href, { forceReload: Boolean(options.forceReload) });
 }
 
+let createOverlayPrefetchStarted = false;
+
+/** Warm SW + HTTP caches for the create overlay so the first tap is not a cold HTML/JS boot. */
+export function prefetchCreateOverlayAssets() {
+	if (createOverlayPrefetchStarted) return;
+	createOverlayPrefetchStarted = true;
+	const run = () => {
+		void fetch('/create?embed=1', { credentials: 'include', headers: { Accept: 'text/html' } }).catch(
+			() => {}
+		);
+		void fetch('/api/servers', { credentials: 'include', headers: { Accept: 'application/json' } }).catch(
+			() => {}
+		);
+		const meta = document.querySelector('meta[name="asset-version"]');
+		const v = meta?.getAttribute('content')?.trim() || '';
+		const qs = v ? `?v=${encodeURIComponent(v)}` : '';
+		void import(`/pages/entry/entry-create.js${qs}`).catch(() => {});
+		void import(`/components/routes/create.js${qs}`).catch(() => {});
+		void import(`/shared/createServersDefault.js${qs}`).catch(() => {});
+	};
+	if (typeof requestIdleCallback === 'function') {
+		requestIdleCallback(run, { timeout: 4000 });
+		return;
+	}
+	setTimeout(run, 800);
+}
+
 export function navigateToCreationDetailFromSpa(href, ev) {
 	if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+	rememberCreationDetailSeed(href, ev);
 	const id = parseCreationNavigationTargetId(href);
 	const detailPath = id ? `/creations/${id}` : '';
 	if (!id || !shouldUseSpaPageOverlay()) {
 		window.location.assign(href);
 		return;
 	}
-	openSpaPageOverlayFromHref(detailPath);
+	void enrichCreationDetailSeedCreatorStrip(id).finally(() => {
+		openSpaPageOverlayFromHref(detailPath, { event: ev });
+	});
 }
 
 export const navigateToPromptLibraryFromSpa = navigateToSpaPageFromSpa;
@@ -1271,6 +1472,25 @@ function bindSpaPageOverlayLinkIntercepts() {
 	if (document.documentElement.dataset.prsnSpaOverlayLinkInterceptBound === '1') return;
 	document.documentElement.dataset.prsnSpaOverlayLinkInterceptBound = '1';
 	document.addEventListener(
+		'pointerdown',
+		(e) => {
+			const link = e.target?.closest?.('a[href]');
+			if (!(link instanceof HTMLAnchorElement)) return;
+			const href = (link.getAttribute('href') || '').trim();
+			if (!href || href.startsWith('#')) return;
+			const id = parseCreationIdFromHref(href) || parseCreationNavigationTargetId(href);
+			if (!id || typeof creationDetailSeedLookup !== 'function') return;
+			try {
+				const row = creationDetailSeedLookup(id);
+				const userId = Number(row?.user_id);
+				if (Number.isFinite(userId) && userId > 0) prefetchCreatorStrip(userId);
+			} catch {
+				// ignore
+			}
+		},
+		true
+	);
+	document.addEventListener(
 		'click',
 		(e) => {
 			const link = e.target?.closest?.('a[href]');
@@ -1290,7 +1510,15 @@ function bindSpaPageOverlayLinkIntercepts() {
 
 			e.preventDefault();
 			e.stopPropagation();
-			openSpaPageOverlayFromHref(url.pathname + url.search + url.hash);
+			const href = url.pathname + url.search + url.hash;
+			rememberCreationDetailSeed(href, e);
+			const creationId = parseCreationIdFromHref(href) || parseCreationNavigationTargetId(href);
+			const open = () => openSpaPageOverlayFromHref(href, { event: e });
+			if (matchSpaOverlayKind(path) === 'creation-detail' && creationId) {
+				void enrichCreationDetailSeedCreatorStrip(creationId).finally(open);
+			} else {
+				open();
+			}
 		},
 		true
 	);

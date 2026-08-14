@@ -4,36 +4,43 @@ import {
 	DEFAULT_CREATE_SERVERS,
 } from '../../shared/createServersDefault.js';
 import { isPublicGenerationServerId } from '../../shared/generationDefaults.js';
+import {
+	renderFields as renderProviderFormFields,
+	isPromptLikeField,
+	isImageUrlField,
+	isImageUrlArrayField,
+} from '../../shared/providerFormFields.js';
+import {
+	shouldUseAspectRatioSelector,
+	getVirtualAspectRatioField,
+	closestAspectRatioPreset,
+	buildAspectRatioMismatchMessage,
+} from '../../shared/aspectRatio.js';
+import {
+	mergeSharedSettingsIntoSessionSelections,
+	getSharedFieldValueOverrides,
+	getSharedModelForContext,
+	getSharedAdvancedPrompt,
+	getSharedAspectRatio,
+	readSharedCreateSettings,
+	syncCreatePageSelectionsToSharedStorage,
+	persistSharedPrompt,
+	persistSharedAspectRatio,
+	CREATE_SETTINGS_UPDATED_EVENT,
+} from '../../shared/createSettingsSync.js';
+import { notifySpaPageOverlayEmbedReady } from '../../shared/embedPageRuntime.js';
 
 let fetchJsonWithStatusDeduped;
 let submitCreationWithPending;
 let uploadImageFile;
 let readRasterFileDimensions;
 let readImageUrlDimensions;
-let closestAspectRatioPreset;
-let buildAspectRatioMismatchMessage;
 let formatMentionsFailureForDialog;
-let renderFields;
-let shouldUseAspectRatioSelector;
-let getVirtualAspectRatioField;
-let isPromptLikeField;
-let isImageUrlField;
-let isImageUrlArrayField;
 let getMutateLineageForImageUrls;
 let getMutateQueuePrefillForProviderFields;
 let syncMutateQueueFromProviderFieldValues;
 let MUTATE_QUEUE_UPDATED_EVENT;
 let MUTATE_QUEUE_STORAGE_KEY;
-let mergeSharedSettingsIntoSessionSelections;
-let getSharedFieldValueOverrides;
-let getSharedModelForContext;
-let getSharedAdvancedPrompt;
-let getSharedAspectRatio;
-let readSharedCreateSettings;
-let syncCreatePageSelectionsToSharedStorage;
-let persistSharedPrompt;
-let persistSharedAspectRatio;
-let CREATE_SETTINGS_UPDATED_EVENT;
 let attachPromptFieldClear;
 let attachAutoGrowTextarea;
 let attachPromptInlineSuggest;
@@ -160,20 +167,14 @@ async function loadDeps() {
 		const [
 			apiMod,
 			createSubmitMod,
-			providerFormFieldsMod,
-			aspectRatioMod,
 			mutateQueueSyncMod,
-			createSettingsSyncMod,
 			promptFieldClearMod,
 			autogrowMod,
 			suggestMod,
 		] = await Promise.all([
 			import(`../../shared/api.js${qs}`),
 			import(`../../shared/createSubmit.js${qs}`),
-			import(`../../shared/providerFormFields.js${qs}`),
-			import(`../../shared/aspectRatio.js${qs}`),
 			import(`../../shared/mutateQueueSync.js${qs}`),
-			import(`../../shared/createSettingsSync.js${qs}`),
 			import(`../../shared/promptFieldClear.js${qs}`),
 			import(`../../shared/autogrow.js${qs}`),
 			import(`../../shared/triggeredSuggest.js${qs}`),
@@ -187,32 +188,11 @@ async function loadDeps() {
 		readImageUrlDimensions = createSubmitMod.readImageUrlDimensions;
 		formatMentionsFailureForDialog = createSubmitMod.formatMentionsFailureForDialog;
 
-		renderFields = providerFormFieldsMod.renderFields;
-		isPromptLikeField = providerFormFieldsMod.isPromptLikeField;
-		isImageUrlField = providerFormFieldsMod.isImageUrlField;
-		isImageUrlArrayField = providerFormFieldsMod.isImageUrlArrayField;
-
-		shouldUseAspectRatioSelector = aspectRatioMod.shouldUseAspectRatioSelector;
-		getVirtualAspectRatioField = aspectRatioMod.getVirtualAspectRatioField;
-		closestAspectRatioPreset = aspectRatioMod.closestAspectRatioPreset;
-		buildAspectRatioMismatchMessage = aspectRatioMod.buildAspectRatioMismatchMessage;
-
 		getMutateLineageForImageUrls = mutateQueueSyncMod.getMutateLineageForImageUrls;
 		getMutateQueuePrefillForProviderFields = mutateQueueSyncMod.getMutateQueuePrefillForProviderFields;
 		syncMutateQueueFromProviderFieldValues = mutateQueueSyncMod.syncMutateQueueFromProviderFieldValues;
 		MUTATE_QUEUE_UPDATED_EVENT = mutateQueueSyncMod.MUTATE_QUEUE_UPDATED_EVENT;
 		MUTATE_QUEUE_STORAGE_KEY = mutateQueueSyncMod.MUTATE_QUEUE_STORAGE_KEY;
-
-		mergeSharedSettingsIntoSessionSelections = createSettingsSyncMod.mergeSharedSettingsIntoSessionSelections;
-		getSharedFieldValueOverrides = createSettingsSyncMod.getSharedFieldValueOverrides;
-		getSharedModelForContext = createSettingsSyncMod.getSharedModelForContext;
-		getSharedAdvancedPrompt = createSettingsSyncMod.getSharedAdvancedPrompt;
-		getSharedAspectRatio = createSettingsSyncMod.getSharedAspectRatio;
-		readSharedCreateSettings = createSettingsSyncMod.readSharedCreateSettings;
-		syncCreatePageSelectionsToSharedStorage = createSettingsSyncMod.syncCreatePageSelectionsToSharedStorage;
-		persistSharedPrompt = createSettingsSyncMod.persistSharedPrompt;
-		persistSharedAspectRatio = createSettingsSyncMod.persistSharedAspectRatio;
-		CREATE_SETTINGS_UPDATED_EVENT = createSettingsSyncMod.CREATE_SETTINGS_UPDATED_EVENT;
 
 		attachPromptFieldClear = promptFieldClearMod.attachPromptFieldClear;
 
@@ -317,19 +297,20 @@ class AppRouteCreate extends HTMLElement {
 	}
 
 	async connectedCallback() {
-		await loadDeps();
+		const depsPromise = loadDeps();
 		if (isCreatePageEmbed()) {
 			const v = getAssetVersionParam();
 			const qs = v ? `?v=${encodeURIComponent(v)}` : '';
-			const runtimeMod = await import(`../../shared/createPageRuntime.js${qs}`);
-			runtimeMod.bindCreatePageEmbedNavigation();
-			runtimeMod.bindCreatePageEmbedEscape(() => {
-				const confirm = this.querySelector('.create-route-advanced-confirm.open:not([hidden])');
-				if (confirm instanceof HTMLElement) return true;
-				const preview = this.querySelector('[data-advanced-preview-dialog].open:not([hidden])');
-				if (preview instanceof HTMLElement) return true;
-				const blog = this.querySelector('[data-blog-campaign-dialog].open:not([hidden])');
-				return blog instanceof HTMLElement;
+			void import(`../../shared/createPageRuntime.js${qs}`).then((runtimeMod) => {
+				runtimeMod.bindCreatePageEmbedNavigation();
+				runtimeMod.bindCreatePageEmbedEscape(() => {
+					const confirm = this.querySelector('.create-route-advanced-confirm.open:not([hidden])');
+					if (confirm instanceof HTMLElement) return true;
+					const preview = this.querySelector('[data-advanced-preview-dialog].open:not([hidden])');
+					if (preview instanceof HTMLElement) return true;
+					const blog = this.querySelector('[data-blog-campaign-dialog].open:not([hidden])');
+					return blog instanceof HTMLElement;
+				});
 			});
 		}
 		try {
@@ -337,11 +318,6 @@ class AppRouteCreate extends HTMLElement {
 		} catch (_) {
 			// Ignore storage errors
 		}
-		// The Blog tab is admin/founder-only and requires a /api/profile round-trip to gate.
-		// In an overlay the create form renders in a fresh iframe context (empty request-dedupe
-		// cache), so awaiting that fetch here delays first paint of the form on every open.
-		// Render the form immediately without the Blog tab and inject it later if eligible.
-		// Overlay embed omits Blog and Data Builder tabs entirely (provider form only).
 		this._showBlogTab = false;
 		if (this._blogUserIsAdmin == null) this._blogUserIsAdmin = false;
 		this._serversLoading = true;
@@ -435,35 +411,42 @@ class AppRouteCreate extends HTMLElement {
       </div>
     `;
 		this.setupEventListeners();
-		if (typeof MUTATE_QUEUE_UPDATED_EVENT === 'string' && MUTATE_QUEUE_UPDATED_EVENT) {
-			document.addEventListener(MUTATE_QUEUE_UPDATED_EVENT, this.handleMutateQueueUpdated);
-		}
-		window.addEventListener('storage', this.handleMutateQueueStorageSync);
-		window.addEventListener('pageshow', this.handlePageShowForMutateQueue);
-		// Blog tab is gated on a profile fetch; do it off the critical path and inject if eligible.
-		if (!embedOnly) void this._maybeAddBlogTabFromProfile();
-		// Paint the form synchronously: localStorage cache, else baked public-server default.
-		// Network refresh runs in the background and updates cache when /api/servers returns.
 		const serversPaintSource = this.applyServersFromCacheOrDefault();
-		const refreshData = () => {
-			this.refreshServersFromNetwork();
-			this.loadCredits();
-		};
-		if (serversPaintSource) {
-			// Form is visible from cache or baked default; refresh in the background.
-			if (typeof requestIdleCallback !== 'undefined') {
-				requestIdleCallback(refreshData, { timeout: 500 });
-			} else {
-				setTimeout(refreshData, 0);
+		this._notifyCreateEmbedReady();
+		void depsPromise.then(() => {
+			if (!this.isConnected) return;
+			if (!embedOnly) void this._maybeAddBlogTabFromProfile();
+			if (typeof MUTATE_QUEUE_UPDATED_EVENT === 'string' && MUTATE_QUEUE_UPDATED_EVENT) {
+				document.addEventListener(MUTATE_QUEUE_UPDATED_EVENT, this.handleMutateQueueUpdated);
 			}
-		} else {
-			refreshData();
-		}
-		// Attach autogrow and mention suggest to prompt textarea
+			window.addEventListener('storage', this.handleMutateQueueStorageSync);
+			window.addEventListener('pageshow', this.handlePageShowForMutateQueue);
+			const refreshData = () => {
+				this.refreshServersFromNetwork();
+				this.loadCredits();
+			};
+			if (serversPaintSource) {
+				if (typeof requestIdleCallback !== 'undefined') {
+					requestIdleCallback(refreshData, { timeout: 500 });
+				} else {
+					setTimeout(refreshData, 0);
+				}
+			} else {
+				refreshData();
+			}
+			this._attachPromptFieldEnhancements();
+		});
+	}
+
+	_attachPromptFieldEnhancements() {
 		const promptTextarea = this.querySelector('[data-advanced-prompt]');
-		if (promptTextarea) {
-			this._advancedPromptAutogrow = attachAutoGrowTextarea(promptTextarea);
-			attachPromptInlineSuggest(promptTextarea);
+		if (promptTextarea instanceof HTMLTextAreaElement) {
+			if (typeof attachAutoGrowTextarea === 'function') {
+				this._advancedPromptAutogrow = attachAutoGrowTextarea(promptTextarea);
+			}
+			if (typeof attachPromptInlineSuggest === 'function') {
+				attachPromptInlineSuggest(promptTextarea);
+			}
 			if (typeof attachPromptFieldClear === 'function') {
 				attachPromptFieldClear(promptTextarea, {
 					afterClear: () => {
@@ -477,6 +460,12 @@ class AppRouteCreate extends HTMLElement {
 				setTimeout(() => this._refreshAdvancedPromptGrow(), 60);
 			}
 		}
+		this.querySelectorAll('.prompt-editor').forEach((el) => {
+			if (typeof attachPromptInlineSuggest === 'function') attachPromptInlineSuggest(el);
+			if (el instanceof HTMLTextAreaElement && typeof attachAutoGrowTextarea === 'function') {
+				attachAutoGrowTextarea(el);
+			}
+		});
 	}
 
 	/** Markup for the admin/founder-only Blog tab, injected after the profile gate resolves. */
@@ -885,6 +874,15 @@ class AppRouteCreate extends HTMLElement {
 		}
 	}
 
+	_notifyCreateEmbedReady() {
+		if (!isCreatePageEmbed()) return;
+		if (this._createEmbedReadySent) return;
+		const loaded = this._serversLoading === false;
+		if (!loaded) return;
+		this._createEmbedReadySent = true;
+		notifySpaPageOverlayEmbedReady();
+	}
+
 	/** Show content only when loaded. Hide loading, show form or empty state. */
 	updateCreateFormVisibility() {
 		const loadingWrap = this.querySelector('[data-create-loading]');
@@ -919,6 +917,7 @@ class AppRouteCreate extends HTMLElement {
 			// createAdvanced only: add body.loaded when form is visible (deferred in pageInit) so visibility transition doesn't steal focus
 			if (document.body.classList.contains('create-page-advanced')) {
 				document.body.classList.add('loaded');
+				this._notifyCreateEmbedReady();
 				requestAnimationFrame(() => {
 					if (formWrap.contains(document.activeElement) && typeof document.activeElement.focus === 'function') {
 						document.activeElement.focus();
@@ -937,6 +936,7 @@ class AppRouteCreate extends HTMLElement {
 			// createAdvanced: body.loaded was deferred in pageInit; add when we show content (form or empty)
 			if (document.body.classList.contains('create-page-advanced')) {
 				document.body.classList.add('loaded');
+				this._notifyCreateEmbedReady();
 			}
 		}
 	}
@@ -1231,9 +1231,10 @@ class AppRouteCreate extends HTMLElement {
 		const promptInput = this.querySelector('[data-advanced-prompt]');
 		if (!(promptInput instanceof HTMLTextAreaElement)) return;
 		if (typeof this._advancedPromptAutogrow !== 'function') {
+			if (typeof attachAutoGrowTextarea !== 'function') return;
 			this._advancedPromptAutogrow = attachAutoGrowTextarea(promptInput);
 		}
-		this._advancedPromptAutogrow();
+		if (typeof this._advancedPromptAutogrow === 'function') this._advancedPromptAutogrow();
 	}
 
 	saveAdvancedOptions() {
@@ -1362,7 +1363,7 @@ class AppRouteCreate extends HTMLElement {
 		const input = this.querySelector(`#field-${promptKey}`);
 		if (!input) return;
 		input.value = this._promptFromUrl;
-		if (input.tagName === "TEXTAREA") {
+		if (input.tagName === "TEXTAREA" && typeof attachAutoGrowTextarea === 'function') {
 			const refresh = attachAutoGrowTextarea(input);
 			if (refresh) refresh();
 		}
@@ -1857,20 +1858,22 @@ class AppRouteCreate extends HTMLElement {
 
 			if (typeof window !== 'undefined' && window.location?.pathname === '/create') {
 				try {
-					const prefill = getMutateQueuePrefillForProviderFields({ [fieldKey]: field });
-					if (isImageUrlField(field)) {
-						const url = typeof prefill[fieldKey] === 'string' ? prefill[fieldKey].trim() : '';
-						fieldsForRender[fieldKey] = { ...field, default: url };
-						this.fieldValues[fieldKey] = url;
-						return;
-					}
-					if (isImageUrlArrayField(field)) {
-						const urls = Array.isArray(prefill[fieldKey])
-							? prefill[fieldKey].map((v) => String(v).trim()).filter(Boolean)
-							: [];
-						fieldsForRender[fieldKey] = { ...field, default: urls };
-						this.fieldValues[fieldKey] = urls;
-						return;
+					if (typeof getMutateQueuePrefillForProviderFields === 'function') {
+						const prefill = getMutateQueuePrefillForProviderFields({ [fieldKey]: field });
+						if (isImageUrlField(field)) {
+							const url = typeof prefill[fieldKey] === 'string' ? prefill[fieldKey].trim() : '';
+							fieldsForRender[fieldKey] = { ...field, default: url };
+							this.fieldValues[fieldKey] = url;
+							return;
+						}
+						if (isImageUrlArrayField(field)) {
+							const urls = Array.isArray(prefill[fieldKey])
+								? prefill[fieldKey].map((v) => String(v).trim()).filter(Boolean)
+								: [];
+							fieldsForRender[fieldKey] = { ...field, default: urls };
+							this.fieldValues[fieldKey] = urls;
+							return;
+						}
 					}
 				} catch {
 					// ignore storage errors
@@ -1953,7 +1956,7 @@ class AppRouteCreate extends HTMLElement {
 
 		this._renderingFields = true;
 		try {
-			renderFields(fieldsContainer, fieldsForRender, {
+			renderProviderFormFields(fieldsContainer, fieldsForRender, {
 				formContext: this.getFormFieldContext(),
 				onFieldChange: (fieldKey, value) => {
 					this.fieldValues[fieldKey] = value;
@@ -2004,7 +2007,9 @@ class AppRouteCreate extends HTMLElement {
 
 		fieldsGroup.style.display = 'flex';
 		this.applyUrlPromptToBasicFields();
-		fieldsGroup.querySelectorAll(".prompt-editor").forEach((el) => attachPromptInlineSuggest(el));
+		if (typeof attachPromptInlineSuggest === 'function') {
+			fieldsGroup.querySelectorAll(".prompt-editor").forEach((el) => attachPromptInlineSuggest(el));
+		}
 		this.syncAspectRatioFieldVisibility();
 	}
 

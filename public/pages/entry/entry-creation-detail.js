@@ -3,6 +3,8 @@
  * Imports are dynamic with cache-busting (version) so components are not served from cache.
  */
 
+import { embedWaitTags, importStandaloneAppChrome, isSpaPageEmbedFrame } from '../../shared/embedPageRuntime.js';
+
 const TAGS = [
 	'app-navigation',
 	'app-navigation-mobile',
@@ -21,19 +23,16 @@ function getImportQuery(version) {
 
 export async function init(version) {
 	const qs = getImportQuery(version);
-	await Promise.all([
-		import(`../../components/navigation/index.js${qs}`),
-		import(`../../components/navigation/mobile.js${qs}`),
-		import(`../../components/modals/profile.js${qs}`),
-		import(`../../components/modals/about.js`),
-		import(`../../components/modals/credits.js${qs}`),
-		import(`../../components/modals/notifications.js${qs}`),
+	const pageModals = [
 		import(`../../components/modals/publish.js${qs}`),
 		import(`../../components/modals/creation-details.js${qs}`),
 		import(`../../components/modals/share.js${qs}`),
 		import(`../../components/modals/tip-creator.js${qs}`),
-	]);
+	];
+	if (!isSpaPageEmbedFrame()) {
+		pageModals.push(importStandaloneAppChrome(qs));
+	}
+	await Promise.all(pageModals);
 	const { waitForComponents } = await import(`../../shared/pageInit.js${qs}`);
-	await waitForComponents(TAGS);
+	await waitForComponents(embedWaitTags(TAGS));
 }
-

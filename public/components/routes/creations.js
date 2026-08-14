@@ -1459,10 +1459,12 @@ class AppRouteCreations extends HTMLElement {
 				typeof item.media_type === 'string'
 					? item.media_type
 					: (itemMeta && typeof itemMeta.media_type === 'string' ? itemMeta.media_type : 'image');
+			card.dataset.mediaType = (mediaType || 'image').toLowerCase();
 			const isImportEmbed =
 				itemMeta?.import &&
 				typeof itemMeta.import === 'object' &&
 				typeof itemMeta.import.provider === 'string';
+			if (isImportEmbed) card.dataset.importProvider = String(itemMeta.import.provider).trim().toLowerCase();
 			const isNativeVideo = mediaType === 'video' && !isImportEmbed;
 			const mediaAttrs = {
 				'data-image-id': String(item.id),

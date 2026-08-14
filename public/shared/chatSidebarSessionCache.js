@@ -1,10 +1,26 @@
 /**
- * Session snapshot of everything needed to paint the chat sidebar roster
- * (threads + joined servers + presence + viewer profile). Used only as a
- * placeholder while a fresh network load runs after leaving and returning to chat.
+ * Persisted snapshot of the chat sidebar roster (threads + joined servers +
+ * presence + viewer profile). Paint immediately on load, then patch in place
+ * after network. localStorage so it survives reloads and new tabs.
  */
 
 export const CHAT_SIDEBAR_SESSION_ROSTER_KEY = 'prsn-chat-sidebar-roster-v1';
+
+function rosterLocalStorage() {
+	try {
+		return typeof localStorage !== 'undefined' ? localStorage : null;
+	} catch {
+		return null;
+	}
+}
+
+function rosterSessionStorage() {
+	try {
+		return typeof sessionStorage !== 'undefined' ? sessionStorage : null;
+	} catch {
+		return null;
+	}
+}
 
 /**
  * @param {{
@@ -69,7 +85,8 @@ export function deserializePresenceSnapshot(raw) {
  * }} payload
  */
 export function writeSidebarRosterSessionCache(viewerId, payload) {
-	if (typeof sessionStorage === 'undefined') return;
+	const ls = rosterLocalStorage();
+	if (!ls) return;
 	const vid = viewerId != null ? Number(viewerId) : null;
 	if (vid == null || !Number.isFinite(vid) || vid <= 0) return;
 	try {
@@ -85,7 +102,12 @@ export function writeSidebarRosterSessionCache(viewerId, payload) {
 			presence: presenceSerialized,
 			viewerProfile: payload?.viewerProfile ?? null,
 		};
-		sessionStorage.setItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY, JSON.stringify(o));
+		ls.setItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY, JSON.stringify(o));
+		try {
+			rosterSessionStorage()?.removeItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY);
+		} catch {
+			// ignore
+		}
 	} catch {
 		// quota / private mode
 	}
@@ -96,34 +118,46 @@ export function writeSidebarRosterSessionCache(viewerId, payload) {
  * @returns {{ threads: unknown[], joined: unknown[], presenceSnapshot: object, viewerProfile: unknown } | null}
  */
 export function readSidebarRosterSessionCache(currentViewerId) {
-	if (typeof sessionStorage === 'undefined') return null;
+	const ls = rosterLocalStorage();
+	const ss = rosterSessionStorage();
 	const vid = currentViewerId != null ? Number(currentViewerId) : null;
-	if (vid == null || !Number.isFinite(vid) || vid <= 0) return null;
-	try {
-		const raw = sessionStorage.getItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY);
-		if (!raw) return null;
-		const o = JSON.parse(raw);
-		const stored = o?.viewerId != null ? Number(o.viewerId) : null;
-		if (stored == null || !Number.isFinite(stored) || stored !== vid) {
-			sessionStorage.removeItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY);
-			return null;
+	const storages = [ls, ss].filter(Boolean);
+	for (const store of storages) {
+		try {
+			const raw = store.getItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY);
+			if (!raw) continue;
+			const o = JSON.parse(raw);
+			const stored = o?.viewerId != null ? Number(o.viewerId) : null;
+			if (stored == null || !Number.isFinite(stored) || stored <= 0) {
+				store.removeItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY);
+				continue;
+			}
+			if (vid != null && Number.isFinite(vid) && vid > 0 && stored !== vid) {
+				store.removeItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY);
+				continue;
+			}
+			if (!Array.isArray(o.threads) || !Array.isArray(o.joined)) continue;
+			return {
+				threads: o.threads,
+				joined: o.joined,
+				presenceSnapshot: deserializePresenceSnapshot(o.presence),
+				viewerProfile: o.viewerProfile ?? null,
+			};
+		} catch {
+			// try next store
 		}
-		if (!Array.isArray(o.threads) || !Array.isArray(o.joined)) return null;
-		return {
-			threads: o.threads,
-			joined: o.joined,
-			presenceSnapshot: deserializePresenceSnapshot(o.presence),
-			viewerProfile: o.viewerProfile ?? null,
-		};
-	} catch {
-		return null;
 	}
+	return null;
 }
 
 export function clearSidebarRosterSessionCache() {
-	if (typeof sessionStorage === 'undefined') return;
 	try {
-		sessionStorage.removeItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY);
+		rosterLocalStorage()?.removeItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY);
+	} catch {
+		// ignore
+	}
+	try {
+		rosterSessionStorage()?.removeItem(CHAT_SIDEBAR_SESSION_ROSTER_KEY);
 	} catch {
 		// ignore
 	}

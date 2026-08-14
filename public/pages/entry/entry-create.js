@@ -18,38 +18,37 @@ export async function init(version) {
 	const qs = getImportQuery(version);
 	const isEmbed = document.body.classList.contains('create-page-embed');
 	const isAdvanced = document.body.classList.contains('create-page-advanced');
-	const importPromises = [
-		import(`../../components/modals/profile.js${qs}`),
-		import(`../../components/modals/about.js${qs}`),
-		import(`../../components/modals/credits.js${qs}`),
-		import(`../../components/modals/notifications.js${qs}`),
-		import(`../../components/modals/server.js${qs}`),
-		import(`../../components/elements/tabs.js${qs}`),
-	];
-	if (!isEmbed) {
-		importPromises.push(
-			import(`../../components/navigation/index.js${qs}`),
-			import(`../../components/navigation/mobile.js${qs}`)
-		);
-	}
-	if (isAdvanced) {
-		importPromises.push(import(`../../components/routes/create.js${qs}`));
-	}
-	await Promise.all(importPromises);
 	const { waitForComponents } = await import(`../../shared/pageInit.js${qs}`);
 	const { refreshAutoGrowTextareas } = await import(`../../shared/autogrow.js${qs}`);
 	const createSettingsSyncMod = await import(`../../shared/createSettingsSync.js${qs}`);
-	const waitTags = isEmbed
-		? (isAdvanced ? ['app-route-create'] : ['app-tabs'])
-		: (isAdvanced ? TAGS_ADVANCED : TAGS_BASIC);
-	await waitForComponents(waitTags);
+
 	if (isEmbed) {
+		const embedImports = [import(`../../components/elements/tabs.js${qs}`)];
+		if (isAdvanced) embedImports.push(import(`../../components/routes/create.js${qs}`));
+		await Promise.all(embedImports);
+		await waitForComponents(isAdvanced ? ['app-route-create', 'app-tabs'] : ['app-tabs']);
 		const runtimeMod = await import(`../../shared/createPageRuntime.js${qs}`);
 		runtimeMod.bindCreatePageEmbedNavigation();
 		runtimeMod.bindCreatePageEmbedEscape(() => {
 			return Boolean(document.querySelector('[data-import-suno-modal]'));
 		});
-	} else if (!isAdvanced) {
+		runCreatePageInit(refreshAutoGrowTextareas, createSettingsSyncMod);
+		bindImportSunoEntry(qs);
+		return;
+	}
+
+	const { importStandaloneAppChrome } = await import(`../../shared/embedPageRuntime.js${qs}`);
+	const importPromises = [
+		importStandaloneAppChrome(qs),
+		import(`../../components/modals/server.js${qs}`),
+		import(`../../components/elements/tabs.js${qs}`),
+	];
+	if (isAdvanced) {
+		importPromises.push(import(`../../components/routes/create.js${qs}`));
+	}
+	await Promise.all(importPromises);
+	await waitForComponents(isAdvanced ? TAGS_ADVANCED : TAGS_BASIC);
+	if (!isAdvanced) {
 		const runtimeMod = await import(`../../shared/createPageRuntime.js${qs}`);
 		const advancedLink = document.querySelector('.create-switch-to-advanced');
 		if (advancedLink) {

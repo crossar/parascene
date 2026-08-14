@@ -113,7 +113,7 @@ export async function waitForComponents(customElementTags) {
 		});
 	});
 	document.body.classList.add('loaded');
-	if (isSpaPageEmbedFrame()) {
+	if (isSpaPageEmbedFrame() && !document.body.classList.contains('create-page-advanced')) {
 		notifySpaPageOverlayEmbedReady();
 	}
 }
@@ -126,15 +126,19 @@ export async function waitForComponents(customElementTags) {
 export async function runCommonAppInit() {
 	await loadDeps();
 	// Phase 1: Supabase Auth session for Realtime (private channels). No-op without __PRSN_SUPABASE__ / SESSION_SECRET on server.
-	try {
-		if (typeof window !== 'undefined' && window.__PRSN_SUPABASE__) {
-			const v = getAssetVersionParam();
-			const qs = getImportQuery(v);
-			const mod = await import(`./supabaseBrowser.js${qs}`);
-			await mod.ensureSupabaseSessionForApp();
+	const embedFrame = isSpaPageEmbedFrame();
+
+	if (!embedFrame) {
+		try {
+			if (typeof window !== 'undefined' && window.__PRSN_SUPABASE__) {
+				const v = getAssetVersionParam();
+				const qs = getImportQuery(v);
+				const mod = await import(`./supabaseBrowser.js${qs}`);
+				await mod.ensureSupabaseSessionForApp();
+			}
+		} catch {
+			// ignore
 		}
-	} catch {
-		// ignore
 	}
 
 	try {
@@ -146,13 +150,15 @@ export async function runCommonAppInit() {
 		// ignore
 	}
 
-	try {
-		const v = getAssetVersionParam();
-		const qs = v ? `?v=${encodeURIComponent(v)}` : '';
-		const mod = await import(`./presenceHeartbeat.js${qs}`);
-		mod.startPresenceHeartbeat();
-	} catch {
-		// ignore
+	if (!embedFrame) {
+		try {
+			const v = getAssetVersionParam();
+			const qs = v ? `?v=${encodeURIComponent(v)}` : '';
+			const mod = await import(`./presenceHeartbeat.js${qs}`);
+			mod.startPresenceHeartbeat();
+		} catch {
+			// ignore
+		}
 	}
 
 	document.addEventListener(
@@ -309,7 +315,7 @@ export async function runCommonAppInit() {
 	);
 
 	// Service worker
-	if ('serviceWorker' in navigator) {
+	if (!embedFrame && 'serviceWorker' in navigator) {
 		window.addEventListener('load', () => {
 			const v = getAssetVersionParam();
 			const swUrl = v ? `/sw.js?v=${encodeURIComponent(v)}` : '/sw.js';

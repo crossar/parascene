@@ -31,13 +31,17 @@ import {
 	isCreationDetailOverlayOpen,
 	navigateToCreationDetailFromSpa,
 	navigateToCreateFromSpa,
+	prefetchCreateOverlayAssets,
 	navigateToMutateFromSpa,
 	navigateToSpaPageFromSpa,
 	parseCreationIdFromHref,
 	parseCreationNavigationTargetId,
 	parseSpaOverlayTarget,
+	setCreationDetailSeedLookup,
+	setCreationDetailSeedViewerId,
 	shouldUseSpaPageOverlay,
 } from '../shared/spaPageOverlay.js';
+import { writeViewerComposerCache } from '../shared/creationDetailSeed.js';
 import * as _cdEmptyState from '../shared/emptyState.js';
 import * as _cdAutogrow from '../shared/autogrow.js';
 import * as _cdTriggeredSuggest from '../shared/triggeredSuggest.js';
@@ -267,27 +271,6 @@ import * as challengesChannelModule from './challengesChannel.js';
 			if (shouldSkipCreationDetailPath(pathOnly)) return;
 			const creationId = parseCreationNavigationTargetId(href);
 			if (!creationId) return;
-
-			const thumbHit = ev.target?.closest?.('.connect-comment-thumb');
-			if (thumbHit instanceof HTMLElement) {
-				const previewSrc = (commentRow.dataset.previewImageUrl || '').trim();
-				const thumbImg = commentRow.querySelector('.connect-comment-thumb-img');
-				const src =
-					previewSrc ||
-					(thumbImg instanceof HTMLImageElement
-						? String(thumbImg.currentSrc || thumbImg.src || '').trim()
-						: '');
-				if (src) {
-					ev.preventDefault();
-					ev.stopPropagation();
-					closeChatInlineImageLightbox();
-					openChatInlineImageLightboxShared(src, {
-						creationId,
-						...(thumbImg instanceof HTMLImageElement ? { sourceImg: thumbImg } : {}),
-					});
-					return;
-				}
-			}
 
 			ev.preventDefault();
 			ev.stopPropagation();
@@ -625,8 +608,6 @@ let renderFeedCardsImageOnlySkeleton;
 /** @type {((count?: number) => string) | undefined} */
 let renderGridSkeleton;
 /** @type {((count?: number) => string) | undefined} */
-let renderCommentRowsSkeleton;
-/** @type {((count?: number) => string) | undefined} */
 let renderChatThreadSkeleton;
 /** @type {(() => string) | undefined} */
 let renderChallengePaneSkeleton;
@@ -792,7 +773,6 @@ async function loadDeps() {
 	renderFeedCardsSkeleton = _cdSkeleton.renderFeedCardsSkeleton;
 	renderFeedCardsImageOnlySkeleton = _cdSkeleton.renderFeedCardsImageOnlySkeleton;
 	renderGridSkeleton = _cdSkeleton.renderGridSkeleton;
-	renderCommentRowsSkeleton = _cdSkeleton.renderCommentRowsSkeleton;
 	renderChatThreadSkeleton = _cdSkeleton.renderChatThreadSkeleton;
 	renderChallengePaneSkeleton = _cdSkeleton.renderChallengePaneSkeleton;
 	renderChallengesOrganizeBoardSkeleton = _cdSkeleton.renderChallengesOrganizeBoardSkeleton;
@@ -1382,6 +1362,37 @@ export async function initChatPage(root, options = {}) {
 	let chatViewportRetryTimeouts = [];
 	let activeReactionPicker = null;
 	let lastChatMessagesPayload = [];
+	setCreationDetailSeedLookup((creationId) => {
+		const id = Number(creationId);
+		if (!Number.isFinite(id) || id <= 0) return null;
+		const matchRow = (row) => {
+			if (!row || typeof row !== 'object') return false;
+			const cid = Number(row.created_image_id);
+			if (Number.isFinite(cid) && cid > 0) return cid === id;
+			return Number(row.id) === id;
+		};
+		try {
+			const items = pseudoColumnPager?.getItems?.();
+			if (Array.isArray(items)) {
+				const fromPager = items.find(matchRow);
+				if (fromPager) return fromPager;
+			}
+		} catch {
+			// ignore
+		}
+		if (Array.isArray(lastChatMessagesPayload)) {
+			const fromThread = lastChatMessagesPayload.find(matchRow);
+			if (fromThread) return fromThread;
+		}
+		return null;
+	});
+	setCreationDetailSeedViewerId(() => ({
+		id: chatViewerId,
+		avatarUrl: chatSidebarViewerAvatarUrlPinned,
+		displayName: chatSidebarViewerDisplayNamePinned,
+		userName: chatSidebarViewerUserNamePinned,
+		plan: chatViewerIsFounder ? 'founder' : '',
+	}));
 	let chatMessagesSyncInFlight = false;
 	let chatFeedSyncInFlight = false;
 	/** Real thread/DM: older pages loaded by scrolling up (see `loadOlderThreadMessages`). */
@@ -1500,10 +1511,18 @@ export async function initChatPage(root, options = {}) {
 	const chatSidebarDmAvatarUrlByUserId = new Map();
 	/** Pin viewer footer avatar URL for this page session. */
 	let chatSidebarViewerAvatarUrlPinned = '';
+	let chatSidebarViewerDisplayNamePinned = '';
+	let chatSidebarViewerUserNamePinned = '';
 	/** Last authored sidebar section HTML (avoid diffing against live DOM mutated by expand/collapse state). */
 	let chatSidebarLastDmHtml = '';
 	let chatSidebarLastServersHtml = '';
 	let chatSidebarLastChannelsHtml = '';
+	/** True after joined servers came from session snapshot or /api/servers (empty list is valid). */
+	let chatJoinedServersLoaded = false;
+	/** @type {Promise<void> | null} */
+	let chatSidebarRefreshInFlight = null;
+	/** @type {{ skipThreadsFetch?: boolean } | null} */
+	let chatSidebarRefreshQueued = null;
 
 	function isDmConsideredOnlineWithGrace(otherUserId, onlineIds) {
 		const oid = Number(otherUserId);
@@ -2190,6 +2209,14 @@ export async function initChatPage(root, options = {}) {
 		} else if (!pseudoLane) {
 			window.scrollTo(0, 0);
 		}
+	}
+
+	function paintChatThreadMessagesLoading(messagesEl, scrollLane = 'thread') {
+		if (!(messagesEl instanceof HTMLElement)) return;
+		const inner =
+			typeof renderChatThreadSkeleton === 'function' ? renderChatThreadSkeleton() : '';
+		messagesEl.innerHTML = `<div class="chat-thread-channel-loading" aria-busy="true" aria-label="Loading">${inner}</div>`;
+		resetAndLockChatMessagesScrollForSkeleton(messagesEl, scrollLane);
 	}
 
 	function unlockChatMessagesPaneScroll(messagesEl) {
@@ -3751,7 +3778,7 @@ export async function initChatPage(root, options = {}) {
 		const id = img?.id != null ? Number(img.id) : NaN;
 		const uid = viewerId != null ? Number(viewerId) : NaN;
 		const title =
-			typeof img?.title === 'string' && img.title.trim() ? img.title.trim() : 'Untitled';
+			typeof img?.title === 'string' && img.title.trim() ? img.title.trim() : '';
 		const summary = typeof img?.description === 'string' ? img.description : '';
 		const url = typeof img?.url === 'string' ? img.url : null;
 		const thumb = typeof img?.thumbnail_url === 'string' ? img.thumbnail_url : null;
@@ -3781,7 +3808,10 @@ export async function initChatPage(root, options = {}) {
 			published: img?.published === true || img?.published === 1,
 			published_at: img?.published_at ?? null,
 			like_count: 0,
-			comment_count: 0,
+			comment_count:
+				img?.comment_count != null && img?.comment_count !== ''
+					? Number(img.comment_count)
+					: null,
 			viewer_liked: false,
 			nsfw: !!img?.nsfw,
 			is_moderated_error: img?.is_moderated_error === true,
@@ -4457,8 +4487,14 @@ export async function initChatPage(root, options = {}) {
 			}
 			if (wasInitialized && chatGlobalUnreadTotal > prevUnread) {
 				void playChatUnreadPing();
-				// Keep sidebar rows in sync with the same unread signal used for tab/audio.
-				void refreshChatSidebar();
+				void (async () => {
+					try {
+						await loadChatThreads({ forceNetwork: true });
+					} catch {
+						// keep existing threads
+					}
+					await refreshChatSidebar({ skipThreadsFetch: true });
+				})();
 			}
 			applyChatGlobalUnreadChrome(chatGlobalUnreadTotal);
 		} catch {
@@ -5618,6 +5654,19 @@ export async function initChatPage(root, options = {}) {
 			return { fromCache: Boolean(cached), fromNetwork: false };
 		}
 
+		// Stale cache: keep the list on screen and refresh in the background.
+		if (cached && !forceNetwork) {
+			void (async () => {
+				try {
+					await loadChatThreads({ allowCache: false, forceNetwork: true });
+					void refreshChatSidebar({ skipThreadsFetch: true });
+				} catch {
+					// keep cached roster
+				}
+			})();
+			return { fromCache: true, fromNetwork: false };
+		}
+
 		const result = await fetchJsonWithStatusDeduped(
 			'/api/chat/threads',
 			{ credentials: 'include' },
@@ -5940,6 +5989,35 @@ export async function initChatPage(root, options = {}) {
 		return [...new Set(ids)];
 	}
 
+	function rememberChatViewerComposer(user) {
+		if (!user || typeof user !== 'object') return;
+		const prof = user.profile && typeof user.profile === 'object' ? user.profile : user;
+		const id = Number.isFinite(Number(user.id)) ? Number(user.id) : Number(chatViewerId);
+		const avatarUrl =
+			(typeof user.avatar_url === 'string' && user.avatar_url.trim()) ||
+			(typeof prof.avatar_url === 'string' && prof.avatar_url.trim()) ||
+			'';
+		const displayName =
+			(typeof user.display_name === 'string' && user.display_name.trim()) ||
+			(typeof prof.display_name === 'string' && prof.display_name.trim()) ||
+			'';
+		const userName =
+			(typeof user.user_name === 'string' && user.user_name.trim()) ||
+			(typeof prof.user_name === 'string' && prof.user_name.trim()) ||
+			'';
+		if (avatarUrl && !chatSidebarViewerAvatarUrlPinned) chatSidebarViewerAvatarUrlPinned = avatarUrl;
+		if (displayName) chatSidebarViewerDisplayNamePinned = displayName;
+		if (userName) chatSidebarViewerUserNamePinned = userName;
+		if (user.plan === 'founder') chatViewerIsFounder = true;
+		writeViewerComposerCache({
+			userId: Number.isFinite(id) && id > 0 ? id : chatViewerId,
+			avatarUrl: chatSidebarViewerAvatarUrlPinned || avatarUrl,
+			displayName: chatSidebarViewerDisplayNamePinned || displayName,
+			userName: chatSidebarViewerUserNamePinned || userName,
+			plan: chatViewerIsFounder || user.plan === 'founder' ? 'founder' : '',
+		});
+	}
+
 	/** For DM sidebar notes-to-self row (title + avatar when thread not created yet). */
 	async function fetchChatViewerProfileMini() {
 		try {
@@ -5964,6 +6042,7 @@ export async function initChatPage(root, options = {}) {
 				typeof prof.avatar_url === 'string' && prof.avatar_url.trim()
 					? prof.avatar_url.trim()
 					: null;
+			rememberChatViewerComposer(user);
 			return { display_name, user_name, avatar_url, id: Number.isFinite(Number(user?.id)) ? Number(user.id) : null };
 		} catch {
 			return null;
@@ -6125,6 +6204,7 @@ export async function initChatPage(root, options = {}) {
 				avatarEl.innerHTML = avatarHtml;
 			}
 			labelEl.textContent = displayName;
+			rememberChatViewerComposer(user);
 			btn.setAttribute('aria-label', `Account: ${displayName}`);
 			updateSidebarCreditsUI(user?.credits);
 			void loadSidebarNotificationsCount();
@@ -6171,6 +6251,27 @@ export async function initChatPage(root, options = {}) {
 	}
 
 	async function refreshChatSidebar(options = {}) {
+		if (chatSidebarRefreshInFlight) {
+			const queuedSkip = chatSidebarRefreshQueued?.skipThreadsFetch === true;
+			const incomingSkip = options.skipThreadsFetch === true;
+			chatSidebarRefreshQueued = {
+				skipThreadsFetch: queuedSkip && incomingSkip
+			};
+			await chatSidebarRefreshInFlight;
+			return;
+		}
+		chatSidebarRefreshInFlight = refreshChatSidebarWork(options);
+		try {
+			await chatSidebarRefreshInFlight;
+		} finally {
+			chatSidebarRefreshInFlight = null;
+			const queued = chatSidebarRefreshQueued;
+			chatSidebarRefreshQueued = null;
+			if (queued) void refreshChatSidebar(queued);
+		}
+	}
+
+	async function refreshChatSidebarWork(options = {}) {
 		const skipThreads = options.skipThreadsFetch === true;
 		const sidebar = document.querySelector('[data-chat-sidebar]');
 		if (!sidebar) return;
@@ -6181,14 +6282,27 @@ export async function initChatPage(root, options = {}) {
 			await syncChatSidebarViewerRow();
 			return;
 		}
+		if (chatViewerId == null && typeof readCachedChatThreads === 'function') {
+			try {
+				const cachedThreads = readCachedChatThreads();
+				if (cachedThreads?.viewerId != null) {
+					chatViewerId = cachedThreads.viewerId;
+					if ((!chatThreads || chatThreads.length === 0) && Array.isArray(cachedThreads.threads)) {
+						chatThreads = cachedThreads.threads;
+					}
+				}
+			} catch {
+				// ignore
+			}
+		}
 		const cachedRosterSnapshot =
-			!skipThreads && typeof readSidebarRosterSessionCache === 'function'
+			typeof readSidebarRosterSessionCache === 'function'
 				? readSidebarRosterSessionCache(chatViewerId)
 				: null;
 		const hasSidebarMarkup = [dmEl, svEl, chEl].some((el) => {
 			return el instanceof HTMLElement && String(el.innerHTML || '').trim().length > 0;
 		});
-		if (!skipThreads && !cachedRosterSnapshot && !hasSidebarMarkup) {
+		if (!cachedRosterSnapshot && !chatJoinedServersLoaded && !hasSidebarMarkup) {
 			const skeletonHtml = renderChatSidebarListSkeleton(5);
 			dmEl.innerHTML = skeletonHtml;
 			svEl.innerHTML = skeletonHtml;
@@ -6529,48 +6643,66 @@ export async function initChatPage(root, options = {}) {
 			const dmChanged = chatSidebarLastDmHtml !== dmHtml;
 			const svChanged = chatSidebarLastServersHtml !== svHtml;
 			const chChanged = chatSidebarLastChannelsHtml !== chHtml;
+			let dmReplaced = false;
+			let svReplaced = false;
+			let chReplaced = false;
 			if (dmChanged) {
-				/** @type {Map<string, HTMLElement>} */
-				const preservedDmAvatars = new Map();
-				dmEl.querySelectorAll('[data-chat-dm-key]').forEach((row) => {
-					if (!(row instanceof HTMLElement)) return;
-					const key = String(row.getAttribute('data-chat-dm-key') || '').trim();
-					if (!key) return;
-					const avatar = row.querySelector(
-						':scope > .comment-avatar, :scope > .chat-page-sidebar-channel-avatar, :scope > .chat-page-sidebar-row-link > .comment-avatar, :scope > .chat-page-sidebar-row-link > .chat-page-sidebar-channel-avatar'
-					);
-					if (avatar instanceof HTMLElement) preservedDmAvatars.set(key, avatar);
-				});
-				// Build off-DOM so image nodes in new HTML never connect unless actually needed.
-				const tpl = document.createElement('template');
-				tpl.innerHTML = dmHtml;
-				tpl.content.querySelectorAll('[data-chat-dm-key]').forEach((row) => {
-					if (!(row instanceof HTMLElement)) return;
-					const key = String(row.getAttribute('data-chat-dm-key') || '').trim();
-					if (!key) return;
-					const preserved = preservedDmAvatars.get(key);
-					if (!(preserved instanceof HTMLElement)) return;
-					const avatarHost = row.querySelector(
-						':scope > .comment-avatar, :scope > .chat-page-sidebar-channel-avatar, :scope > .chat-page-sidebar-row-link > .comment-avatar, :scope > .chat-page-sidebar-row-link > .chat-page-sidebar-channel-avatar'
-					);
-					if (avatarHost instanceof HTMLElement && avatarHost !== preserved) {
-						avatarHost.replaceWith(preserved);
-					}
-				});
-				dmEl.replaceChildren(tpl.content);
-				chatSidebarLastDmHtml = dmHtml;
+				if (rosterMod.tryPatchChatSidebarListDomInPlace(dmEl, dmHtml)) {
+					chatSidebarLastDmHtml = dmHtml;
+				} else {
+					dmReplaced = true;
+					/** @type {Map<string, HTMLElement>} */
+					const preservedDmAvatars = new Map();
+					dmEl.querySelectorAll('[data-chat-dm-key]').forEach((row) => {
+						if (!(row instanceof HTMLElement)) return;
+						const key = String(row.getAttribute('data-chat-dm-key') || '').trim();
+						if (!key) return;
+						const avatar = row.querySelector(
+							':scope > .comment-avatar, :scope > .chat-page-sidebar-channel-avatar, :scope > .chat-page-sidebar-row-link > .comment-avatar, :scope > .chat-page-sidebar-row-link > .chat-page-sidebar-channel-avatar'
+						);
+						if (avatar instanceof HTMLElement) preservedDmAvatars.set(key, avatar);
+					});
+					// Build off-DOM so image nodes in new HTML never connect unless actually needed.
+					const tpl = document.createElement('template');
+					tpl.innerHTML = dmHtml;
+					tpl.content.querySelectorAll('[data-chat-dm-key]').forEach((row) => {
+						if (!(row instanceof HTMLElement)) return;
+						const key = String(row.getAttribute('data-chat-dm-key') || '').trim();
+						if (!key) return;
+						const preserved = preservedDmAvatars.get(key);
+						if (!(preserved instanceof HTMLElement)) return;
+						const avatarHost = row.querySelector(
+							':scope > .comment-avatar, :scope > .chat-page-sidebar-channel-avatar, :scope > .chat-page-sidebar-row-link > .comment-avatar, :scope > .chat-page-sidebar-row-link > .chat-page-sidebar-channel-avatar'
+						);
+						if (avatarHost instanceof HTMLElement && avatarHost !== preserved) {
+							avatarHost.replaceWith(preserved);
+						}
+					});
+					dmEl.replaceChildren(tpl.content);
+					chatSidebarLastDmHtml = dmHtml;
+				}
 			}
 			if (svChanged) {
-				svEl.innerHTML = svHtml;
-				chatSidebarLastServersHtml = svHtml;
+				if (rosterMod.tryPatchChatSidebarListDomInPlace(svEl, svHtml)) {
+					chatSidebarLastServersHtml = svHtml;
+				} else {
+					svReplaced = true;
+					svEl.innerHTML = svHtml;
+					chatSidebarLastServersHtml = svHtml;
+				}
 			}
 			if (chChanged) {
-				chEl.innerHTML = chHtml;
-				chatSidebarLastChannelsHtml = chHtml;
+				if (rosterMod.tryPatchChatSidebarListDomInPlace(chEl, chHtml)) {
+					chatSidebarLastChannelsHtml = chHtml;
+				} else {
+					chReplaced = true;
+					chEl.innerHTML = chHtml;
+					chatSidebarLastChannelsHtml = chHtml;
+				}
 			}
-			if (dmChanged) applySectionExpandedState(dmEl, dmExpanded);
-			if (svChanged) applySectionExpandedState(svEl, svExpanded);
-			if (chChanged) applySectionExpandedState(chEl, chExpanded);
+			if (dmReplaced) applySectionExpandedState(dmEl, dmExpanded);
+			if (svReplaced) applySectionExpandedState(svEl, svExpanded);
+			if (chReplaced) applySectionExpandedState(chEl, chExpanded);
 		};
 
 		/** Keep `.chat-page-sidebar-scroll` position stable when DMs / servers / channels lists re-render. */
@@ -6584,22 +6716,37 @@ export async function initChatPage(root, options = {}) {
 			});
 		}
 
-		// While the full network roster loads, show the last session snapshot (same viewer) so
-		// leaving and returning to chat does not flash an empty sidebar. LS may have fresher
-		// threads — prefer in-memory `chatThreads` when present.
-		if (!skipThreads) {
-			const snap = cachedRosterSnapshot;
-			if (snap && typeof readSidebarRosterSessionCache === 'function') {
-				const threadsPaint =
-					Array.isArray(chatThreads) && chatThreads.length > 0 ? chatThreads : snap.threads || [];
-				const joinedPaint = Array.isArray(snap.joined) ? snap.joined : [];
-				const presPaint =
-					snap.presenceSnapshot && typeof snap.presenceSnapshot === 'object'
-						? snap.presenceSnapshot
+		// Paint immediately from session snapshot / in-memory threads+joined so skeletons
+		// do not sit until presence/profile/servers return. Classification needs joined
+		// from cache (empty array is valid); never paint joined=[] unless we know it loaded.
+		function paintLocalRosterIfPossible() {
+			const threadsPaint =
+				Array.isArray(chatThreads) && chatThreads.length > 0
+					? chatThreads
+					: Array.isArray(cachedRosterSnapshot?.threads)
+						? cachedRosterSnapshot.threads
+						: [];
+			let joinedPaint = null;
+			if (chatJoinedServersLoaded) joinedPaint = chatJoinedServers;
+			else if (Array.isArray(cachedRosterSnapshot?.joined)) joinedPaint = cachedRosterSnapshot.joined;
+			if (!Array.isArray(joinedPaint)) return false;
+			const presPaint =
+				cachedRosterSnapshot?.presenceSnapshot && typeof cachedRosterSnapshot.presenceSnapshot === 'object'
+					? cachedRosterSnapshot.presenceSnapshot
+					: lastPresenceOnlineSnapshot && typeof lastPresenceOnlineSnapshot === 'object'
+						? lastPresenceOnlineSnapshot
 						: { onlineIds: new Set(), lastSeenMsByUserId: new Map(), lastActiveMsByUserId: new Map() };
-				runRender(threadsPaint, joinedPaint, presPaint, snap.viewerProfile);
-			}
+			runRender(
+				threadsPaint,
+				joinedPaint,
+				presPaint,
+				cachedRosterSnapshot?.viewerProfile
+			);
+			chatJoinedServersLoaded = true;
+			return true;
 		}
+
+		paintLocalRosterIfPossible();
 
 		function persistSidebarRosterSnapshot(joined, presenceSnapshot, viewerProfile) {
 			if (typeof writeSidebarRosterSessionCache !== 'function') return;
@@ -6612,11 +6759,6 @@ export async function initChatPage(root, options = {}) {
 				viewerProfile
 			});
 		}
-
-		// Do not paint the sidebar before `joined` is loaded. A render with `joined=[]` leaves
-		// `joinedSlugs` empty, so every channel row is classified under “Channels” and “Servers”
-		// shows the empty copy — then the next paint moves rows and only the server strip looks
-		// broken. DMs don’t move because they never use `joinedSlugs`. One paint after awaits.
 
 		if (skipThreads) {
 			const pack = ensureSidebarRosterPrefetchStarted();
@@ -6631,6 +6773,7 @@ export async function initChatPage(root, options = {}) {
 				...(presenceOnlineSnapshot || {}),
 				lastActiveMsByUserId
 			};
+			chatJoinedServersLoaded = true;
 			runRender(chatThreads || [], joined, presenceSnapshot, viewerProfile);
 			persistSidebarRosterSnapshot(joined, presenceSnapshot, viewerProfile);
 			if (Date.now() - chatSidebarLastViewerSyncAt >= 120000) {
@@ -6641,7 +6784,6 @@ export async function initChatPage(root, options = {}) {
 		}
 
 		try {
-			resetSidebarRosterPrefetch();
 			const [_, joined, presenceOnlineSnapshot, viewerProfile] = await Promise.all([
 				loadChatThreads({ allowCache: true, forceNetwork: true }),
 				fetchJoinedServersForChat(),
@@ -6654,6 +6796,7 @@ export async function initChatPage(root, options = {}) {
 				...(presenceOnlineSnapshot || {}),
 				lastActiveMsByUserId
 			};
+			chatJoinedServersLoaded = true;
 			runRender(chatThreads || [], joined, presenceSnapshot, viewerProfile);
 			persistSidebarRosterSnapshot(joined, presenceSnapshot, viewerProfile);
 			dispatchChatUnreadRefresh();
@@ -12684,16 +12827,7 @@ export async function initChatPage(root, options = {}) {
 				retryBtn.className = 'btn-outlined chat-page-pane-load-retry';
 				retryBtn.textContent = 'Retry';
 				retryBtn.addEventListener('click', () => {
-					messagesEl.innerHTML =
-						typeof renderChatThreadSkeleton === 'function'
-							? `<div class="chat-thread-channel-loading" aria-busy="true" aria-label="Loading">${renderChatThreadSkeleton()}</div>`
-							: renderEmptyState({
-									loading: true,
-									loadingVariant: 'chat-thread',
-									loadingAriaLabel: 'Loading',
-									className: 'chat-thread-channel-loading',
-								});
-					resetAndLockChatMessagesScrollForSkeleton(messagesEl, 'thread');
+					paintChatThreadMessagesLoading(messagesEl);
 					messagesEl.setAttribute('aria-busy', 'true');
 					if (typeof cta.onRetry === 'function') cta.onRetry();
 				});
@@ -12852,9 +12986,8 @@ export async function initChatPage(root, options = {}) {
 					<div class="route-cards feed-cards" data-feed-container aria-busy="true" aria-label="Loading">${renderFeedCardsSkeleton(4)}</div>
 				</div>`;
 				resetAndLockChatMessagesScrollForSkeleton(messagesEl, 'feed');
-			} else if (channelSlugForLoading === 'comments' && typeof renderCommentRowsSkeleton === 'function') {
-				messagesEl.innerHTML = `<div class="chat-comments-channel-loading" aria-busy="true" aria-label="Loading">${renderCommentRowsSkeleton(10)}</div>`;
-				resetAndLockChatMessagesScrollForSkeleton(messagesEl, 'comments');
+			} else if (channelSlugForLoading === 'comments') {
+				paintChatThreadMessagesLoading(messagesEl, 'comments');
 			} else if (channelSlugForLoading === 'challenges' && isChallengesOrganizePath()) {
 				const organizeSkeleton =
 					typeof renderChallengesOrganizeBoardSkeleton === 'function'
@@ -12896,16 +13029,7 @@ export async function initChatPage(root, options = {}) {
 					});
 				}
 			} else {
-				messagesEl.innerHTML =
-					typeof renderChatThreadSkeleton === 'function'
-						? `<div class="chat-thread-channel-loading" aria-busy="true" aria-label="Loading">${renderChatThreadSkeleton()}</div>`
-						: renderEmptyState({
-								loading: true,
-								loadingVariant: 'chat-thread',
-								loadingAriaLabel: 'Loading',
-								className: 'chat-thread-channel-loading',
-							});
-				resetAndLockChatMessagesScrollForSkeleton(messagesEl, 'thread');
+				paintChatThreadMessagesLoading(messagesEl);
 			}
 			messagesEl.setAttribute('aria-busy', 'true');
 		}
@@ -12933,7 +13057,6 @@ export async function initChatPage(root, options = {}) {
 		try {
 			tearDownVisibilityResync();
 			tearDownRoomBroadcast();
-			resetSidebarRosterPrefetch();
 			ensureSidebarRosterPrefetchStarted();
 			await loadChatThreads();
 
@@ -16170,10 +16293,7 @@ export async function initChatPage(root, options = {}) {
 	enableLikeButtons(root);
 	const shouldStartInMobileSidebar = shouldShowMobileSidebarFromLocation();
 	setMobileSidebarMode(shouldStartInMobileSidebar);
-	if (shouldStartInMobileSidebar) {
-		// Prioritize sidebar data immediately for /chat#channels first paint.
-		void refreshChatSidebar();
-	}
+	void refreshChatSidebar();
 	await acceptInviteFromHashIfPresent();
 	await mountChatCreateComposer();
 	await openThreadForCurrentPath();
@@ -16181,7 +16301,10 @@ export async function initChatPage(root, options = {}) {
 	dispatchChatUnreadRefresh();
 	/** Presence/UI poll: keep roster status fresh without force-refetching all thread metadata. */
 	chatSidebarPollTimer = setInterval(() => void refreshChatSidebar({ skipThreadsFetch: true }), 30000);
-	chatSidebarServersHandler = () => void refreshChatSidebar();
+	chatSidebarServersHandler = () => {
+		resetSidebarRosterPrefetch();
+		void refreshChatSidebar({ skipThreadsFetch: true });
+	};
 	document.addEventListener('servers-updated', chatSidebarServersHandler);
 	chatSidebarVisibilityHandler = () => {
 		if (document.visibilityState !== 'visible') return;
@@ -16206,6 +16329,7 @@ export async function initChatPage(root, options = {}) {
 
 	setupChatSidebarClientNav();
 	await setupChatSidebarSectionAdds();
+	prefetchCreateOverlayAssets();
 
 	initCommandPalette({
 		getThreads: () => chatThreads || [],

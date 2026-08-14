@@ -48,6 +48,7 @@ export function transformFeedCreationRow(item) {
 		author_plan: item.author_plan === "founder" ? "founder" : "free",
 		tags: item.tags,
 		created_at: item.created_at,
+		published_at: item.published_at || item.created_at || null,
 		image_url: imageUrl,
 		thumbnail_url: media.thumbnail_url,
 		created_image_id: item.created_image_id || null,

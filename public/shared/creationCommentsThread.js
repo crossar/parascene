@@ -117,6 +117,7 @@ const DEFAULT_PLACEHOLDER = 'What do you like about this creation?';
  * @property {boolean} [isAdmin] Hides composer (admins read-only) and lets admin moderate.
  * @property {string} [placeholder] Composer textarea placeholder.
  * @property {boolean} [autoScrollOnHash] If true, scrolls to `#comments` on initial load + hashchange.
+ * @property {number} [initialCommentCount] Known parent/seed count. Omit when unknown so the list stays on skeleton until activity returns; 0 is a real empty state.
  * @property {(count: number) => void} [onCommentCountChange] Notified when comment count updates.
  * @property {(loading: boolean) => void} [onCommentsLoadingChange] When skeleton loading UI is shown/hidden (e.g. lock sheet scroll).
  */
@@ -188,13 +189,54 @@ export async function mountCreationCommentsThread(container, options) {
 		? opts.placeholder
 		: DEFAULT_PLACEHOLDER;
 	const autoScrollOnHash = Boolean(opts.autoScrollOnHash);
+	const hostSeedCount = Number(container instanceof HTMLElement ? container.dataset.seedCommentCount : NaN);
+	const optCount = Number(opts.initialCommentCount);
+	// Parent/seed (including 0) wins so a stale API count cannot flash a list skeleton.
+	const initialCommentCount = Number.isFinite(hostSeedCount)
+		? hostSeedCount
+		: Number.isFinite(optCount)
+			? optCount
+			: NaN;
+	const knownPositiveComments = Number.isFinite(initialCommentCount) && initialCommentCount > 0;
+	const knownZeroComments = Number.isFinite(initialCommentCount) && initialCommentCount <= 0;
+	const emptyCommentsHtml = isAdmin
+		? renderEmptyState({ className: 'comments-empty', title: 'No comments' })
+		: renderEmptyState({
+				className: 'comments-empty',
+				title: 'No comments yet',
+				message: 'Be the first to say something.',
+			});
 
 	const showComposer = !isAdmin && Number.isFinite(currentUserId) && currentUserId > 0;
+	const existingComposer = container.querySelector('[data-comment-input]:not([data-comment-input-skeleton])');
+	const existingSection = container.querySelector('[data-comments-section]');
+	const existingList = existingSection?.querySelector('[data-comment-list]');
+	const keepEmptyList = Boolean(existingSection?.querySelector('.comments-empty'));
+	const keepSkeletonList =
+		!knownZeroComments &&
+		Boolean(
+			existingList?.querySelector(
+				'.creation-comments-loading, .creation-comments-skeleton-row, .creation-detail-skeleton-comment'
+			)
+		);
+	const commentsHeading = knownZeroComments
+		? '0 Comments'
+		: knownPositiveComments
+			? initialCommentCount === 1
+				? '1 Comment'
+				: `${initialCommentCount} Comments`
+			: 'Comments';
+	const keepAdornedComposer = Boolean(
+		existingComposer instanceof HTMLElement &&
+			(existingComposer.hasAttribute('data-comment-input-adorned') ||
+				existingComposer.querySelector('[data-comment-attach], [data-comment-submit], .comment-avatar-img, .avatar-with-founder-flair') ||
+				(existingComposer.querySelector('.comment-avatar')?.textContent || '').trim())
+	);
 
 	container.innerHTML = `
 		<div class="creation-comments-thread" data-creation-comments-thread>
 			${showComposer ? `
-			<div class="comment-input" data-comment-input>
+			<div class="comment-input" data-comment-input data-comment-input-adorned>
 				<div class="comment-avatar" ${!viewerPlan ? `style="background: ${escapeHtml(viewerColor)};"` : ''}>
 					${viewerPlan
 						? `<div class="avatar-with-founder-flair avatar-with-founder-flair--sm">
@@ -222,9 +264,9 @@ export async function mountCreationCommentsThread(container, options) {
 				</div>
 			</div>
 			` : ''}
-			<div class="creation-detail-comments-section" data-comments-section style="display: none;">
-				<div class="comments-toolbar">
-					<h3 class="comments-heading"><span data-comment-count>0 Comments</span></h3>
+			<div class="creation-detail-comments-section" data-comments-section${knownZeroComments || keepEmptyList || keepSkeletonList || !Number.isFinite(initialCommentCount) ? '' : ' style="display: none;"'}>
+				<div class="comments-toolbar"${knownZeroComments ? ' style="display: none;"' : ''}>
+					<h3 class="comments-heading"><span data-comment-count>${commentsHeading}</span></h3>
 					<div class="comments-sort">
 						<label class="comments-sort-label" for="comments-sort-${creationId}">Sort by</label>
 						<select class="comments-sort-select" id="comments-sort-${creationId}" data-comments-sort>
@@ -234,10 +276,23 @@ export async function mountCreationCommentsThread(container, options) {
 					</div>
 				</div>
 				<div id="comments" data-comments-anchor></div>
-				<div class="comment-list" data-comment-list></div>
+				<div class="comment-list" data-comment-list>${knownZeroComments ? emptyCommentsHtml : ''}</div>
 			</div>
 		</div>
 	`;
+
+	if (keepAdornedComposer && existingComposer instanceof HTMLElement && showComposer) {
+		const nextComposer = container.querySelector('[data-comment-input]');
+		if (nextComposer instanceof HTMLElement && nextComposer !== existingComposer) {
+			nextComposer.replaceWith(existingComposer);
+		}
+	}
+	if ((keepEmptyList || keepSkeletonList) && existingSection instanceof HTMLElement) {
+		const nextSection = container.querySelector('[data-comments-section]');
+		if (nextSection instanceof HTMLElement && nextSection !== existingSection) {
+			nextSection.replaceWith(existingSection);
+		}
+	}
 
 	const root = container.querySelector('[data-creation-comments-thread]');
 	if (!(root instanceof HTMLElement)) {
@@ -255,8 +310,9 @@ export async function mountCreationCommentsThread(container, options) {
 	const commentsState = {
 		order: 'asc',
 		activity: [],
-		commentCount: 0,
+		commentCount: Number.isFinite(initialCommentCount) ? Math.max(0, initialCommentCount) : 0,
 	};
+	let lastRenderedActivitySig = knownZeroComments || keepEmptyList ? 'empty' : '';
 	let commentEditingId = null;
 	let commentEditDraft = '';
 	let commentEditBusy = false;
@@ -545,6 +601,13 @@ export async function mountCreationCommentsThread(container, options) {
 		}
 	}
 
+	function commentsActivitySignature(items) {
+		if (!Array.isArray(items) || items.length === 0) return 'empty';
+		return items
+			.map((it) => `${it?.type || ''}:${it?.id ?? ''}:${it?.updated_at || it?.created_at || ''}`)
+			.join('|');
+	}
+
 	function renderComments() {
 		if (!commentListEl) return;
 
@@ -554,20 +617,18 @@ export async function mountCreationCommentsThread(container, options) {
 			if (commentsToolbarEl instanceof HTMLElement) {
 				commentsToolbarEl.style.display = 'none';
 			}
-			if (isAdmin) {
-				commentListEl.innerHTML = renderEmptyState({
-					className: 'comments-empty',
-					title: 'No comments',
-				});
-			} else {
-				commentListEl.innerHTML = renderEmptyState({
-					className: 'comments-empty',
-					title: 'No comments yet',
-					message: 'Be the first to say something.',
-				});
+			if (commentListEl.querySelector('.comments-empty')) {
+				lastRenderedActivitySig = 'empty';
+				return;
 			}
+			commentListEl.innerHTML = emptyCommentsHtml;
+			lastRenderedActivitySig = 'empty';
 			return;
 		}
+
+		const nextSig = commentsActivitySignature(list);
+		if (nextSig && nextSig === lastRenderedActivitySig) return;
+		lastRenderedActivitySig = nextSig;
 
 		if (commentsToolbarEl instanceof HTMLElement) {
 			commentsToolbarEl.style.display = '';
@@ -1294,7 +1355,15 @@ export async function mountCreationCommentsThread(container, options) {
 		const commentsSection = root.querySelector('[data-comments-section]');
 		if (commentsSection instanceof HTMLElement) commentsSection.style.display = '';
 
-		if (showSkeleton) {
+		const listAlreadyEmpty = Boolean(commentListEl.querySelector('.comments-empty'));
+		const listAlreadySkeleton = Boolean(
+			commentListEl.querySelector('.creation-comments-loading, .creation-comments-skeleton-row')
+		);
+		const skipSkeleton =
+			knownZeroComments ||
+			(listAlreadyEmpty && Number.isFinite(initialCommentCount)) ||
+			listAlreadySkeleton;
+		if (showSkeleton && !skipSkeleton) {
 			setCommentsLoading(true);
 			commentListEl.innerHTML = renderCommentsLoadingSkeleton();
 		}
@@ -1306,13 +1375,15 @@ export async function mountCreationCommentsThread(container, options) {
 			if (!res.ok) {
 				if (commentsToolbarEl instanceof HTMLElement) commentsToolbarEl.style.display = 'none';
 				commentListEl.innerHTML = renderEmptyState({ className: 'comments-empty', title: 'Unable to load comments' });
+				lastRenderedActivitySig = 'error';
 				return;
 			}
 
-			if (commentsToolbarEl instanceof HTMLElement) commentsToolbarEl.style.display = '';
-
 			const items = Array.isArray(res.data?.items) ? res.data.items : [];
 			const commentCount = Number(res.data?.comment_count ?? items.length);
+			if (commentsToolbarEl instanceof HTMLElement) {
+				commentsToolbarEl.style.display = items.length > 0 ? '' : 'none';
+			}
 			commentsState.activity = items;
 			setCommentCount(commentCount);
 			addPageUsers(items.map((c) => ({

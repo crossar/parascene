@@ -18,6 +18,7 @@ const ENTRY_FROM_BODY_CLASS = {
 	'audio-clip-detail-page': 'audio-clip-detail',
 	'welcome-page': 'welcome',
 	'help-page': 'help',
+	'party-page': 'party',
 	'static-page': 'landing', // ToS, privacy: nav only
 };
 

@@ -81,6 +81,16 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			.replace(/'/g, "&#39;");
 	}
 
+	/** Overlay iframe already sits in chat/app chrome — drop header, bottom nav, and shell modals. */
+	function stripStandaloneAppChromeForEmbed(pageHtml) {
+		return String(pageHtml || "")
+			.replace(/<app-navigation\b[\s\S]*?<\/app-navigation>/gi, "")
+			.replace(
+				/<(?:app-navigation-mobile|app-modal-profile|app-modal-credits|app-modal-notifications|app-modal-server|app-modal-about)\b[^>]*>\s*<\/(?:app-navigation-mobile|app-modal-profile|app-modal-credits|app-modal-notifications|app-modal-server|app-modal-about)>/gi,
+				""
+			);
+	}
+
 	const shareGroupNavButtonsHtml = `
 					<button type="button" class="share-hero-nav share-hero-nav-prev" data-share-group-prev hidden aria-label="Previous image">
 						<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14.5 6.5L9 12l5.5 5.5" /></svg>
@@ -904,6 +914,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			if (embedOverlay) {
 				pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
 				pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+				pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
 				pageHtml = pageHtml.replace(
 					'<html lang="en">',
 					'<html lang="en" class="profile-page-embed-doc">'
@@ -966,6 +977,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 		if (embedOverlay) {
 			pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
 			pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+			pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
 			pageHtml = pageHtml.replace(
 				'<html lang="en">',
 				'<html lang="en" class="style-detail-embed-doc">'
@@ -1058,6 +1070,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			if (embedOverlay) {
 				pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
 				pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+				pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
 				pageHtml = pageHtml.replace(
 					'<html lang="en">',
 					'<html lang="en" class="create-page-embed-doc">'
@@ -1119,6 +1132,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			if (embedOverlay) {
 				pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
 				pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+				pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
 				pageHtml = pageHtml.replace(
 					'<html lang="en">',
 					'<html lang="en" class="prompt-library-embed-doc">'
@@ -1175,6 +1189,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 		if (embedOverlay) {
 			pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
 			pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+			pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
 			pageHtml = pageHtml.replace(
 				'<html lang="en">',
 				'<html lang="en" class="audio-clip-detail-embed-doc">'
@@ -1294,6 +1309,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			if (embedOverlay) {
 				pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
 				pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+				pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
 				pageHtml = pageHtml.replace(
 					'<html lang="en">',
 					'<html lang="en" class="creation-edit-embed-doc">'
@@ -1452,6 +1468,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 			if (embedOverlay) {
 				pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
 				pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+				pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
 				pageHtml = pageHtml.replace(
 					'<html lang="en">',
 					'<html lang="en" class="creation-detail-embed-doc">'
@@ -1587,6 +1604,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 		if (embedOverlay) {
 			pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
 			pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+			pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
 			pageHtml = pageHtml.replace(
 				'<html lang="en">',
 				'<html lang="en" class="integrations-embed-doc">'

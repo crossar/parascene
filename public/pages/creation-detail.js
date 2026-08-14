@@ -271,73 +271,112 @@ async function loadDeps() {
 	const v = getAssetVersionParam();
 	const qs = getImportQuery(v);
 	_depsPromise = (async () => {
-		const datetimeMod = await import(`/shared/datetime.js${qs}`);
+		const [
+			datetimeMod,
+			likesMod,
+			apiMod,
+			avatarMod,
+			commentsMod,
+			replyUiMod,
+			userTextMod,
+			lightboxMod,
+			safeMediaPlayMod,
+			autogrowMod,
+			suggestMod,
+			textCompareMod,
+			profileLinksMod,
+			nsfwMod,
+			mutateQueueMod,
+			toastMod,
+			iconsMod,
+			replyPreviewMod,
+			emptyStateMod,
+			skeletonMod,
+			creationCardMod,
+			challengeMetaMod,
+			organizerRefMod,
+			routeCardGroupMod,
+			commentItemMod,
+			createSubmitMod,
+			aspectRatioMod,
+		] = await Promise.all([
+			import(`/shared/datetime.js${qs}`),
+			import(`/shared/likes.js${qs}`),
+			import(`/shared/api.js${qs}`),
+			import(`/shared/avatar.js${qs}`),
+			import(`/shared/comments.js${qs}`),
+			import(`/shared/replyIndicatorUi.js${qs}`),
+			import(`/shared/userText.js${qs}`),
+			import(`/shared/chatInlineImageLightbox.js${qs}`),
+			import(`/shared/safeMediaPlay.js${qs}`),
+			import(`/shared/autogrow.js${qs}`),
+			import(`/shared/triggeredSuggest.js${qs}`),
+			import(`/shared/textCompare.js${qs}`),
+			import(`/shared/profileLinks.js${qs}`),
+			import(`/shared/nsfwView.js${qs}`),
+			import(`/shared/mutateQueue.js${qs}`),
+			import(`/shared/toast.js${qs}`),
+			import(`../icons/svg-strings.js${qs}`),
+			import(`/shared/plainTextReplyPreview.js${qs}`),
+			import(`/shared/emptyState.js${qs}`),
+			import(`/shared/skeleton.js${qs}`),
+			import(`/shared/creationCard.js${qs}`),
+			import(`/shared/challengeSubmitMeta.js${qs}`),
+			import(`/shared/challengeOrganizerRefMeta.js${qs}`),
+			import(`/shared/routeCardGroupMedia.js${qs}`),
+			import(`/shared/commentItem.js${qs}`),
+			import(`/shared/createSubmit.js${qs}`),
+			import(`/shared/aspectRatio.js${qs}`),
+		]);
+
 		formatDateTime = datetimeMod.formatDateTime;
 		formatRelativeTime = datetimeMod.formatRelativeTime;
 
-		const likesMod = await import(`/shared/likes.js${qs}`);
 		enableLikeButtons = likesMod.enableLikeButtons;
 		getCreationLikeCount = likesMod.getCreationLikeCount;
 		initLikeButton = likesMod.initLikeButton;
 
-		const apiMod = await import(`/shared/api.js${qs}`);
 		fetchJsonWithStatusDeduped = apiMod.fetchJsonWithStatusDeduped;
 		invalidateAppCaches = apiMod.invalidateAppCaches;
 
-		const avatarMod = await import(`/shared/avatar.js${qs}`);
 		getAvatarColor = avatarMod.getAvatarColor;
 
-		const commentsMod = await import(`/shared/comments.js${qs}`);
 		fetchCreatedImageActivity = commentsMod.fetchCreatedImageActivity;
 		postCreatedImageComment = commentsMod.postCreatedImageComment;
 		toggleCommentReaction = commentsMod.toggleCommentReaction;
 		deleteCreatedImageComment = commentsMod.deleteCreatedImageComment;
 		updateCreatedImageComment = commentsMod.updateCreatedImageComment;
 
-		const replyUiMod = await import(`/shared/replyIndicatorUi.js${qs}`);
 		createReplyIndicatorElement = replyUiMod.createReplyIndicatorElement;
 
-		const userTextMod = await import(`/shared/userText.js${qs}`);
 		processUserText = userTextMod.processUserText;
 		hydrateUserTextLinks = userTextMod.hydrateUserTextLinks;
 		hydrateRichUserTextEmbeds = userTextMod.hydrateRichUserTextEmbeds;
 
-		creationDetailInlineLightboxMod = await import(`/shared/chatInlineImageLightbox.js${qs}`);
+		creationDetailInlineLightboxMod = lightboxMod;
 
-		const safeMediaPlayMod = await import(`/shared/safeMediaPlay.js${qs}`);
 		safeMediaPlay = safeMediaPlayMod.safeMediaPlay;
 
-		const autogrowMod = await import(`/shared/autogrow.js${qs}`);
 		attachAutoGrowTextarea = autogrowMod.attachAutoGrowTextarea;
 
-		const suggestMod = await import(`/shared/triggeredSuggest.js${qs}`);
 		attachMentionSuggest = suggestMod.attachMentionSuggest;
 		isTriggeredSuggestPopupOpen = suggestMod.isTriggeredSuggestPopupOpen;
 		addPageUsers = suggestMod.addPageUsers;
 		clearPageUsers = suggestMod.clearPageUsers;
 
-		const textCompareMod = await import(`/shared/textCompare.js${qs}`);
 		textsSameWithinTolerance = textCompareMod.textsSameWithinTolerance;
 
-		const profileLinksMod = await import(`/shared/profileLinks.js${qs}`);
 		buildProfilePath = profileLinksMod.buildProfilePath;
 
-		const nsfwMod = await import(`/shared/nsfwView.js${qs}`);
 		getNsfwObscure = nsfwMod.getNsfwObscure;
 		NSFW_VIEW_BODY_CLASS = nsfwMod.NSFW_VIEW_BODY_CLASS;
 
-		const mutateQueueMod = await import(`/shared/mutateQueue.js${qs}`);
 		addToMutateQueue = mutateQueueMod.addToMutateQueue;
 		loadMutateQueue = mutateQueueMod.loadMutateQueue;
 		removeFromMutateQueueByImageUrl = mutateQueueMod.removeFromMutateQueueByImageUrl;
 
-		const queueFromFrameMod = await import(`/shared/queueFromFrameModal.js${qs}`);
-		openQueueFromFrameModal = queueFromFrameMod.openQueueFromFrameModal;
-
-		const toastMod = await import(`/shared/toast.js${qs}`);
 		showToast = toastMod.showToast;
 
-		const iconsMod = await import(`../icons/svg-strings.js${qs}`);
 		creditIcon = iconsMod.creditIcon;
 		eyeHiddenIcon = iconsMod.eyeHiddenIcon;
 		shareIcon = iconsMod.shareIcon;
@@ -352,61 +391,108 @@ async function loadDeps() {
 		smileIcon = iconsMod.smileIcon;
 		replyTurnIcon = iconsMod.replyTurnIcon;
 
-		const replyPreviewMod = await import(`/shared/plainTextReplyPreview.js${qs}`);
 		plainTextReplyPreview = replyPreviewMod.plainTextReplyPreview;
 
-		const emptyStateMod = await import(`/shared/emptyState.js${qs}`);
 		renderEmptyState = emptyStateMod.renderEmptyState;
 		renderEmptyLoading = emptyStateMod.renderEmptyLoading;
 		renderEmptyError = emptyStateMod.renderEmptyError;
 
-		const skeletonMod = await import(`/shared/skeleton.js${qs}`);
 		skeletonLine = skeletonMod.skeletonLine;
 		skeletonCircle = skeletonMod.skeletonCircle;
 		skeletonPill = skeletonMod.skeletonPill;
 
-		const creationCardMod = await import(`/shared/creationCard.js${qs}`);
 		buildCreationCardShell = creationCardMod.buildCreationCardShell;
 
-		const challengeMetaMod = await import(`/shared/challengeSubmitMeta.js${qs}`);
 		creationMetaHasActiveChallengeFeedPin = challengeMetaMod.creationMetaHasActiveChallengeFeedPin;
 		creationMetaHasChallengeAnnotation = challengeMetaMod.creationMetaHasChallengeAnnotation;
 
-		const organizerRefMod = await import(`/shared/challengeOrganizerRefMeta.js${qs}`);
 		creationMetaHasChallengeOrganizerRef = organizerRefMod.creationMetaHasChallengeOrganizerRef;
 		creationMetaHasChallengeResultsOrganizerRef = organizerRefMod.creationMetaHasChallengeResultsOrganizerRef;
 		challengeOrganizerRefRoleLabel = organizerRefMod.challengeOrganizerRefRoleLabel;
 		listChallengeOrganizerRefsFromMeta = organizerRefMod.listChallengeOrganizerRefsFromMeta;
 
-		const routeCardGroupMod = await import(`/shared/routeCardGroupMedia.js${qs}`);
 		hydrateRouteCardMedia = routeCardGroupMod.hydrateRouteCardMedia;
 		routeCardGroupBadgeHtml = routeCardGroupMod.routeCardGroupBadgeHtml;
 
-		const commentItemMod = await import(`/shared/commentItem.js${qs}`);
 		renderCommentAvatarHtml = commentItemMod.renderCommentAvatarHtml;
 
-		const createSubmitMod = await import(`/shared/createSubmit.js${qs}`);
 		uploadImageFile = createSubmitMod.uploadImageFile;
 
-		const aspectRatioMod = await import(`/shared/aspectRatio.js${qs}`);
 		applyHeroAspectLayoutToElement = aspectRatioMod.applyHeroAspectLayoutToElement;
 		getLandscapeOutpaintEligibility = aspectRatioMod.getLandscapeOutpaintEligibility;
 		canSetVideoPosterFromFirstFrame = aspectRatioMod.canSetVideoPosterFromFirstFrame;
 		videoHeroDimensionsFromCreation = aspectRatioMod.videoHeroDimensionsFromCreation;
-
-		const queueFrameMod = await import(`/shared/queueFromFrameModal.js${qs}`);
-		captureVideoFirstFrameFile = queueFrameMod.captureVideoFirstFrameFile;
-
-		const shareAudioMod = await import(`/shared/shareAudioModal.js${qs}`);
-		openShareAudioModal = shareAudioMod.openShareAudioModal;
-
-		const adjustImageMod = await import(`/shared/adjustImageModal.js${qs}`);
-		openAdjustImageModal = adjustImageMod.openAdjustImageModal;
 	})();
 	return _depsPromise;
 }
 
+let _ownerToolDepsPromise;
+async function ensureOwnerToolDeps() {
+	await loadDeps();
+	if (
+		typeof openQueueFromFrameModal === 'function' &&
+		typeof captureVideoFirstFrameFile === 'function' &&
+		typeof openShareAudioModal === 'function' &&
+		typeof openAdjustImageModal === 'function'
+	) {
+		return;
+	}
+	if (_ownerToolDepsPromise) return _ownerToolDepsPromise;
+	const v = getAssetVersionParam();
+	const qs = getImportQuery(v);
+	_ownerToolDepsPromise = (async () => {
+		const [queueFromFrameMod, shareAudioMod, adjustImageMod] = await Promise.all([
+			import(`/shared/queueFromFrameModal.js${qs}`),
+			import(`/shared/shareAudioModal.js${qs}`),
+			import(`/shared/adjustImageModal.js${qs}`),
+		]);
+		openQueueFromFrameModal = queueFromFrameMod.openQueueFromFrameModal;
+		captureVideoFirstFrameFile = queueFromFrameMod.captureVideoFirstFrameFile;
+		openShareAudioModal = shareAudioMod.openShareAudioModal;
+		openAdjustImageModal = adjustImageMod.openAdjustImageModal;
+	})();
+	return _ownerToolDepsPromise;
+}
+
 const html = String.raw;
+
+const CREATION_COMMENTS_LIST_SKELETON_HTML = `<div class="creation-comments-loading" role="status" aria-live="polite" aria-busy="true">
+	<div class="creation-comments-skeleton-row">
+		<div class="skeleton skeleton-circle" style="width:32px;height:32px;border-radius:50%"></div>
+		<div class="creation-comments-skeleton-body">
+			<div class="skeleton skeleton-line skeleton-line--short"></div>
+			<div class="skeleton skeleton-line skeleton-line--medium"></div>
+			<div class="skeleton skeleton-line" style="max-width:72%"></div>
+		</div>
+	</div>
+	<div class="creation-comments-skeleton-row">
+		<div class="skeleton skeleton-circle" style="width:32px;height:32px;border-radius:50%"></div>
+		<div class="creation-comments-skeleton-body">
+			<div class="skeleton skeleton-line skeleton-line--medium"></div>
+			<div class="skeleton skeleton-line skeleton-line--short"></div>
+			<div class="skeleton skeleton-line" style="max-width:58%"></div>
+		</div>
+	</div>
+	<div class="creation-comments-skeleton-row">
+		<div class="skeleton skeleton-circle" style="width:32px;height:32px;border-radius:50%"></div>
+		<div class="creation-comments-skeleton-body">
+			<div class="skeleton skeleton-line skeleton-line--short"></div>
+			<div class="skeleton skeleton-line"></div>
+			<div class="skeleton skeleton-line skeleton-line--medium"></div>
+		</div>
+	</div>
+</div>`;
+
+const CREATION_COMMENTS_TOOLBAR_HTML = `<div class="comments-toolbar">
+	<h3 class="comments-heading"><span data-comment-count>Comments</span></h3>
+	<div class="comments-sort">
+		<label class="comments-sort-label" for="comments-sort-pending">Sort by</label>
+		<select class="comments-sort-select" id="comments-sort-pending" data-comments-sort disabled>
+			<option value="asc">Oldest</option>
+			<option value="desc">Most recent</option>
+		</select>
+	</div>
+</div>`;
 
 /** Static skeleton for detail content — safe before loadDeps() and for SSR first paint. */
 const CREATION_DETAIL_CONTENT_SKELETON_HTML = `<div class="creation-detail-skeleton" aria-label="Loading" aria-busy="true">
@@ -431,31 +517,339 @@ const CREATION_DETAIL_CONTENT_SKELETON_HTML = `<div class="creation-detail-skele
 		<span class="skeleton skeleton-line" style="display: block; margin-bottom: 12px; width: 95%;"></span>
 		<span class="skeleton skeleton-line skeleton-line--medium" style="display: block; margin-bottom: 12px;"></span>
 	</div>
-	<div class="comment-input">
+	<div data-creation-comments-host>
+	<div class="comment-input" data-comment-input-skeleton>
 		<div class="comment-avatar"><span class="skeleton skeleton-circle" style="width: 32px; height: 32px;" aria-hidden="true"></span></div>
 		<div class="comment-input-body">
 			<span class="skeleton skeleton-line" style="display: block; height: 40px; border-radius: 8px;"></span>
 		</div>
 	</div>
-	<div class="comments-toolbar">
-		<div class="skeleton skeleton-line" style="width: 120px;"></div>
-		<div class="skeleton skeleton-line" style="width: 100px; margin-left: auto;"></div>
+	<div class="creation-detail-comments-section" data-comments-section>
+	${CREATION_COMMENTS_TOOLBAR_HTML}
+	<div class="comment-list" data-comment-list>${CREATION_COMMENTS_LIST_SKELETON_HTML}</div>
 	</div>
-	<div class="comment-list">
-		<div class="creation-detail-skeleton-comment"><span class="skeleton skeleton-circle" style="width: 32px; height: 32px;" aria-hidden="true"></span><div><span class="skeleton skeleton-line skeleton-line--short" style="display: block; margin-bottom: 4px;"></span><span class="skeleton skeleton-line skeleton-line--medium" style="display: block;"></span></div></div>
-		<div class="creation-detail-skeleton-comment"><span class="skeleton skeleton-circle" style="width: 32px; height: 32px;" aria-hidden="true"></span><div><span class="skeleton skeleton-line skeleton-line--medium" style="display: block; margin-bottom: 4px;"></span><span class="skeleton skeleton-line skeleton-line--short" style="display: block;"></span></div></div>
 	</div>
 </div>`;
 
+const CREATION_DETAIL_COMMENTS_SKELETON_HTML = `<div class="creation-detail-skeleton creation-detail-skeleton--pending" data-creation-detail-pending-skeleton aria-label="Loading comments" aria-busy="true">
+	<div data-creation-comments-host>
+	<div class="comment-input" data-comment-input-skeleton>
+		<div class="comment-avatar"><span class="skeleton skeleton-circle" style="width: 32px; height: 32px;" aria-hidden="true"></span></div>
+		<div class="comment-input-body">
+			<span class="skeleton skeleton-line" style="display: block; height: 40px; border-radius: 8px;"></span>
+		</div>
+	</div>
+	<div class="creation-detail-comments-section" data-comments-section>
+	${CREATION_COMMENTS_TOOLBAR_HTML}
+	<div class="comment-list" data-comment-list>${CREATION_COMMENTS_LIST_SKELETON_HTML}</div>
+	</div>
+	</div>
+</div>`;
+
+function notifyCreationDetailEmbedReady() {
+	if (!isCreationDetailEmbed()) return;
+	const qs = getImportQuery(getAssetVersionParam());
+	void import(`/shared/embedPageRuntime.js${qs}`).then((mod) => {
+		mod.notifySpaPageOverlayEmbedReady();
+	});
+}
+
+function creationDetailStripChildKey(el) {
+	if (!(el instanceof Element)) return '';
+	if (el.classList.contains('creation-detail-action-strip-avatar')) return 'avatar';
+	if (el.classList.contains('creation-detail-action-strip-creator-info')) return 'creator';
+	if (el.hasAttribute('data-follow-button')) return 'follow';
+	if (el.hasAttribute('data-like-button')) return 'like';
+	if (el.hasAttribute('data-publish-btn')) return 'publish';
+	if (el.hasAttribute('data-mutate-btn')) return 'mutate';
+	if (el.hasAttribute('data-share-btn')) return 'share';
+	if (el.hasAttribute('data-edit-btn')) return 'edit';
+	if (el.hasAttribute('data-unpublish-btn')) return 'unpublish';
+	if (el.hasAttribute('data-retry-btn')) return 'retry';
+	if (el.hasAttribute('data-more-info-btn')) return 'more-info';
+	if (el.hasAttribute('data-tip-creator-button')) return 'tip';
+	if (el.hasAttribute('data-delete-btn')) {
+		return el.hasAttribute('data-permanent-delete') ? 'perm-delete' : 'delete';
+	}
+	if (el.hasAttribute('data-creation-more-btn')) return 'more';
+	if (el.classList.contains('creation-detail-action-strip-scroll-spacer')) return 'spacer';
+	return '';
+}
+
+function patchCreationDetailStripChild(sticky, next) {
+	if (!(sticky instanceof HTMLElement) || !(next instanceof HTMLElement)) return sticky;
+	if (sticky.tagName !== next.tagName) {
+		sticky.replaceWith(next);
+		return next;
+	}
+	const key = creationDetailStripChildKey(sticky);
+	if (key === 'creator') {
+		const name = next.querySelector('.creation-detail-action-strip-creator-name');
+		const followers = next.querySelector('.creation-detail-action-strip-creator-followers');
+		const stickyName = sticky.querySelector('.creation-detail-action-strip-creator-name');
+		const stickyFollowers = sticky.querySelector('.creation-detail-action-strip-creator-followers');
+		if (stickyName instanceof HTMLElement && name instanceof HTMLElement && stickyName.textContent !== name.textContent) {
+			stickyName.textContent = name.textContent;
+		}
+		if (
+			stickyFollowers instanceof HTMLElement &&
+			followers instanceof HTMLElement &&
+			stickyFollowers.textContent !== followers.textContent
+		) {
+			stickyFollowers.textContent = followers.textContent;
+		}
+		return sticky;
+	}
+	if (key === 'like') {
+		sticky.classList.toggle('is-liked', next.classList.contains('is-liked'));
+		const pressed = next.getAttribute('aria-pressed');
+		if (pressed != null) sticky.setAttribute('aria-pressed', pressed);
+		const count = next.querySelector('[data-like-count]');
+		const stickyCount = sticky.querySelector('[data-like-count]');
+		if (count && stickyCount && stickyCount.textContent !== count.textContent) {
+			stickyCount.textContent = count.textContent;
+		}
+		return sticky;
+	}
+	if (key === 'avatar') {
+		if (sticky instanceof HTMLAnchorElement && next instanceof HTMLAnchorElement) {
+			const href = next.getAttribute('href');
+			if (href && sticky.getAttribute('href') !== href) sticky.setAttribute('href', href);
+			const label = next.getAttribute('aria-label');
+			if (label) sticky.setAttribute('aria-label', label);
+		}
+		const nextImg = next.querySelector('img');
+		const stickyImg = sticky.querySelector('img');
+		if (nextImg instanceof HTMLImageElement && stickyImg instanceof HTMLImageElement) {
+			const src = nextImg.getAttribute('src');
+			if (src && stickyImg.getAttribute('src') !== src) stickyImg.setAttribute('src', src);
+		} else if (nextImg instanceof HTMLImageElement && !stickyImg) {
+			sticky.replaceChildren(...next.childNodes);
+		}
+		return sticky;
+	}
+	if (sticky instanceof HTMLButtonElement && next instanceof HTMLButtonElement) {
+		sticky.disabled = next.disabled;
+		for (const attr of ['data-image-export-eligible', 'data-permanent-delete', 'data-follow-user-id']) {
+			if (next.hasAttribute(attr)) sticky.setAttribute(attr, next.getAttribute(attr) || '');
+			else sticky.removeAttribute(attr);
+		}
+	}
+	return sticky;
+}
+
+function patchCreationDetailActionStrip(stickyStrip, nextStrip) {
+	if (!(stickyStrip instanceof HTMLElement) || !(nextStrip instanceof HTMLElement)) return;
+	stickyStrip.className = nextStrip.className;
+	const stickyScroll = stickyStrip.querySelector('.creation-detail-action-strip-scroll') || stickyStrip;
+	const nextScroll = nextStrip.querySelector('.creation-detail-action-strip-scroll') || nextStrip;
+	const nextKids = Array.from(nextScroll.children);
+	const stickyByKey = new Map();
+	for (const el of Array.from(stickyScroll.children)) {
+		const k = creationDetailStripChildKey(el);
+		if (k && !stickyByKey.has(k)) stickyByKey.set(k, el);
+	}
+	let cursor = stickyScroll.firstChild;
+	for (const nextEl of nextKids) {
+		const k = creationDetailStripChildKey(nextEl);
+		const existing = k ? stickyByKey.get(k) : null;
+		if (existing) {
+			const kept = patchCreationDetailStripChild(existing, nextEl);
+			if (kept !== cursor) stickyScroll.insertBefore(kept, cursor);
+			cursor = kept.nextSibling;
+			stickyByKey.delete(k);
+		} else {
+			stickyScroll.insertBefore(nextEl, cursor);
+			cursor = nextEl.nextSibling;
+		}
+	}
+	for (const leftover of stickyByKey.values()) leftover.remove();
+}
+
+function patchCreationDetailGroupSlot(stickySlot, nextSlot) {
+	if (!(stickySlot instanceof HTMLElement) || !(nextSlot instanceof HTMLElement)) return;
+	const stickyWrap = stickySlot.querySelector('.creation-detail-group-thumb-wrap');
+	const nextWrap = nextSlot.querySelector('.creation-detail-group-thumb-wrap');
+	if (stickyWrap instanceof HTMLElement && nextWrap instanceof HTMLElement) {
+		if (stickyWrap.className !== nextWrap.className) stickyWrap.className = nextWrap.className;
+	}
+	const stickyBtn = stickySlot.querySelector('.creation-detail-group-item');
+	const nextBtn = nextSlot.querySelector('.creation-detail-group-item');
+	if (!(stickyBtn instanceof HTMLElement) || !(nextBtn instanceof HTMLElement) || stickyBtn.tagName !== nextBtn.tagName) {
+		stickySlot.replaceWith(nextSlot);
+		return;
+	}
+	if (stickyBtn.className !== nextBtn.className) stickyBtn.className = nextBtn.className;
+	const thumbId = nextBtn.getAttribute('data-group-source-thumb');
+	if (thumbId) stickyBtn.setAttribute('data-group-source-thumb', thumbId);
+	const aria = nextBtn.getAttribute('aria-label');
+	if (aria) stickyBtn.setAttribute('aria-label', aria);
+	const stickyImg = stickyBtn.querySelector('img');
+	const nextImg = nextBtn.querySelector('img');
+	if (nextImg instanceof HTMLImageElement && stickyImg instanceof HTMLImageElement) {
+		const nextAlt = nextImg.getAttribute('alt') || '';
+		if (nextAlt && stickyImg.getAttribute('alt') !== nextAlt) stickyImg.setAttribute('alt', nextAlt);
+	} else if (nextImg instanceof HTMLImageElement && !stickyImg) {
+		stickyBtn.replaceChildren(nextImg);
+	}
+	const host = stickyWrap instanceof HTMLElement ? stickyWrap : stickySlot;
+	const stickyMove = host.querySelector('[data-group-move-left]');
+	const nextMove = nextSlot.querySelector('[data-group-move-left]');
+	if (nextMove instanceof HTMLElement && !stickyMove) {
+		host.appendChild(nextMove);
+	} else if (!nextMove && stickyMove instanceof HTMLElement) {
+		stickyMove.remove();
+	} else if (nextMove instanceof HTMLElement && stickyMove instanceof HTMLElement) {
+		const moveId = nextMove.getAttribute('data-group-move-left');
+		if (moveId) stickyMove.setAttribute('data-group-move-left', moveId);
+	}
+}
+
+function patchCreationDetailGroupSection(sticky, next) {
+	if (!(sticky instanceof HTMLElement) || !(next instanceof HTMLElement)) return;
+	const stickySub = sticky.querySelector('.creation-detail-group-subtitle');
+	const nextSub = next.querySelector('.creation-detail-group-subtitle');
+	if (stickySub instanceof HTMLElement && nextSub instanceof HTMLElement) {
+		if (stickySub.textContent !== nextSub.textContent) stickySub.textContent = nextSub.textContent;
+	}
+	const stickyGrid = sticky.querySelector('.creation-detail-group-grid');
+	const nextGrid = next.querySelector('.creation-detail-group-grid');
+	if (stickyGrid instanceof HTMLElement && nextGrid instanceof HTMLElement) {
+		const stickySlots = Array.from(stickyGrid.children);
+		const nextSlots = Array.from(nextGrid.children);
+		const limit = Math.max(stickySlots.length, nextSlots.length);
+		for (let i = 0; i < limit; i += 1) {
+			const stickySlot = stickySlots[i];
+			const nextSlot = nextSlots[i];
+			if (stickySlot instanceof HTMLElement && nextSlot instanceof HTMLElement) {
+				patchCreationDetailGroupSlot(stickySlot, nextSlot);
+			} else if (nextSlot instanceof HTMLElement && !stickySlot) {
+				stickyGrid.appendChild(nextSlot);
+			} else if (stickySlot instanceof HTMLElement && !nextSlot) {
+				stickySlot.remove();
+			}
+		}
+	}
+	const stickyActions = sticky.querySelector('.creation-detail-group-actions');
+	const nextActions = next.querySelector('.creation-detail-group-actions');
+	if (nextActions instanceof HTMLElement && !stickyActions) {
+		sticky.appendChild(nextActions);
+	} else if (!nextActions && stickyActions instanceof HTMLElement) {
+		stickyActions.remove();
+	} else if (nextActions instanceof HTMLElement && stickyActions instanceof HTMLElement) {
+		const stickyUngroup = stickyActions.querySelector('[data-ungroup-btn]');
+		const nextUngroup = nextActions.querySelector('[data-ungroup-btn]');
+		if (nextUngroup instanceof HTMLElement && !stickyUngroup) {
+			stickyActions.appendChild(nextUngroup);
+		} else if (!nextUngroup && stickyUngroup instanceof HTMLElement) {
+			stickyUngroup.remove();
+		}
+	}
+}
+
+function commitCreationDetailContentHtml(detailContent, nextHtml) {
+	if (!(detailContent instanceof HTMLElement)) return;
+	const stickyRow = detailContent.querySelector('.creation-detail-title-row');
+	const stickyTitle = stickyRow?.querySelector('.creation-detail-title');
+	const stickyText = stickyTitle?.textContent?.trim() || '';
+	const stickyByline = detailContent.querySelector('.creation-detail-title-byline');
+	const stickyComments = detailContent.querySelector('[data-creation-comments-host]');
+	const stickyGroup = detailContent.querySelector('[data-group-creation-section]');
+	const stickyStrip = detailContent.querySelector('.creation-detail-action-strip');
+	const stickyMore = detailContent.querySelector('.creation-detail-more-menu');
+	const stripIsSkeleton = Boolean(stickyStrip?.closest('.creation-detail-skeleton'));
+	const keepTitle = stickyRow instanceof HTMLElement && Boolean(stickyText);
+	const keepByline = stickyByline instanceof HTMLElement;
+	const keepComments = stickyComments instanceof HTMLElement;
+	const keepGroup = stickyGroup instanceof HTMLElement;
+	const keepStrip = stickyStrip instanceof HTMLElement && !stripIsSkeleton;
+	const keepMore = stickyMore instanceof HTMLElement && !stickyMore.closest('.creation-detail-skeleton');
+	if (!keepTitle && !keepByline && !keepComments && !keepStrip && !keepGroup) {
+		detailContent.innerHTML = nextHtml;
+		return;
+	}
+	const tmp = document.createElement('div');
+	tmp.innerHTML = nextHtml;
+	if (keepTitle) {
+		const nextRow = tmp.querySelector('.creation-detail-title-row');
+		if (nextRow instanceof HTMLElement) {
+			const nextNsfw = nextRow.querySelector('.creation-detail-nsfw-tag');
+			if (nextNsfw && !stickyRow.querySelector('.creation-detail-nsfw-tag')) {
+				stickyRow.prepend(nextNsfw);
+			}
+			nextRow.replaceWith(stickyRow);
+		}
+	}
+	if (keepByline) {
+		const nextByline = tmp.querySelector('.creation-detail-title-byline');
+		if (nextByline instanceof HTMLElement) {
+			const nextText = nextByline.textContent?.trim() || '';
+			if (nextText) stickyByline.textContent = nextText;
+			nextByline.replaceWith(stickyByline);
+		}
+	}
+	if (keepStrip) {
+		const nextStrip = tmp.querySelector('.creation-detail-action-strip');
+		if (nextStrip instanceof HTMLElement) {
+			patchCreationDetailActionStrip(stickyStrip, nextStrip);
+			nextStrip.replaceWith(stickyStrip);
+		}
+	}
+	if (keepMore) {
+		const nextMore = tmp.querySelector('.creation-detail-more-menu');
+		if (nextMore instanceof HTMLElement) {
+			if (stickyMore.innerHTML !== nextMore.innerHTML) stickyMore.innerHTML = nextMore.innerHTML;
+			nextMore.replaceWith(stickyMore);
+		}
+	}
+	if (keepComments) {
+		const nextComments = tmp.querySelector('[data-creation-comments-host]');
+		if (nextComments instanceof HTMLElement) nextComments.replaceWith(stickyComments);
+	}
+	if (keepGroup) {
+		const nextGroup = tmp.querySelector('[data-group-creation-section]');
+		if (nextGroup instanceof HTMLElement) {
+			patchCreationDetailGroupSection(stickyGroup, nextGroup);
+			nextGroup.replaceWith(stickyGroup);
+		}
+	}
+	detailContent.replaceChildren(...tmp.childNodes);
+}
+
+function detailContentHasLiveChrome(detailContent) {
+	if (!(detailContent instanceof HTMLElement)) return false;
+	const chrome = detailContent.querySelector(
+		'.creation-detail-action-strip, .creation-detail-title, .creation-detail-published'
+	);
+	if (!(chrome instanceof HTMLElement)) return false;
+	return !chrome.closest('.creation-detail-skeleton');
+}
+
 function showCreationDetailContentSkeleton(detailContent = document.querySelector('[data-detail-content]')) {
 	if (!(detailContent instanceof HTMLElement)) return;
-	detailContent.innerHTML = CREATION_DETAIL_CONTENT_SKELETON_HTML;
-	if (isCreationDetailEmbed()) {
-		const qs = getImportQuery(getAssetVersionParam());
-		void import(`/shared/embedPageRuntime.js${qs}`).then((mod) => {
-			mod.notifySpaPageOverlayEmbedReady();
-		});
+	if (detailContentHasLiveChrome(detailContent)) {
+		const hasCommentsChrome = Boolean(
+			detailContent.querySelector('[data-creation-comments-host], [data-comment-input]')
+		);
+		const knownNoComments =
+			detailContent.dataset.creationShowComments === '0' ||
+			(detailContent.dataset.creationPublished === '0' &&
+				detailContent.dataset.creationShowComments !== '1') ||
+			Boolean(detailContent.querySelector('.creation-detail-title-byline'));
+		if (
+			!hasCommentsChrome &&
+			!knownNoComments &&
+			!detailContent.querySelector('[data-creation-detail-pending-skeleton]')
+		) {
+			detailContent.insertAdjacentHTML('beforeend', CREATION_DETAIL_COMMENTS_SKELETON_HTML);
+		}
+		notifyCreationDetailEmbedReady();
+		return;
 	}
+	delete detailContent.dataset.creationShowComments;
+	delete detailContent.dataset.creationPublished;
+	detailContent.innerHTML = CREATION_DETAIL_CONTENT_SKELETON_HTML;
+	notifyCreationDetailEmbedReady();
 }
 
 function prepareCreationDetailHeroForLoad(
@@ -1065,27 +1459,17 @@ function renderCreationDetailSkeleton() {
 		<span class="skeleton skeleton-line" style="display: block; margin-bottom: 12px; width: 95%;"></span>
 		<span class="skeleton skeleton-line skeleton-line--medium" style="display: block; margin-bottom: 12px;"></span>
 	</div>
-	<div class="comment-input">
+	<div data-creation-comments-host>
+	<div class="comment-input" data-comment-input-skeleton>
 		<div class="comment-avatar">${skeletonCircle(32)}</div>
 		<div class="comment-input-body">
 			<span class="skeleton skeleton-line" style="display: block; height: 40px; border-radius: 8px;"></span>
 		</div>
 	</div>
-	<div class="comments-toolbar">
-		<div class="skeleton skeleton-line" style="width: 120px;"></div>
-		<div class="skeleton skeleton-line" style="width: 100px; margin-left: auto;"></div>
+	<div class="creation-detail-comments-section" data-comments-section>
+	${CREATION_COMMENTS_TOOLBAR_HTML}
+	<div class="comment-list" data-comment-list>${CREATION_COMMENTS_LIST_SKELETON_HTML}</div>
 	</div>
-	<div class="comment-list">
-		<div class="creation-detail-skeleton-comment">${skeletonCircle(32)}<div><span
-					class="skeleton skeleton-line skeleton-line--short"
-					style="display: block; margin-bottom: 4px;"></span><span
-					class="skeleton skeleton-line skeleton-line--medium" style="display: block;"></span></div>
-		</div>
-		<div class="creation-detail-skeleton-comment">${skeletonCircle(32)}<div><span
-					class="skeleton skeleton-line skeleton-line--medium"
-					style="display: block; margin-bottom: 4px;"></span><span
-					class="skeleton skeleton-line skeleton-line--short" style="display: block;"></span></div>
-		</div>
 	</div>
 </div>`;
 	}
@@ -2438,7 +2822,14 @@ async function loadCreation() {
 	await loadDeps();
 
 	showCreationDetailContentSkeleton(detailContent);
-	prepareCreationDetailHeroForLoad(imageEl, imageWrapper);
+	const seedHeroVisible =
+		imageEl instanceof HTMLImageElement && Boolean(String(imageEl.getAttribute('src') || '').trim());
+	if (!seedHeroVisible) {
+		prepareCreationDetailHeroForLoad(imageEl, imageWrapper);
+	} else {
+		imageWrapper?.classList.remove('image-loading');
+		if (imageWrapper instanceof HTMLElement) delete imageWrapper.dataset.heroResolving;
+	}
 
 	if (creationDetailInlineLightboxMod && !detailContent.dataset.prsnInlineLightboxBound) {
 		detailContent.dataset.prsnInlineLightboxBound = '1';
@@ -2462,7 +2853,7 @@ async function loadCreation() {
 		const modIcon = imageWrapper?.querySelector('.creation-detail-error-icon-moderated');
 		if (modIcon) modIcon.remove();
 		if (!heroVideoAwaitingReveal()) {
-			imageWrapper?.classList.remove('image-loading', 'image-error', 'image-error-moderated');
+			imageWrapper?.classList.remove('image-loading', 'image-error', 'image-error-moderated', 'hero-aspect-pending');
 		}
 		if (imageWrapper) delete imageWrapper.dataset.heroResolving;
 		const url = String(heroImageDisplayedUrl() || '').trim();
@@ -2493,7 +2884,7 @@ async function loadCreation() {
 	function ensureHeroImageVisible() {
 		imageEl.style.visibility = 'visible';
 		if (!heroVideoAwaitingReveal()) {
-			imageWrapper?.classList.remove('image-loading', 'image-error', 'image-error-moderated');
+			imageWrapper?.classList.remove('image-loading', 'image-error', 'image-error-moderated', 'hero-aspect-pending');
 		}
 		if (imageWrapper) delete imageWrapper.dataset.heroResolving;
 	}
@@ -2878,7 +3269,7 @@ async function loadCreation() {
 		if (activeUrl) {
 			setHeroBackgroundUrl(activeUrl);
 		}
-		imageWrapper?.classList.remove('image-loading', 'image-error', 'image-error-moderated');
+		imageWrapper?.classList.remove('image-loading', 'image-error', 'image-error-moderated', 'hero-aspect-pending');
 		return true;
 	}
 
@@ -3030,7 +3421,7 @@ async function loadCreation() {
 			onFirstReveal: () => {
 				imageWrapper?.classList.remove('hero-video-pending');
 				imageWrapper?.classList.add('hero-video-revealed');
-				imageWrapper?.classList.remove('image-loading', 'image-error', 'image-error-moderated');
+				imageWrapper?.classList.remove('image-loading', 'image-error', 'image-error-moderated', 'hero-aspect-pending');
 				if (typeof hooks.onFirstReveal === 'function') {
 					hooks.onFirstReveal();
 				}
@@ -3489,30 +3880,29 @@ async function loadCreation() {
 
 		// Load like metadata from backend (no localStorage fallback).
 		// Pinned / results detail hides the action strip — skip the like round-trip.
-		let likeMeta = { like_count: 0, viewer_liked: false, liked_by: [] };
+		let likeMeta = {
+			like_count: Number(creation.like_count ?? 0) || 0,
+			viewer_liked: Boolean(creation.viewer_liked),
+			liked_by: Array.isArray(creation.liked_by) ? creation.liked_by : []
+		};
 		if (shareMounted || isPinnedInteractiveDetail) {
 			perf.skipPart(
 				'likeMeta',
 				shareMounted ? 'share-mounted' : isFeedPinPromo ? 'feed-pin' : 'challenge-results'
 			);
 		} else {
-			perf.expectReady('likeMeta');
-			try {
-				await perf.timeAsync('likeMeta', 'fetch', async () => {
-					const likeRes = await fetch(`/api/created-images/${creationId}/like`, { credentials: 'include' });
-					if (likeRes.ok) {
-						const meta = await likeRes.json();
-						likeMeta = {
-							like_count: Number(meta?.like_count ?? 0),
-							viewer_liked: Boolean(meta?.viewer_liked),
-							liked_by: Array.isArray(meta?.liked_by) ? meta.liked_by : []
-						};
-					}
-				});
-			} catch {
-				// ignore like meta load failures
-			}
 			perf.markReady('likeMeta');
+			void fetch(`/api/created-images/${creationId}/like`, { credentials: 'include' })
+				.then((likeRes) => (likeRes.ok ? likeRes.json() : null))
+				.catch(() => null)
+				.then((meta) => {
+					if (!meta || !isCurrentLoad()) return;
+					likeMeta = {
+						like_count: Number(meta?.like_count ?? likeMeta.like_count),
+						viewer_liked: Boolean(meta?.viewer_liked),
+						liked_by: Array.isArray(meta?.liked_by) ? meta.liked_by : likeMeta.liked_by
+					};
+				});
 		}
 		if (!isCurrentLoad()) return;
 
@@ -3705,7 +4095,11 @@ async function loadCreation() {
 		let currentUserId = null;
 		let currentUser = null;
 		let currentUserProfile = null;
-		const profile = await perf.timeAsync('contentAboveComments', 'waitViewerProfile', () => viewerProfilePromise);
+		const [profile, profileSummary, descendantsListResolved] = await Promise.all([
+			perf.timeAsync('contentAboveComments', 'waitViewerProfile', () => viewerProfilePromise),
+			perf.timeAsync('contentAboveComments', 'waitCreatorProfile', () => creatorProfilePromise),
+			perf.timeAsync('lineage', 'descendants', () => descendantsPromise).catch(() => [])
+		]);
 		if (!isCurrentLoad()) return;
 		if (profile.ok) {
 			currentUser = profile.data ?? null;
@@ -3733,8 +4127,6 @@ async function loadCreation() {
 				.replace(/"/g, '&quot;')
 				.replace(/'/g, '&#39;');
 		}
-
-		const descendantsListResolved = await perf.timeAsync('lineage', 'descendants', () => descendantsPromise);
 
 		function isHydratedProviderPromptJson(argsPrompt) {
 			if (typeof argsPrompt !== 'string' || !argsPrompt.trim().startsWith('{')) return false;
@@ -4105,7 +4497,7 @@ async function loadCreation() {
 		let lineageSectionHtml = '';
 		if (deferLineageSection) {
 			lineageSectionHtml = renderLineageAncestorsPlaceholder(historyChainIdsPrefetch.length - 1);
-		} else if (descendantsListResolved.length > 0) {
+		} else if (Array.isArray(descendantsListResolved) && descendantsListResolved.length > 0) {
 			lineageSectionHtml = renderLineageOffspringSection(
 				'Descendants',
 				descendantsListResolved,
@@ -4208,7 +4600,7 @@ async function loadCreation() {
 		let descriptionHtml = '';
 		const descriptionText = typeof creation.description === 'string' ? creation.description.trim() : '';
 		const hasDescription = descriptionText.length > 0;
-		const showGroupLeadDescription = isGroupCreation && hasDescription;
+		const showGroupLeadDescription = isGroupCreation && hasDescription && !hideIdentifyActionChrome;
 		const groupLeadDescriptionHtml = showGroupLeadDescription
 			? html`
 				<div class="creation-detail-group-lead-description">
@@ -4218,14 +4610,15 @@ async function loadCreation() {
 			: '';
 		const hasPublishedMeta = isPublished ? hasPublishedDate : true;
 		const hasMetaInDescription = !!(serverName || methodName || displayModel || durationStr || hasPublishedMeta);
-		// Pinned / results pages: show description content, skip method/published meta chrome.
+		// Pinned / results pages: announce + comments only — no prompt, lineage, or creation meta.
 		const showDescriptionBlock =
-			descriptionText ||
-			hasPromptSection ||
-			hasStyle ||
-			hasAudioClip ||
-			lineageSectionHtml ||
-			(!isPinnedInteractiveDetail && hasMetaInDescription);
+			!hideIdentifyActionChrome &&
+			(descriptionText ||
+				hasPromptSection ||
+				hasStyle ||
+				hasAudioClip ||
+				lineageSectionHtml ||
+				hasMetaInDescription);
 
 		if (showDescriptionBlock) {
 			const descriptionParts = [];
@@ -4288,14 +4681,18 @@ async function loadCreation() {
 						escapeHtml
 					});
 
+			const descriptionPlain = String(descriptionInnerHtml || '')
+				.replace(/<[^>]+>/g, ' ')
+				.replace(/\s+/g, ' ')
+				.trim();
+			const collapseDescription = descriptionPlain.length > 140;
 			descriptionHtml = html`
 				<div class="creation-detail-published${lineageSectionHtml ? ' has-history' : ''}">
 					${descriptionInnerHtml ? html`
-					<div class="creation-detail-description-wrap" data-description-wrap>
+					<div class="creation-detail-description-wrap${collapseDescription ? ' is-collapsed' : ''}" data-description-wrap>
 						<div class="creation-detail-description" data-description>${descriptionInnerHtml}</div>
 						<div class="creation-detail-description-toggle-row">
-							<button type="button" class="btn-secondary creation-detail-description-toggle" data-description-toggle
-								hidden>View Full</button>
+							<button type="button" class="btn-secondary creation-detail-description-toggle" data-description-toggle${collapseDescription ? '' : ' hidden'}>View Full</button>
 						</div>
 					</div>
 					` : ''}
@@ -4317,6 +4714,9 @@ async function loadCreation() {
 		}
 		if (isGroupCreation && groupSources.length > 0) {
 			hasDetailsModalContent = true;
+		}
+		if (hideIdentifyActionChrome) {
+			hasDetailsModalContent = false;
 		}
 		// Get creator information
 		const creatorUserName = typeof creation?.creator?.user_name === 'string' ? creation.creator.user_name.trim() : '';
@@ -4346,7 +4746,6 @@ async function loadCreation() {
 		let viewerFollowsCreator = false;
 		let creatorFollowerCount = 0;
 
-		const profileSummary = await perf.timeAsync('contentAboveComments', 'waitCreatorProfile', () => creatorProfilePromise);
 		if (profileSummary.ok && profileSummary.data) {
 			creatorFollowerCount = Number(profileSummary.data.stats?.followers_count ?? 0) || 0;
 			if (currentUserId && currentUserId !== creatorId) {
@@ -4356,6 +4755,17 @@ async function loadCreation() {
 				);
 				canShowFollowButton = !viewerFollowsCreator;
 			}
+			void import(`/shared/creationDetailSeed.js${getImportQuery(getAssetVersionParam())}`)
+				.then((mod) => {
+					mod.writeCreatorStripCache?.({
+						userId: creatorId,
+						plan: creatorPlan ? 'founder' : '',
+						followerCount: creatorFollowerCount,
+						avatarUrl: creatorAvatarUrl,
+						displayName: creatorName,
+					});
+				})
+				.catch(() => {});
 		}
 		perf.markReady('creatorProfile');
 
@@ -4375,13 +4785,13 @@ async function loadCreation() {
 			<div class="avatar-with-founder-flair avatar-with-founder-flair--sm">
 				<div class="founder-flair-avatar-ring">
 					<div class="founder-flair-avatar-inner"
-						style="background: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx;" aria-hidden="true">
+						style="background: ${escapeHtml(creatorColor)};" aria-hidden="true">
 						${creatorAvatarContent}
 					</div>
 				</div>
 			</div>
 		` : html`
-			<span class="creation-detail-author-icon" style="background: xxxxxxxxxxxxxxx;">
+			<span class="creation-detail-author-icon" style="background: ${escapeHtml(creatorColor)};">
 				${creatorAvatarContent}
 			</span>
 		`;
@@ -4673,24 +5083,26 @@ async function loadCreation() {
 		if (!isCurrentLoad()) return;
 
 		const hasNsfwTag = Boolean(creation.nsfw ?? creation.meta?.nsfw);
-		const needsTitleSlot = Boolean(displayTitle || (isGroupCreation && groupSources.length > 0));
-		// Feed-pin promo uses the banner below (not a title-row chip) so the pill doesn't sit on the box.
-		const showTitleRow =
-			needsTitleSlot || hasNsfwTag || hasChallengeSubmission || (hasOrganizerRef && !hasActiveFeedPin);
-
-		const detailRenderStart = performance.now();
-		detailContent.innerHTML = html`
-			${showTitleRow ? html`<div class="creation-detail-title-row">
-				${hasNsfwTag ? html`<span class="creation-detail-nsfw-tag">NSFW</span>` : ''}
-				${hasChallengeSubmission ? html`<span class="creation-detail-challenge-chip${challengeAllEnded ? ' creation-detail-challenge-chip-ended' : ''}" title="${challengeAllEnded ? 'Entered in a community challenge that has ended' : 'Entered in a community challenge'}">${challengeTrophyIconSvg}<span class="creation-detail-challenge-chip-label">${challengeAllEnded ? 'Challenge ended' : 'Challenge entry'}</span></span>` :
-				''}
-				${hasOrganizerRef && !hasActiveFeedPin ? html`<span class="creation-detail-challenge-chip" title="${organizerRefLabel}">${challengeTrophyIconSvg}<span class="creation-detail-challenge-chip-label">${organizerRefLabel}</span></span>` : ''}
-				${needsTitleSlot ? html`<div class="creation-detail-title${isUntitled ? ' creation-detail-title-untitled' : ''}"${displayTitle ? '' : ' hidden'}>${displayTitle ? escapeHtml(displayTitle) : ''}</div>` : ''}
-			</div>` : ''}
-			${!(hasChallengeSubmission && isOwner) && !challengeMediaLocked && !isPublished ? html`<div class="creation-detail-title-byline creation-detail-title-byline-mobile">${escapeHtml(creatorHandle)} Not Published</div>` : ''}
+		const needsTitleSlot =
+			!hideIdentifyActionChrome && Boolean(displayTitle || (isGroupCreation && groupSources.length > 0));
+		const showTitleRow = needsTitleSlot || hasNsfwTag;
+		const challengeSlotHtml =
+			organizerBannerHtml || feedPinBannerHtml || challengeDetailBannerHtml || challengeActionsHtml
+				? html`<div class="creation-detail-challenge-slot" data-creation-detail-challenge-slot>
 			${organizerBannerHtml}
 			${feedPinBannerHtml}
 			${challengeDetailBannerHtml}
+			${challengeActionsHtml}
+		</div>`
+				: '';
+
+		const detailRenderStart = performance.now();
+		commitCreationDetailContentHtml(detailContent, html`
+			${showTitleRow ? html`<div class="creation-detail-title-row">
+				${hasNsfwTag ? html`<span class="creation-detail-nsfw-tag">NSFW</span>` : ''}
+				${needsTitleSlot ? html`<div class="creation-detail-title${isUntitled ? ' creation-detail-title-untitled' : ''}"${displayTitle ? '' : ' hidden'}>${displayTitle ? escapeHtml(displayTitle) : ''}</div>` : ''}
+			</div>` : ''}
+			${!(hasChallengeSubmission && isOwner) && !challengeMediaLocked && !isPublished ? html`<div class="creation-detail-title-byline creation-detail-title-byline-mobile">${escapeHtml(creatorHandle)} Not Published</div>` : ''}
 			${hideIdentifyActionChrome ? '' : renderCreationDetailActionStrip(stripData, escapeHtml)}
 			${hideIdentifyActionChrome ? '' : renderCreationDetailMoreMenu(menuData, escapeHtml)}
 			${groupLeadDescriptionHtml}
@@ -4717,7 +5129,7 @@ async function loadCreation() {
 			` : ''}
 			
 			${descriptionHtml}
-			${challengeActionsHtml}
+			${challengeSlotHtml}
 			<div class="creation-detail-meta-hidden" aria-hidden="true">
 				${hasDetailsModalContent ? `
 				<button class="feed-card-action" type="button" data-creation-details-link>
@@ -4743,7 +5155,7 @@ async function loadCreation() {
 			${(isPublished || showCommentsWithoutPublish) && !isFailed ? html`
 			<div data-creation-comments-host></div>
 
-			${isPublished ? html`<section class="creation-detail-related" data-related-container aria-label="More like this" style="display: none;">
+			${isPublished && !hideIdentifyActionChrome ? html`<section class="creation-detail-related" data-related-container aria-label="More like this" style="display: none;">
 				<div class="creation-detail-related-inner">
 					<h2 class="creation-detail-related-heading">More like this</h2>
 					<div class="route-cards content-cards-image-grid creation-detail-related-grid" data-related-grid role="list">
@@ -4822,7 +5234,7 @@ async function loadCreation() {
 					</div>
 				</div>
 			</div>
-		`;
+		`);
 
 		perf.recordStep('contentAboveComments', 'renderDom', performance.now() - detailRenderStart);
 
@@ -5538,7 +5950,7 @@ async function loadCreation() {
 		})();
 
 		if (!hasAncestorLineage) {
-			if (descendantsListResolved.length > 0) {
+			if (Array.isArray(descendantsListResolved) && descendantsListResolved.length > 0) {
 				hydrateLineageDescendantsThumbnails();
 			}
 			perf.markReady('lineage', {
@@ -6447,7 +6859,7 @@ async function loadCreation() {
 					'queue-from-frame': async () => {
 						if (!showQueueFromFrame || !creation.video_url) return;
 						closeMobileMoreMenu();
-						await loadDeps();
+						await ensureOwnerToolDeps();
 						if (typeof openQueueFromFrameModal !== 'function') return;
 						openQueueFromFrameModal({
 							videoUrl: String(creation.video_url),
@@ -6461,7 +6873,7 @@ async function loadCreation() {
 					'adjust-image': async () => {
 						if (!actionsContext.showAdjustImage || !creation.url) return;
 						closeMobileMoreMenu();
-						await loadDeps();
+						await ensureOwnerToolDeps();
 						if (typeof openAdjustImageModal !== 'function') return;
 						openAdjustImageModal({
 							imageUrl: String(creation.url),
@@ -6498,7 +6910,7 @@ async function loadCreation() {
 					'set-video-poster': async () => {
 						if (!actionsContext.showSetVideoPoster || !creation.video_url) return;
 						closeMobileMoreMenu();
-						await loadDeps();
+						await ensureOwnerToolDeps();
 						if (typeof captureVideoFirstFrameFile !== 'function') return;
 						try {
 							showToast('Saving poster…');
@@ -6542,7 +6954,7 @@ async function loadCreation() {
 					'share-audio': async () => {
 						if (!showShareAudio || !creation.video_url) return;
 						closeMobileMoreMenu();
-						await loadDeps();
+						await ensureOwnerToolDeps();
 						if (typeof openShareAudioModal !== 'function') return;
 						openShareAudioModal({
 							creationId: Number(creationId),
@@ -6952,6 +7364,17 @@ async function loadCreation() {
 			await perf.timeAsync('comments', 'mount', () =>
 				threadMod.mountCreationCommentsThread(commentsHost, {
 					createdImageId: creationId,
+					initialCommentCount: (() => {
+						if (Object.prototype.hasOwnProperty.call(commentsHost.dataset, 'seedCommentCount')) {
+							const seedCount = Number(commentsHost.dataset.seedCommentCount);
+							if (Number.isFinite(seedCount) && seedCount >= 0) return seedCount;
+						}
+						if (creation.comment_count != null && creation.comment_count !== '') {
+							const apiCount = Number(creation.comment_count);
+							if (Number.isFinite(apiCount) && apiCount >= 0) return apiCount;
+						}
+						return undefined;
+					})(),
 					viewer: {
 						id: currentUserId,
 						userName: viewerUserName,
@@ -6987,7 +7410,7 @@ async function loadCreation() {
 		}
 
 		// Related section and transition recording: only when creation is published and not failed.
-		if (isPublished && !isFailed) {
+		if (isPublished && !isFailed && !hideIdentifyActionChrome) {
 			recordTransitionFromQuery(creationId);
 			perf.expectReady('related');
 			initRelatedSection(detailContent.parentElement, creationId, {
@@ -7002,7 +7425,7 @@ async function loadCreation() {
 				},
 			});
 		} else {
-			perf.skipPart('related', 'not-published-or-failed');
+			perf.skipPart('related', hideIdentifyActionChrome ? 'challenge-pin' : 'not-published-or-failed');
 		}
 
 		if (isCurrentLoad() && !creationDetailUserHasScrolled()) {
@@ -7060,21 +7483,104 @@ function isCurrentCreationVideoForVynly() {
 	return mediaType === 'video' || mediaType === 'audio';
 }
 
+function paintCreationDetailFromSeed(seed, detailContent, imageEl, chromeHtmlFromSeed, applyHeroAspect) {
+	if (!seed || typeof seed !== 'object') return false;
+	const imgUrl =
+		(typeof seed.image_url === 'string' && seed.image_url.trim()) ||
+		(typeof seed.thumbnail_url === 'string' && seed.thumbnail_url.trim()) ||
+		'';
+	const wrap = imageEl instanceof HTMLImageElement ? imageEl.closest?.('.creation-detail-image-wrapper') : null;
+	if (wrap instanceof HTMLElement && typeof applyHeroAspect === 'function') {
+		applyHeroAspect(wrap, {
+			width: seed.width,
+			height: seed.height,
+			meta: seed.meta,
+			media_type: seed.media_type,
+			video_url: seed.video_url,
+		});
+	}
+	if (imageEl instanceof HTMLImageElement && imgUrl) {
+		imageEl.style.visibility = '';
+		if (!imageEl.getAttribute('src')) imageEl.src = imgUrl;
+		const markHeroSettled = () => {
+			if (!(wrap instanceof HTMLElement)) return;
+			wrap.classList.remove('hero-aspect-pending');
+			if (imageEl.complete && imageEl.naturalWidth > 0) {
+				wrap.classList.remove('image-loading');
+				delete wrap.dataset.heroResolving;
+			}
+		};
+		if (wrap instanceof HTMLElement) {
+			wrap.classList.add('hero-aspect-pending');
+			wrap.classList.remove('image-loading');
+			delete wrap.dataset.heroResolving;
+		}
+		if (imageEl.complete && imageEl.naturalWidth > 0) {
+			markHeroSettled();
+		} else {
+			imageEl.addEventListener('load', markHeroSettled, { once: true });
+			imageEl.addEventListener('error', markHeroSettled, { once: true });
+		}
+	} else if (wrap instanceof HTMLElement) {
+		wrap.classList.add('image-loading', 'hero-aspect-pending');
+	}
+	if (detailContent instanceof HTMLElement) {
+		const chrome = typeof chromeHtmlFromSeed === 'function' ? chromeHtmlFromSeed(seed) : '';
+		if (chrome) {
+			detailContent.innerHTML = chrome;
+			const showComments = Boolean(detailContent.querySelector('[data-creation-comments-host]'));
+			detailContent.dataset.creationShowComments = showComments ? '1' : '0';
+			const published = seed.published === true || seed.published === 1 || seed.published === '1';
+			const unpublished = seed.published === false || seed.published === 0 || seed.published === '0';
+			if (unpublished) detailContent.dataset.creationPublished = '0';
+			else if (published) detailContent.dataset.creationPublished = '1';
+			else delete detailContent.dataset.creationPublished;
+		}
+	}
+	notifyCreationDetailEmbedReady();
+	return true;
+}
+
 async function checkAndLoadCreation() {
 	const creationId = getCreationId();
-	// Show skeleton + hero loading immediately when navigating to a new creation (before loadDeps).
 	if (creationId && creationId !== currentCreationId) {
 		const nextLoadToken = loadCreationSequence + 1;
 		beginCreationDetailScrollEngagement(nextLoadToken, { resetUserScrolled: true });
 		resetCreationDetailScroll({ force: true });
-		showCreationDetailContentSkeleton();
-		prepareCreationDetailHeroForLoad(undefined, undefined, { resetMedia: currentCreationId != null });
+		const detailContent = document.querySelector('[data-detail-content]');
+		const imageEl = document.querySelector('[data-image]');
+		let paintedSeed = false;
+		try {
+			const qs = getImportQuery(getAssetVersionParam());
+			const [seedMod, aspectMod] = await Promise.all([
+				import(`/shared/creationDetailSeed.js${qs}`),
+				import(`/shared/aspectRatio.js${qs}`),
+			]);
+			const seed = seedMod.readCreationDetailSeed(creationId);
+			if (seed) {
+				paintedSeed = paintCreationDetailFromSeed(
+					seed,
+					detailContent,
+					imageEl,
+					seedMod.creationDetailChromeHtmlFromSeed,
+					aspectMod.applyHeroAspectLayoutToElement
+				);
+				if (paintedSeed && typeof seedMod.bindCreationDetailDescriptionCollapse === 'function') {
+					seedMod.bindCreationDetailDescriptionCollapse(detailContent);
+				}
+			}
+		} catch {
+			// ignore
+		}
+		if (!paintedSeed) {
+			showCreationDetailContentSkeleton(detailContent);
+			prepareCreationDetailHeroForLoad(imageEl, imageEl?.closest?.('.creation-detail-image-wrapper'), {
+				resetMedia: currentCreationId != null
+			});
+		}
 	}
 	await loadDeps();
-	// console.log('checkAndLoadCreation called, creationId:', creationId, 'currentCreationId:', currentCreationId);
-	// Only reload if the creation ID has changed
 	if (creationId && creationId !== currentCreationId) {
-		// console.log('Creation ID changed, loading new creation');
 		currentCreationId = creationId;
 		loadCreation();
 	} else if (!creationId && currentCreationId !== null) {

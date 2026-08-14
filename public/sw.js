@@ -38,7 +38,10 @@ let nextImageTrimAt = 0;
 const CACHEABLE_DATA_PATH_PREFIXES = [
 	"/api/feed",
 	"/api/explore",
-	"/api/creations"
+	"/api/creations",
+	"/api/servers",
+	"/api/credits",
+	"/api/create/images"
 ];
 const CACHEABLE_STATIC_PATH_PREFIXES = [
 	"/build/",
@@ -494,6 +497,44 @@ async function networkFirstDocument(request) {
 	}
 }
 
+function isCreateHtmlDocument(url) {
+	return String(url?.pathname || "") === "/create";
+}
+
+function createDocumentCacheRequest(request, url) {
+	const cookie = request.headers.get("cookie") || "";
+	const simple = /(?:^|;\s*)create_editor=simple(?:;|$)/i.test(cookie);
+	const embed = url.searchParams.get("embed") === "1";
+	const cacheUrl = new URL("/create", url.origin);
+	if (embed) cacheUrl.searchParams.set("embed", "1");
+	cacheUrl.searchParams.set("__sw_editor", simple ? "simple" : "advanced");
+	return new Request(cacheUrl.href, { method: "GET" });
+}
+
+async function staleWhileRevalidateCreateDocument(request) {
+	const url = new URL(request.url);
+	const cache = await caches.open(STATIC_CACHE);
+	const cacheReq = createDocumentCacheRequest(request, url);
+	const cached = await cache.match(cacheReq);
+	const revalidate = async () => {
+		try {
+			const network = await fetch(request);
+			if (network && network.ok) {
+				await cache.put(cacheReq, network.clone());
+			}
+			return network;
+		} catch (err) {
+			if (cached) return cached;
+			throw err;
+		}
+	};
+	if (cached) {
+		void revalidate();
+		return cached;
+	}
+	return revalidate();
+}
+
 async function deleteMatchingRequests(cacheName, predicate) {
 	const cache = await caches.open(cacheName);
 	const keys = await cache.keys();
@@ -590,6 +631,10 @@ self.addEventListener("fetch", (event) => {
 	const url = new URL(request.url);
 	if (!isSameOrigin(url)) return;
 
+	if (isCreateHtmlDocument(url)) {
+		event.respondWith(staleWhileRevalidateCreateDocument(request));
+		return;
+	}
 	if (request.mode === "navigate" || request.destination === "document") {
 		event.respondWith(networkFirstDocument(request));
 		return;

@@ -938,6 +938,74 @@ export function tryPatchPseudoStripDomInPlace(listEl, stripRows, nav) {
 	return true;
 }
 
+function chatSidebarRowIdentityKey(row) {
+	if (!(row instanceof HTMLElement)) return '';
+	const dm = String(row.getAttribute('data-chat-dm-key') || '').trim();
+	const href = String(row.querySelector('a.chat-page-sidebar-row-link')?.getAttribute('href') || '').trim();
+	const tid = String(
+		row.getAttribute('data-chat-row-menu-thread-id') ||
+			row.querySelector('[data-chat-row-menu-thread-id]')?.getAttribute('data-chat-row-menu-thread-id') ||
+			''
+	).trim();
+	return `${dm}|${href}|${tid}`;
+}
+
+function patchChatSidebarRowChrome(live, next) {
+	if (!(live instanceof HTMLElement) || !(next instanceof HTMLElement)) return;
+	live.classList.toggle('is-active', next.classList.contains('is-active'));
+	live.classList.toggle('is-online', next.classList.contains('is-online'));
+	live.classList.toggle('is-offline', next.classList.contains('is-offline'));
+	const liveLine = live.querySelector('.chat-page-sidebar-row-title-line');
+	const nextLine = next.querySelector('.chat-page-sidebar-row-title-line');
+	if (!(liveLine instanceof HTMLElement) || !(nextLine instanceof HTMLElement)) return;
+	const liveUnread = liveLine.querySelector('.chat-page-sidebar-unread');
+	const nextUnread = nextLine.querySelector('.chat-page-sidebar-unread');
+	if (!nextUnread) {
+		liveUnread?.remove();
+	} else if (!liveUnread) {
+		liveLine.appendChild(nextUnread);
+	} else {
+		liveUnread.setAttribute('aria-label', nextUnread.getAttribute('aria-label') || '');
+		liveUnread.textContent = nextUnread.textContent;
+	}
+	const liveTitle = liveLine.querySelector('.chat-page-sidebar-row-title');
+	const nextTitle = nextLine.querySelector('.chat-page-sidebar-row-title');
+	if (!(liveTitle instanceof HTMLElement) || !(nextTitle instanceof HTMLElement)) return;
+	for (const attr of ['data-chat-dm-last-interacted-ms', 'data-chat-dm-last-seen-ms', 'data-chat-dm-hover-meta']) {
+		const v = nextTitle.getAttribute(attr);
+		if (v) liveTitle.setAttribute(attr, v);
+		else liveTitle.removeAttribute(attr);
+	}
+}
+
+/**
+ * When DMs / servers / channels membership and order are unchanged, update active / unread /
+ * presence on existing nodes instead of replacing innerHTML (avoids avatar flash).
+ * @param {HTMLElement} sectionEl
+ * @param {string} nextHtml
+ * @returns {boolean}
+ */
+export function tryPatchChatSidebarListDomInPlace(sectionEl, nextHtml) {
+	if (!(sectionEl instanceof HTMLElement) || typeof nextHtml !== 'string') return false;
+	if (typeof document === 'undefined') return false;
+	const liveRows = [...sectionEl.querySelectorAll('.chat-page-sidebar-row')].filter(
+		(el) => el instanceof HTMLElement && !el.classList.contains('chat-page-sidebar-row--skeleton')
+	);
+	const tpl = document.createElement('template');
+	tpl.innerHTML = nextHtml;
+	const nextRows = [...tpl.content.querySelectorAll('.chat-page-sidebar-row')];
+	if (liveRows.length === 0 || liveRows.length !== nextRows.length) return false;
+	for (let i = 0; i < liveRows.length; i++) {
+		const liveKey = chatSidebarRowIdentityKey(liveRows[i]);
+		const nextKey = chatSidebarRowIdentityKey(nextRows[i]);
+		if (!liveKey || liveKey !== nextKey) return false;
+	}
+	for (let i = 0; i < liveRows.length; i++) {
+		patchChatSidebarRowChrome(liveRows[i], nextRows[i]);
+	}
+	return true;
+}
+
 /**
  * Merge GET /api/chat/threads with joined-server channel suggestions (same rules as Connect tab).
  * @param {object[]} threads

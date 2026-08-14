@@ -51,6 +51,35 @@ export function isSpaPageEmbedFrame() {
 	);
 }
 
+const STANDALONE_SHELL_TAGS = new Set([
+	'app-navigation',
+	'app-navigation-mobile',
+	'app-modal-profile',
+	'app-modal-credits',
+	'app-modal-notifications',
+	'app-modal-server',
+	'app-modal-about',
+]);
+
+/** Overlay parent already has header, bottom nav, profile, credits, notifications. */
+export function embedWaitTags(tags) {
+	if (!isSpaPageEmbedFrame()) return tags;
+	return (Array.isArray(tags) ? tags : []).filter((tag) => !STANDALONE_SHELL_TAGS.has(tag));
+}
+
+export function importStandaloneAppChrome(qs = '') {
+	if (isSpaPageEmbedFrame()) return Promise.resolve();
+	const q = typeof qs === 'string' ? qs : '';
+	return Promise.all([
+		import(`../components/navigation/index.js${q}`),
+		import(`../components/navigation/mobile.js${q}`),
+		import(`../components/modals/profile.js${q}`),
+		import(`../components/modals/about.js${q}`),
+		import(`../components/modals/credits.js${q}`),
+		import(`../components/modals/notifications.js${q}`),
+	]);
+}
+
 /** Tell the overlay shell the embed page has themed content ready to reveal. */
 export function notifySpaPageOverlayEmbedReady() {
 	if (!isSpaPageEmbedFrame()) return false;

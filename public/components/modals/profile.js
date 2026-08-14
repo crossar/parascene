@@ -869,6 +869,7 @@ class AppModalProfile extends HTMLElement {
 			// Match CHALLENGE_HISTORY_THUMB_CACHE_KEY in shared/challengeHistoryThumbCache.js
 			window.localStorage?.removeItem('prsn-challenge-history-thumbs-v1');
 			// Match CHAT_SIDEBAR_SESSION_ROSTER_KEY in shared/chatSidebarSessionCache.js
+			window.localStorage?.removeItem('prsn-chat-sidebar-roster-v1');
 			window.sessionStorage?.removeItem('prsn-chat-sidebar-roster-v1');
 			if (typeof clearChatAudibleNotificationsStorage === 'function') {
 				clearChatAudibleNotificationsStorage();
