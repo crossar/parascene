@@ -113,7 +113,7 @@ export async function waitForComponents(customElementTags) {
 		});
 	});
 	document.body.classList.add('loaded');
-	if (isSpaPageEmbedFrame() && !document.body.classList.contains('create-page-advanced')) {
+	if (isSpaPageEmbedFrame()) {
 		notifySpaPageOverlayEmbedReady();
 	}
 }

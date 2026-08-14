@@ -291,6 +291,13 @@ body:not(.loaded) {
 	opacity: 0;
 }
 
+/* Overlay iframe already has a parent veil; don't keep embed documents invisible until JS. */
+html.create-page-embed-doc body:not(.loaded),
+body.create-page-embed:not(.loaded) {
+	visibility: visible;
+	opacity: 1;
+}
+
 body.loaded {
 	visibility: visible;
 	opacity: 1;

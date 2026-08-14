@@ -17,6 +17,7 @@ export {
 	parseCreationIdFromHref,
 	parseCreationNavigationTargetId,
 	parseOverlayTarget,
+	prefetchCreateOverlayAssets,
 	requestCreationDetailEmbedRoute,
 	routeCreationDetailOverlayFromEmbed,
 	shouldUseCreationDetailOverlay,

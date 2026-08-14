@@ -1078,7 +1078,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 				const bodyClass = useSimple ? 'create-page' : 'create-page-advanced';
 				pageHtml = pageHtml.replace(
 					`<body class="${bodyClass}">`,
-					`<body class="${bodyClass} create-page-embed">`
+					`<body class="${bodyClass} create-page-embed loaded">`
 				);
 				pageHtml = pageHtml.replace(
 					'</head>',

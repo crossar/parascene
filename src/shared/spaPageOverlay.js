@@ -30,7 +30,7 @@ const HISTORY_FLAG = 'prsnSpaPageOverlay';
 const OVERLAY_STORE_KEY = '__prsnSpaPageOverlay';
 const WORKFLOW_DISMISS_MESSAGE = 'prsn-workflow-overlay-dismiss';
 const STOP_PLAYBACK_MESSAGE = 'prsn-creation-detail-stop-playback';
-const OVERLAY_VEIL_FALLBACK_MS = 5000;
+const OVERLAY_VEIL_FALLBACK_MS = 400;
 
 let overlayFramePendingUrl = null;
 let overlayFramePendingGeneration = 0;
@@ -82,12 +82,9 @@ function normalizeEmbedUrlForMatch(href) {
 	if (!raw) return '';
 	try {
 		const url = new URL(raw, window.location.origin);
-		const params = new URLSearchParams(url.search);
-		params.delete('_reload');
-		const query = params.toString();
-		return `${url.pathname}${query ? `?${query}` : ''}`;
+		return url.pathname.replace(/\/+$/, '') || '/';
 	} catch {
-		return raw;
+		return raw.split('?')[0].split('#')[0].replace(/\/+$/, '') || raw;
 	}
 }
 
@@ -452,6 +449,17 @@ function setOverlayFrameVeilActive(frame, active) {
 	veil.setAttribute('aria-hidden', active ? 'false' : 'true');
 }
 
+function overlayFrameDocumentIsReady(frame) {
+	if (!(frame instanceof HTMLIFrameElement)) return false;
+	try {
+		const href = String(frame.contentWindow?.location?.href || '');
+		if (!href || href === 'about:blank') return false;
+	} catch {
+		// Cross-origin: document loaded enough to be a real frame.
+	}
+	return true;
+}
+
 function onOverlayFrameLoad(frame) {
 	try {
 		const win = frame.contentWindow;
@@ -462,6 +470,9 @@ function onOverlayFrameLoad(frame) {
 		win.scrollTo(0, 0);
 	} catch {
 		// ignore
+	}
+	if (overlayFrameDocumentIsReady(frame)) {
+		revealOverlayFrame(frame);
 	}
 }
 
@@ -486,19 +497,16 @@ function assignOverlayFrameUrl(frame, url, target) {
 	frame.classList.add('is-overlay-loading');
 	setOverlayFrameVeilActive(frame, true);
 	scheduleOverlayFrameVeilFallback(frame, generation);
-	const navigateFrame = () => {
-		try {
-			const win = frame.contentWindow;
-			if (win) {
-				win.location.replace(url);
-				return;
-			}
-		} catch {
-			// ignore
+	try {
+		const win = frame.contentWindow;
+		if (win) {
+			win.location.replace(url);
+			return;
 		}
-		frame.src = url;
-	};
-	requestAnimationFrame(navigateFrame);
+	} catch {
+		// ignore
+	}
+	frame.src = url;
 }
 
 function syncOverlayFrameToTarget(target, options = {}) {
@@ -1419,25 +1427,18 @@ let createOverlayPrefetchStarted = false;
 export function prefetchCreateOverlayAssets() {
 	if (createOverlayPrefetchStarted) return;
 	createOverlayPrefetchStarted = true;
-	const run = () => {
-		void fetch('/create?embed=1', { credentials: 'include', headers: { Accept: 'text/html' } }).catch(
-			() => {}
-		);
-		void fetch('/api/servers', { credentials: 'include', headers: { Accept: 'application/json' } }).catch(
-			() => {}
-		);
-		const meta = document.querySelector('meta[name="asset-version"]');
-		const v = meta?.getAttribute('content')?.trim() || '';
-		const qs = v ? `?v=${encodeURIComponent(v)}` : '';
-		void import(`/pages/entry/entry-create.js${qs}`).catch(() => {});
-		void import(`/components/routes/create.js${qs}`).catch(() => {});
-		void import(`/shared/createServersDefault.js${qs}`).catch(() => {});
-	};
-	if (typeof requestIdleCallback === 'function') {
-		requestIdleCallback(run, { timeout: 4000 });
-		return;
-	}
-	setTimeout(run, 800);
+	void fetch('/create?embed=1', { credentials: 'include', headers: { Accept: 'text/html' } }).catch(
+		() => {}
+	);
+	void fetch('/api/servers', { credentials: 'include', headers: { Accept: 'application/json' } }).catch(
+		() => {}
+	);
+	const meta = document.querySelector('meta[name="asset-version"]');
+	const v = meta?.getAttribute('content')?.trim() || '';
+	const qs = v ? `?v=${encodeURIComponent(v)}` : '';
+	void import(`/pages/entry/entry-create.js${qs}`).catch(() => {});
+	void import(`/components/routes/create.js${qs}`).catch(() => {});
+	void import(`/shared/createServersDefault.js${qs}`).catch(() => {});
 }
 
 export function navigateToCreationDetailFromSpa(href, ev) {

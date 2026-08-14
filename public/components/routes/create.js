@@ -411,8 +411,8 @@ class AppRouteCreate extends HTMLElement {
       </div>
     `;
 		this.setupEventListeners();
-		const serversPaintSource = this.applyServersFromCacheOrDefault();
 		this._notifyCreateEmbedReady();
+		const serversPaintSource = this.applyServersFromCacheOrDefault();
 		void depsPromise.then(() => {
 			if (!this.isConnected) return;
 			if (!embedOnly) void this._maybeAddBlogTabFromProfile();
@@ -877,8 +877,6 @@ class AppRouteCreate extends HTMLElement {
 	_notifyCreateEmbedReady() {
 		if (!isCreatePageEmbed()) return;
 		if (this._createEmbedReadySent) return;
-		const loaded = this._serversLoading === false;
-		if (!loaded) return;
 		this._createEmbedReadySent = true;
 		notifySpaPageOverlayEmbedReady();
 	}
