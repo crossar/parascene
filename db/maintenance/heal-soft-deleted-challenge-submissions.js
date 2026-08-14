@@ -10,6 +10,7 @@ import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 import { broadcastRoomDirty, broadcastUserInboxDirty } from '../../api_routes/utils/realtimeBroadcast.js';
 import { invalidateChallengeFeedSnapshotCache } from '../../api_routes/feed/challengeFeedSnapshotCache.js';
+import { repairLastReadPointersForDeletedMessages } from '../../api_routes/utils/chatInviteCleanup.js';
 
 const MESSAGES_TABLE = 'prsn_chat_messages';
 const THREADS_TABLE = 'prsn_chat_threads';
@@ -132,6 +133,11 @@ async function main() {
 	}
 
 	const messageIds = stale.map((s) => s.message_id);
+	await repairLastReadPointersForDeletedMessages({
+		sb,
+		threadId,
+		deleteMessageIds: messageIds
+	});
 	const { error: delErr } = await sb.from(MESSAGES_TABLE).delete().in('id', messageIds);
 	if (delErr) throw delErr;
 	console.log(`deleted ${messageIds.length} challenge_submission message(s)`);

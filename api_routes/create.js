@@ -60,6 +60,7 @@ import { applyVynlyShareWatermark } from "./utils/vynlyShareWatermark.js";
 import { creationRowIsVideo } from "./utils/vynlyShareFromCreation.js";
 import { sendBufferWithRangeSupport } from "./utils/sendBufferWithRangeSupport.js";
 import { broadcastRoomDirty, broadcastUserInboxDirty } from "./utils/realtimeBroadcast.js";
+import { repairLastReadPointersForDeletedMessages } from "./utils/chatInviteCleanup.js";
 import { insertNotificationsForChatMentions } from "./utils/chatMentionNotifications.js";
 import { notifyCreationMentionsOnPublish } from "./utils/activityNotifications.js";
 import {
@@ -4062,14 +4063,25 @@ export default function createCreateRoutes({ queries, storage }) {
 				});
 			}
 
+			const removeIdsByThread = new Map();
 			for (const r of toRemove) {
 				const tid = Number(r.thread_id);
 				const mid = Number(r.message_id);
 				if (!Number.isFinite(mid) || mid <= 0 || !Number.isFinite(tid) || tid <= 0) continue;
+				const list = removeIdsByThread.get(tid) || [];
+				list.push(mid);
+				removeIdsByThread.set(tid, list);
+			}
+			for (const [tid, mids] of removeIdsByThread) {
+				await repairLastReadPointersForDeletedMessages({
+					sb,
+					threadId: tid,
+					deleteMessageIds: mids
+				});
 				await sb
 					.from("prsn_chat_messages")
 					.delete()
-					.eq("id", mid)
+					.in("id", mids)
 					.eq("sender_id", user.id)
 					.eq("thread_id", tid);
 			}

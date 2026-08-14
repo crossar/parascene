@@ -33,9 +33,12 @@ function extractInviteeUserId(meta) {
  * Matches DELETE /api/chat/messages/:messageId behavior by rewinding to
  * the previous existing message in the same thread (or null).
  *
+ * Call this before deleting the rows. `last_read_message_id` FKs ON DELETE SET NULL;
+ * a null pointer makes unread_count treat the whole thread as unread (999+).
+ *
  * @param {{ sb: any, threadId: number, deleteMessageIds: number[] }} opts
  */
-async function repairLastReadPointersForDeletedMessages({ sb, threadId, deleteMessageIds }) {
+export async function repairLastReadPointersForDeletedMessages({ sb, threadId, deleteMessageIds }) {
 	const tid = Number(threadId);
 	if (!Number.isFinite(tid) || tid <= 0) return;
 	const deletedIds = [...new Set((deleteMessageIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))];

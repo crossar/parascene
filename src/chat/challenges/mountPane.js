@@ -491,23 +491,23 @@ function countUnvotedSubmissions(ranked, viewerId) {
 }
 
 /**
- * Prefer the challenge card / detail root so nested `[data-challenge-id]` (thumb, buttons)
- * never steal scope and leave the Vote badge unupdated — or worse, fall through to `root`
- * and paint every challenge's badge with the wrong count.
+ * Card / detail root for one challenge. Nested `[data-challenge-id]` (hero thumb, Vote
+ * button) must not win. Missing cards must not fall through to `root` — on a detail
+ * page only one challenge is in the DOM, and painting from `root` would stamp every
+ * other live track's unvoted count onto that badge.
  * @param {Element} root
  * @param {string} challengeId
- * @returns {Element}
+ * @returns {Element | null}
  */
 function resolveVoteChromeScope(root, challengeId) {
 	const cid = String(challengeId || '').trim();
-	if (!cid || !(root instanceof Element)) return root;
+	if (!cid || !(root instanceof Element)) return null;
 	const esc = CSS.escape(cid);
 	return (
 		root.querySelector(`[data-challenge-detail][data-challenge-id="${esc}"]`) ||
 		root.querySelector(`.challenge-pane-summary-card[data-challenge-id="${esc}"]`) ||
 		root.querySelector(`.challenge-pane-active-card[data-challenge-id="${esc}"]`) ||
-		root.querySelector(`[data-challenge-id="${esc}"]`) ||
-		root
+		null
 	);
 }
 
@@ -559,8 +559,12 @@ function syncVoteTabChrome(scope, rankedPeers, viewerId, phase) {
 		}
 	}
 
-	const showBadge = unvoted > 1;
-	const label = showBadge ? `${unvoted} submissions not scored` : '';
+	const showBadge = unvoted > 0;
+	const label = showBadge
+		? unvoted === 1
+			? '1 submission not scored'
+			: `${unvoted} submissions not scored`
+		: '';
 	for (const badge of badges) {
 		if (!(badge instanceof HTMLElement)) continue;
 		if (showBadge) {
