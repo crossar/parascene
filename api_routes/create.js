@@ -85,6 +85,7 @@ import { canViewUnpublishedChallengeResultsCreation } from "./utils/challengeRes
 import { loadChallengeFeedSnapshotSharedCached } from "./feed/challengeFeedSnapshotCache.js";
 import {
 	creationMetaHasActiveChallengeFeedPin,
+	creationMetaHasChallengeSubmission,
 	listActiveChallengeFeedPinsFromMeta,
 	upsertChallengeFeedPinInMeta
 } from "../src/shared/challengeSubmitMeta.js";
@@ -6586,6 +6587,12 @@ export default function createCreateRoutes({ queries, storage }) {
 				return res.status(404).json({ error: "Image not found" });
 			}
 			const meta = parseMeta(image.meta);
+			if (creationMetaHasChallengeSubmission(meta)) {
+				return res.status(400).json({
+					error:
+						"This creation is entered in a challenge. Remove it from the challenge before deleting."
+				});
+			}
 			try {
 				const pinStatus = await getCreationFeedPinStatus(queries, image.id, { meta });
 				if (pinStatus.active || creationMetaHasChallengeOrganizerRef(meta)) {

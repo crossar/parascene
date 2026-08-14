@@ -10088,13 +10088,15 @@ export async function initChatPage(root, options = {}) {
 		function getBulkDeleteCounts() {
 			let toDelete = 0;
 			let published = 0;
+			let challengeLocked = 0;
 			for (const card of queryBulkCards()) {
 				const cb = card.querySelector('[data-creations-bulk-checkbox]:checked');
 				if (!cb) continue;
 				if (card.dataset.published === '1') published += 1;
+				else if (card.dataset.inChallenge === '1') challengeLocked += 1;
 				else toDelete += 1;
 			}
-			return { toDelete, published };
+			return { toDelete, published, challengeLocked };
 		}
 
 		function openBulkDeleteModal() {
@@ -10102,7 +10104,7 @@ export async function initChatPage(root, options = {}) {
 			const messageEl = routeWrap.querySelector('[data-creations-bulk-delete-message]');
 			const errorEl = routeWrap.querySelector('[data-creations-bulk-delete-error]');
 			const confirmBtn = routeWrap.querySelector('[data-creations-bulk-delete-confirm]');
-			const { toDelete, published } = getBulkDeleteCounts();
+			const { toDelete, published, challengeLocked } = getBulkDeleteCounts();
 			if (messageEl) {
 				const parts = [];
 				if (toDelete > 0) {
@@ -10113,6 +10115,11 @@ export async function initChatPage(root, options = {}) {
 				if (published > 0) {
 					parts.push(
 						`${published} published item${published === 1 ? '' : 's'} selected will not be deleted.`
+					);
+				}
+				if (challengeLocked > 0) {
+					parts.push(
+						`${challengeLocked} challenge ${challengeLocked === 1 ? 'entry' : 'entries'} selected will not be deleted. Remove ${challengeLocked === 1 ? 'it' : 'them'} from the challenge first.`
 					);
 				}
 				messageEl.textContent = parts.join(' ');
@@ -10186,7 +10193,7 @@ export async function initChatPage(root, options = {}) {
 			const errorEl = routeWrap.querySelector('[data-creations-bulk-delete-error]');
 			const selected = queryBulkCards().filter((card) => {
 				const cb = card.querySelector('[data-creations-bulk-checkbox]:checked');
-				return cb && card.dataset.published !== '1';
+				return cb && card.dataset.published !== '1' && card.dataset.inChallenge !== '1';
 			});
 			const idsToDelete = selected.map((c) => c.dataset.imageId).filter(Boolean);
 			if (idsToDelete.length === 0) {

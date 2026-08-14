@@ -999,7 +999,10 @@ function getCreationDetailMoreMenuItemDefs() {
 	},
 	{
 		action: 'delete',
-		show: (d) => d.actionsContext?.showDelete && !d.actionsContext?.deletePermanent,
+		show: (d) =>
+			d.actionsContext?.showDelete &&
+			!d.actionsContext?.deletePermanent &&
+			!d.actionsContext?.deleteDisabled,
 		icon: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
 	stroke-linejoin="round" aria-hidden="true">
 	<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -3856,13 +3859,13 @@ async function loadCreation() {
 			showRecreate: false,
 			queueForLaterLabel,
 			isFailed,
-			deleteDisabled: challengeMediaLocked
+			deleteDisabled: challengeMediaLocked || hasChallengeSubmission
 				? true
 				: (userDeleted && isAdmin)
 					? false
 					: !(!isPublished && (status === 'failed' || (status === 'creating' && isTimedOut) || status === 'completed')),
 			deletePermanent: false,
-			deleteLabel: challengeMediaLocked
+			deleteLabel: challengeMediaLocked || hasChallengeSubmission
 				? ' Delete (in challenge)'
 				: userDeleted && isAdmin
 					? ' Permanently delete'
@@ -4489,7 +4492,7 @@ async function loadCreation() {
 				: 'This creation was entered in a community challenge that has now ended.';
 		} else {
 			challengeBannerDetail = isOwner && !isPublished
-				? 'This creation is entered in a challenge. You can publish it once the challenge ends.'
+				? 'This creation is entered in a challenge. Remove it from the challenge before deleting. You can publish it once the challenge ends.'
 				: 'This creation was submitted to a community challenge.';
 		}
 		const challengeDetailBannerHtml = hasChallengeSubmission
@@ -6399,7 +6402,10 @@ async function loadCreation() {
 					'set-avatar': () => detailContent.querySelector('button[data-set-avatar-button]')?.click(),
 					'landscape': () => openLandscapeModalFromLoadedCreation(),
 					'unpublish': () => handleUnpublish(),
-					'delete': () => handleDelete(actionsContext?.deletePermanent),
+					'delete': () => {
+						if (actionsContext?.deleteDisabled) return;
+						handleDelete(actionsContext?.deletePermanent);
+					},
 					'queue-for-later': () => {
 						if (!actionsContext.showQueueForLater) return;
 						const queueTarget = isGroupCreation
@@ -7625,6 +7631,12 @@ async function handleDelete(isPermanent) {
 
 	const deleteBtn = document.querySelector('[data-delete-btn]');
 	const resolvedPermanent = typeof isPermanent === 'boolean' ? isPermanent : (deleteBtn?.dataset?.permanentDelete === '1');
+
+	const challengeSubs = lastCreationMeta?.meta?.challenge_submissions;
+	if (!resolvedPermanent && Array.isArray(challengeSubs) && challengeSubs.length > 0) {
+		alert('This creation is entered in a challenge. Remove it from the challenge before deleting.');
+		return;
+	}
 
 	const deleteConfirmMessage = resolvedPermanent
 		? 'Permanently delete this creation? This cannot be undone.'

@@ -633,13 +633,15 @@ class AppRouteCreations extends HTMLElement {
 		const cards = Array.from(this.querySelectorAll('.route-card.route-card-image[data-image-id]'));
 		let toDelete = 0;
 		let published = 0;
+		let challengeLocked = 0;
 		for (const card of cards) {
 			const cb = card.querySelector('[data-creations-bulk-checkbox]:checked');
 			if (!cb) continue;
 			if (card.dataset.published === '1') published += 1;
+			else if (card.dataset.inChallenge === '1') challengeLocked += 1;
 			else toDelete += 1;
 		}
-		return { toDelete, published };
+		return { toDelete, published, challengeLocked };
 	}
 
 	openBulkDeleteModal() {
@@ -647,7 +649,7 @@ class AppRouteCreations extends HTMLElement {
 		const messageEl = this.querySelector('[data-creations-bulk-delete-message]');
 		const errorEl = this.querySelector('[data-creations-bulk-delete-error]');
 		const confirmBtn = this.querySelector('[data-creations-bulk-delete-confirm]');
-		const { toDelete, published } = this.getBulkDeleteCounts();
+		const { toDelete, published, challengeLocked } = this.getBulkDeleteCounts();
 
 		if (messageEl) {
 			const parts = [];
@@ -658,6 +660,11 @@ class AppRouteCreations extends HTMLElement {
 			}
 			if (published > 0) {
 				parts.push(`${published} published item${published === 1 ? '' : 's'} selected will not be deleted.`);
+			}
+			if (challengeLocked > 0) {
+				parts.push(
+					`${challengeLocked} challenge ${challengeLocked === 1 ? 'entry' : 'entries'} selected will not be deleted. Remove ${challengeLocked === 1 ? 'it' : 'them'} from the challenge first.`
+				);
 			}
 			messageEl.textContent = parts.join(' ');
 		}
@@ -691,7 +698,7 @@ class AppRouteCreations extends HTMLElement {
 		const cards = Array.from(this.querySelectorAll('.route-card.route-card-image[data-image-id]'));
 		const selected = cards.filter((card) => {
 			const cb = card.querySelector('[data-creations-bulk-checkbox]:checked');
-			return cb && card.dataset.published !== '1';
+			return cb && card.dataset.published !== '1' && card.dataset.inChallenge !== '1';
 		});
 		const idsToDelete = selected.map((c) => c.dataset.imageId).filter(Boolean);
 
@@ -1583,6 +1590,11 @@ class AppRouteCreations extends HTMLElement {
 	async deleteCreation(item) {
 		if (!item || typeof item.id === 'undefined' || item.id === null) {
 			alert('Cannot delete this creation.');
+			return;
+		}
+
+		if (creationIsChallengeLocked(parseMeta(item.meta))) {
+			alert('This creation is entered in a challenge. Remove it from the challenge before deleting.');
 			return;
 		}
 
