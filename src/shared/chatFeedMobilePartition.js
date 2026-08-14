@@ -4,7 +4,40 @@
  */
 
 /**
- * Feed row is a creation with playable video (chat #feed mobile spotlight strip).
+ * @param {object | null | undefined} meta
+ * @returns {object | null}
+ */
+function youtubeImportMeta(meta) {
+	const importMeta = meta?.import;
+	if (!importMeta || typeof importMeta !== 'object' || Array.isArray(importMeta)) return null;
+	const provider =
+		typeof importMeta.provider === 'string' ? importMeta.provider.trim().toLowerCase() : '';
+	if (provider !== 'youtube') return null;
+	return importMeta;
+}
+
+/**
+ * YouTube watch (landscape) imports are not doom/spotlight clips — Shorts are.
+ * @param {object | null | undefined} meta
+ */
+export function isYoutubeShortsImportMeta(meta) {
+	const importMeta = youtubeImportMeta(meta);
+	if (!importMeta) return false;
+	const kind = typeof importMeta.kind === 'string' ? importMeta.kind.trim().toLowerCase() : '';
+	if (kind === 'shorts') return true;
+	if (kind === 'watch') return false;
+	const url = typeof importMeta.url === 'string' ? importMeta.url : '';
+	try {
+		const parsed = new URL(url);
+		return /^\/shorts\//i.test(parsed.pathname || '');
+	} catch {
+		return /\/shorts\//i.test(url);
+	}
+}
+
+/**
+ * Feed row is a creation with playable vertical video (chat #feed spotlight + doom).
+ * Native videos need a file URL. YouTube imports qualify only as Shorts.
  * @param {object|null|undefined} item
  * @returns {boolean}
  */
@@ -12,9 +45,17 @@ export function isFeedRowVideoCreation(item) {
 	if (!item || typeof item !== 'object') return false;
 	const type = item.type;
 	if (type === 'tip' || type === 'blog_post' || type === 'engagement') return false;
-	const mediaType = typeof item.media_type === 'string' ? item.media_type.trim().toLowerCase() : 'image';
+	const mediaTypeRaw =
+		typeof item.media_type === 'string' && item.media_type.trim()
+			? item.media_type
+			: typeof item.meta?.media_type === 'string'
+				? item.meta.media_type
+				: 'image';
+	const mediaType = mediaTypeRaw.trim().toLowerCase();
+	if (mediaType !== 'video') return false;
+	if (youtubeImportMeta(item.meta)) return isYoutubeShortsImportMeta(item.meta);
 	const videoUrl = typeof item.video_url === 'string' ? item.video_url.trim() : '';
-	return mediaType === 'video' && Boolean(videoUrl);
+	return Boolean(videoUrl);
 }
 
 /**

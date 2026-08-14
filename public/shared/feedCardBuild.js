@@ -1410,7 +1410,8 @@ export function createFeedItemCard(item, itemIndex, options = {}) {
 }
 
 /**
- * Feed row is a creation with playable video (chat #feed mobile spotlight strip).
+ * Feed row is a creation with playable vertical video (chat #feed spotlight + doom).
+ * Native videos need a file URL. YouTube imports qualify only as Shorts.
  * @param {object|null|undefined} item
  * @returns {boolean}
  */
@@ -1418,9 +1419,28 @@ export function isFeedRowVideoCreation(item) {
 	if (!item || typeof item !== "object") return false;
 	const type = item.type;
 	if (type === "tip" || type === "blog_post" || type === "engagement") return false;
-	const mediaType = typeof item.media_type === "string" ? item.media_type.trim().toLowerCase() : "image";
+	const mediaTypeRaw =
+		typeof item.media_type === "string" && item.media_type.trim()
+			? item.media_type
+			: typeof item.meta?.media_type === "string"
+				? item.meta.media_type
+				: "image";
+	const mediaType = mediaTypeRaw.trim().toLowerCase();
+	if (mediaType !== "video") return false;
+	const importMeta = item.meta?.import;
+	const provider =
+		importMeta && typeof importMeta === "object" && !Array.isArray(importMeta)
+			? String(importMeta.provider || "").trim().toLowerCase()
+			: "";
+	if (provider === "youtube") {
+		const kind = typeof importMeta.kind === "string" ? importMeta.kind.trim().toLowerCase() : "";
+		if (kind === "shorts") return true;
+		if (kind === "watch") return false;
+		const url = typeof importMeta.url === "string" ? importMeta.url : "";
+		return /\/shorts\//i.test(url);
+	}
 	const videoUrl = typeof item.video_url === "string" ? item.video_url.trim() : "";
-	return mediaType === "video" && Boolean(videoUrl);
+	return Boolean(videoUrl);
 }
 
 /**

@@ -369,14 +369,7 @@ function isChatPageMobileLayout() {
  * @returns {boolean}
  */
 function isDoomEligibleFeedVideoItem(item) {
-	if (!item || typeof item !== 'object') return false;
-	const t = item.type;
-	if (t === 'tip' || t === 'blog_post' || t === 'engagement') return false;
-	const videoUrl = typeof item.video_url === 'string' ? item.video_url.trim() : '';
-	if (!videoUrl) return false;
-	if (isFeedRowVideoCreation(item)) return true;
-	const mt = typeof item.media_type === 'string' ? item.media_type.trim().toLowerCase() : '';
-	return mt !== 'image';
+	return isFeedRowVideoCreation(item);
 }
 
 function isChatDoomScrollHref(hrefOrPathname) {

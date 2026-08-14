@@ -20,8 +20,13 @@ import {
 	bindDoomVideoRevealWhenFrameReady,
 	createDoomScrollShell,
 	createDoomSlideElement,
+	isDoomYoutubeSlide,
+	pauseDoomYoutubeSlide,
+	playDoomYoutubeSlide,
+	resolveDoomYoutubeIframe,
 	revealDoomSlideVideoPlayback,
-	rewindDoomSlideVideo
+	rewindDoomSlideVideo,
+	setDoomYoutubeMuted
 } from './doomScrollView.js';
 import {
 	destroyDoomCommentsPopover,
@@ -98,6 +103,10 @@ export function stashActiveChatDoomScrollPlaybackForDetailOverlay() {
 		const v = player.getActiveVideo();
 		wasPlaying = v instanceof HTMLVideoElement && !v.paused;
 		if (wasPlaying && typeof player.pause === 'function') player.pause();
+	} else if (isDoomYoutubeSlide(slide)) {
+		const iframe = resolveDoomYoutubeIframe(slide);
+		wasPlaying = iframe instanceof HTMLIFrameElement && Boolean(iframe.getAttribute('src')) && !userPaused;
+		if (wasPlaying) pauseDoomYoutubeSlide(slide, { rewind: false });
 	} else {
 		const v = resolveDoomSlideVideo(slide);
 		if (v instanceof HTMLVideoElement) {
@@ -351,7 +360,11 @@ export async function mountChatDoomScroll(opts) {
 		const list = slides();
 		const slide = list[activeIdx];
 		const v = resolveDoomSlideVideo(slide);
-		const uiMuted = v instanceof HTMLVideoElement ? v.muted : preferMuted;
+		const uiMuted = isDoomYoutubeSlide(slide)
+			? preferMuted
+			: v instanceof HTMLVideoElement
+				? v.muted
+				: preferMuted;
 		if (muteOn instanceof HTMLElement) muteOn.hidden = !uiMuted;
 		if (muteOff instanceof HTMLElement) muteOff.hidden = uiMuted;
 		if (muteBtn instanceof HTMLElement) {
@@ -368,15 +381,22 @@ export async function mountChatDoomScroll(opts) {
 			}
 			return;
 		}
-		const v = resolveDoomSlideVideo(slide);
 		const o = slide.querySelector('[data-chat-doom-play-overlay]');
-		if (!v || !o) return;
+		if (!(o instanceof HTMLElement)) return;
 		const playInner = o.querySelector('[data-chat-doom-play-icon]');
 		const hint = o.querySelector('[data-chat-doom-pause-hint]');
 		if (playInner instanceof HTMLElement) playInner.hidden = false;
 		if (hint instanceof HTMLElement) hint.hidden = true;
 		const userPaused = slide.getAttribute('data-chat-doom-user-paused') === '1';
 		const isActive = slide.classList.contains('chat-doom-slide--active');
+		if (isDoomYoutubeSlide(slide)) {
+			const showPlayHint = userPaused && isActive;
+			o.hidden = !showPlayHint;
+			o.setAttribute('aria-hidden', showPlayHint ? 'false' : 'true');
+			return;
+		}
+		const v = resolveDoomSlideVideo(slide);
+		if (!v) return;
 		const showPlayHint = v.paused && userPaused && isActive;
 		o.hidden = !showPlayHint;
 		o.setAttribute('aria-hidden', showPlayHint ? 'false' : 'true');
@@ -387,6 +407,10 @@ export async function mountChatDoomScroll(opts) {
 	 */
 	function bindDoomSlidePlaybackUi(slide) {
 		if (slide instanceof HTMLElement && slide.dataset.chatDoomGroupVideoPlaylist === '1') return;
+		if (isDoomYoutubeSlide(slide)) {
+			syncPlayOverlayForSlide(slide);
+			return;
+		}
 		const v = resolveDoomSlideVideo(slide);
 		if (!(v instanceof HTMLVideoElement)) return;
 		const sync = () => syncPlayOverlayForSlide(slide);
@@ -598,6 +622,10 @@ export async function mountChatDoomScroll(opts) {
 				rewindDoomSlidePlayback(s);
 				continue;
 			}
+			if (isDoomYoutubeSlide(s)) {
+				pauseDoomYoutubeSlide(s, { rewind: true });
+				continue;
+			}
 			const v = resolveDoomSlideVideo(s);
 			if (!(v instanceof HTMLVideoElement)) continue;
 			v.pause();
@@ -620,6 +648,10 @@ export async function mountChatDoomScroll(opts) {
 				}
 				groupPlayer.pause();
 				if (i !== activeIdx) rewindDoomSlidePlayback(s);
+				continue;
+			}
+			if (isDoomYoutubeSlide(s)) {
+				pauseDoomYoutubeSlide(s, { rewind: i !== activeIdx });
 				continue;
 			}
 			const v = resolveDoomSlideVideo(s);
@@ -669,6 +701,14 @@ export async function mountChatDoomScroll(opts) {
 			} else if (!isDoomGroupSlidePlaybackActive(slide)) {
 				groupPlayer.play();
 			}
+			syncMuteUi();
+			syncPlayOverlayForSlide(slide);
+			attachActiveProgressListener();
+			return;
+		}
+		if (isDoomYoutubeSlide(slide)) {
+			const muted = slideNsfwBlocked(slide) ? true : preferMuted;
+			playDoomYoutubeSlide(slide, { muted, seekToStart });
 			syncMuteUi();
 			syncPlayOverlayForSlide(slide);
 			attachActiveProgressListener();
@@ -821,9 +861,14 @@ export async function mountChatDoomScroll(opts) {
 		const groupPlayer = getDoomGroupVideoPlayer(slide);
 		const v = groupPlayer ? groupPlayer.getActiveVideo() : resolveDoomSlideVideo(slide);
 		const indexChanged = prev !== activeIdx;
+		const ytPlaying =
+			isDoomYoutubeSlide(slide) &&
+			slide.getAttribute('data-chat-doom-user-paused') !== '1' &&
+			Boolean(resolveDoomYoutubeIframe(slide)?.getAttribute('src'));
 		const alreadyPlaying =
 			!indexChanged &&
 			(isDoomGroupSlidePlaybackActive(slide) ||
+				ytPlaying ||
 				(v instanceof HTMLVideoElement && !v.paused && v.currentTime > 0));
 		if (indexChanged) {
 			playActive({ seekToStart: true });
@@ -1014,6 +1059,24 @@ export async function mountChatDoomScroll(opts) {
 		if (groupPlayer) {
 			ev.preventDefault();
 			groupPlayer.togglePlayPause();
+			return;
+		}
+		if (isDoomYoutubeSlide(slide)) {
+			ev.preventDefault();
+			const iframe = resolveDoomYoutubeIframe(slide);
+			const playing = iframe instanceof HTMLIFrameElement && Boolean(iframe.getAttribute('src'));
+			if (playing && slide.getAttribute('data-chat-doom-user-paused') !== '1') {
+				slide.setAttribute('data-chat-doom-user-paused', '1');
+				pauseDoomYoutubeSlide(slide, { rewind: false });
+				syncPlayOverlayForSlide(slide);
+				return;
+			}
+			slide.removeAttribute('data-chat-doom-user-paused');
+			playDoomYoutubeSlide(slide, {
+				muted: slideNsfwBlocked(slide) ? true : preferMuted,
+				seekToStart: !playing
+			});
+			syncPlayOverlayForSlide(slide);
 			return;
 		}
 		const v = resolveDoomSlideVideo(slide);
@@ -1505,6 +1568,17 @@ export async function mountChatDoomScroll(opts) {
 					}
 					groupPlayer.play();
 				}
+				return;
+			}
+
+			if (isDoomYoutubeSlide(slide)) {
+				if (preferMuted) {
+					setDoomYoutubeMuted(slide, true);
+				} else {
+					resumeMediaAudioLevelingContext();
+					playDoomYoutubeSlide(slide, { muted: false, seekToStart: true });
+				}
+				syncMuteUi();
 				return;
 			}
 

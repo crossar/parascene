@@ -1,4 +1,5 @@
 import { getHiddenFeedItems } from '../../shared/feedHiddenItems.js';
+import { isFeedRowVideoCreation } from '../../shared/chatFeedMobilePartition.js';
 
 export const DOOM_FEED_PAGE_SIZE = 28;
 
@@ -66,7 +67,8 @@ export function createDoomFeedPager(opts) {
 		const hiddenIds = getHidden();
 		const pageItems = items.filter((item) => {
 			const itemId = String(item?.created_image_id ?? item?.id ?? '').trim();
-			return itemId && !hiddenIds.includes(itemId);
+			if (!itemId || hiddenIds.includes(itemId)) return false;
+			return isFeedRowVideoCreation(item);
 		});
 		const apiCursor = normalizeDoomCursorFromApi(res.data?.cursor);
 		cursorRef.afterCreatedImageId = apiCursor || inferCursorFromItems(items) || null;

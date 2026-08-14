@@ -10,6 +10,7 @@ import {
 } from "../api_routes/utils/fitThumbnail.js";
 import { isRecommendableCreationRow } from "../api_routes/utils/recommendableCreations.js";
 import { putAnchorCreationFirst } from "../api_routes/feed/doomSiteVideoTimeline.js";
+import { isFeedRowVideoCreation } from "../src/shared/chatFeedMobilePartition.js";
 import { createSelectFeedBetaSitewideCatalog } from "./feedBetaSitewideCatalog.js";
 import {
 	collectCreationPromptMentionTexts,
@@ -3133,6 +3134,10 @@ export function openDb() {
 						viewer_liked: false
 					};
 				};
+				const isDoomSiteVideoRow = (row) => {
+					if (row.unavailable_at != null && row.unavailable_at !== "") return false;
+					return isFeedRowVideoCreation(row);
+				};
 				const cols =
 					"id, title, summary, author, tags, created_at, created_image_id, prsn_created_images!inner(filename, file_path, user_id, unavailable_at, meta, title)";
 				const cap = Math.min(300, Math.max(safeLimit + 1, safeLimit * 4));
@@ -3156,6 +3161,15 @@ export function openDb() {
 						.maybeSingle();
 					if (anchorErr) throw anchorErr;
 					if (!anchorRow?.created_at) return { rows: [], hasMore: false, cursor: null };
+					const anchorMeta = anchorRow.prsn_created_images?.meta ?? null;
+					if (
+						!isFeedRowVideoCreation({
+							media_type: anchorMeta?.media_type,
+							meta: anchorMeta
+						})
+					) {
+						return { rows: [], hasMore: false, cursor: null };
+					}
 					query = query.lte("created_at", String(anchorRow.created_at));
 					const { data, error } = await query;
 					if (error) throw error;
@@ -3163,7 +3177,7 @@ export function openDb() {
 						(data ?? [])
 							.map(mapFeedRow)
 							.filter((row) => {
-								if (row.unavailable_at != null && row.unavailable_at !== "") return false;
+								if (!isDoomSiteVideoRow(row)) return false;
 								const rid = Number(row?.created_image_id ?? row?.id);
 								if (rid === anchorId) return true;
 								return rowIsStrictlyOlder(row, anchorRow.created_at, anchorId);
@@ -3198,7 +3212,7 @@ export function openDb() {
 					const filtered = (data ?? [])
 						.map(mapFeedRow)
 						.filter((row) =>
-							(row.unavailable_at == null || row.unavailable_at === "") &&
+							isDoomSiteVideoRow(row) &&
 							rowIsStrictlyOlder(row, cursorRow.created_at, cursorId)
 						);
 					const hasMore = filtered.length > safeLimit;
@@ -3214,7 +3228,7 @@ export function openDb() {
 				if (error) throw error;
 				const mappedRows = (data ?? [])
 					.map(mapFeedRow)
-					.filter((row) => row.unavailable_at == null || row.unavailable_at === "");
+					.filter((row) => isDoomSiteVideoRow(row));
 				const hasMore = mappedRows.length > safeLimit;
 				const pageRows = mappedRows.slice(0, safeLimit);
 				const mapped = await enrichFeedCreationRows(viewerId, pageRows);

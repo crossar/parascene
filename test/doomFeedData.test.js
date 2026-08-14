@@ -26,7 +26,7 @@ describe('createDoomFeedPager', () => {
 				return {
 					ok: true,
 					data: {
-						items: [{ created_image_id: 55 }],
+						items: [{ created_image_id: 55, media_type: 'video', video_url: 'https://x/v.mp4' }],
 						hasMore: true,
 						cursor: { after_created_image_id: '55' }
 					}
@@ -49,7 +49,10 @@ describe('createDoomFeedPager', () => {
 					return {
 						ok: true,
 						data: {
-							items: [{ created_image_id: 80 }, { created_image_id: 70 }],
+							items: [
+								{ created_image_id: 80, media_type: 'video', video_url: 'https://x/v.mp4' },
+								{ created_image_id: 70, media_type: 'video', video_url: 'https://x/v2.mp4' }
+							],
 							hasMore: true,
 							cursor: { after_created_image_id: '70' }
 						}
@@ -71,7 +74,10 @@ describe('createDoomFeedPager', () => {
 			fetchJsonWithStatusDeduped: async () => ({
 				ok: true,
 				data: {
-					items: [{ created_image_id: 11 }, { created_image_id: 12 }],
+					items: [
+						{ created_image_id: 11, media_type: 'video', video_url: 'https://x/v.mp4' },
+						{ created_image_id: 12, media_type: 'video', video_url: 'https://x/v2.mp4' }
+					],
 					hasMore: false,
 					cursor: { after_created_image_id: '12' }
 				}
@@ -79,5 +85,30 @@ describe('createDoomFeedPager', () => {
 		});
 		const page = await pager.fetchMountPage(12);
 		expect(page.pageItems.map((x) => x.created_image_id)).toEqual([12]);
+	});
+
+	test('drops YouTube watch imports and keeps Shorts', async () => {
+		const pager = createDoomFeedPager({
+			fetchJsonWithStatusDeduped: async () => ({
+				ok: true,
+				data: {
+					items: [
+						{
+							created_image_id: 1,
+							media_type: 'video',
+							meta: { media_type: 'video', import: { provider: 'youtube', kind: 'watch' } }
+						},
+						{
+							created_image_id: 2,
+							media_type: 'video',
+							meta: { media_type: 'video', import: { provider: 'youtube', kind: 'shorts' } }
+						}
+					],
+					hasMore: false
+				}
+			})
+		});
+		const page = await pager.fetchMountPage(2);
+		expect(page.pageItems.map((x) => x.created_image_id)).toEqual([2]);
 	});
 });
