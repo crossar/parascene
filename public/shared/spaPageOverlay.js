@@ -31,10 +31,12 @@ const OVERLAY_STORE_KEY = '__prsnSpaPageOverlay';
 const WORKFLOW_DISMISS_MESSAGE = 'prsn-workflow-overlay-dismiss';
 const STOP_PLAYBACK_MESSAGE = 'prsn-creation-detail-stop-playback';
 const OVERLAY_VEIL_FALLBACK_MS = 400;
+const OVERLAY_VEIL_UNSTICK_MS = 10000;
 
 let overlayFramePendingUrl = null;
 let overlayFramePendingGeneration = 0;
 let overlayFrameVeilFallbackTimer = null;
+let overlayFrameVeilStartedAt = 0;
 
 /** @typedef {'profile'|'style'|'audio-clip'|'prompt-library'|'creation-detail'|'creation-mutate'|'create'|'integrations'} SpaOverlayPageKind */
 
@@ -93,11 +95,32 @@ function clearOverlayFrameVeilFallbackTimer() {
 	}
 }
 
+function overlayFrameHrefMatchesPending(frame) {
+	if (!(frame instanceof HTMLIFrameElement)) return false;
+	const pending = normalizeEmbedUrlForMatch(overlayFramePendingUrl);
+	if (!pending) return false;
+	try {
+		const href = String(frame.contentWindow?.location?.href || '');
+		if (!href || href === 'about:blank') return false;
+		return normalizeEmbedUrlForMatch(href) === pending;
+	} catch {
+		return false;
+	}
+}
+
 function scheduleOverlayFrameVeilFallback(frame, generation) {
 	clearOverlayFrameVeilFallbackTimer();
 	overlayFrameVeilFallbackTimer = setTimeout(() => {
 		if (generation !== overlayFramePendingGeneration) return;
-		revealOverlayFrame(frame);
+		if (overlayFrameHrefMatchesPending(frame)) {
+			revealOverlayFrame(frame);
+			return;
+		}
+		if (overlayFrameVeilStartedAt && Date.now() - overlayFrameVeilStartedAt >= OVERLAY_VEIL_UNSTICK_MS) {
+			revealOverlayFrame(frame);
+			return;
+		}
+		scheduleOverlayFrameVeilFallback(frame, generation);
 	}, OVERLAY_VEIL_FALLBACK_MS);
 }
 
@@ -536,17 +559,6 @@ function setOverlayFrameVeilActive(frame, active) {
 	veil.setAttribute('aria-hidden', active ? 'false' : 'true');
 }
 
-function overlayFrameDocumentIsReady(frame) {
-	if (!(frame instanceof HTMLIFrameElement)) return false;
-	try {
-		const href = String(frame.contentWindow?.location?.href || '');
-		if (!href || href === 'about:blank') return false;
-	} catch {
-		// Cross-origin: document loaded enough to be a real frame.
-	}
-	return true;
-}
-
 function onOverlayFrameLoad(frame) {
 	try {
 		const win = frame.contentWindow;
@@ -558,7 +570,7 @@ function onOverlayFrameLoad(frame) {
 	} catch {
 		// ignore
 	}
-	if (overlayFrameDocumentIsReady(frame)) {
+	if (overlayFrameHrefMatchesPending(frame)) {
 		revealOverlayFrame(frame);
 	}
 }
@@ -581,6 +593,7 @@ function assignOverlayFrameUrl(frame, url, target) {
 	overlayFramePendingGeneration += 1;
 	const generation = overlayFramePendingGeneration;
 	overlayFramePendingUrl = url;
+	overlayFrameVeilStartedAt = Date.now();
 	frame.classList.add('is-overlay-loading');
 	setOverlayFrameVeilActive(frame, true);
 	scheduleOverlayFrameVeilFallback(frame, generation);
@@ -1221,6 +1234,7 @@ function buildOverlayChrome(target) {
 	frame.className = 'creation-detail-overlay-frame is-overlay-loading';
 	frame.setAttribute('title', frameTitleForTarget(target));
 	frame.setAttribute('loading', 'eager');
+	frame.setAttribute('allow', 'downloads; web-share; fullscreen; autoplay');
 	const shellBg = getParentShellBackgroundColor();
 	if (shellBg) {
 		frame.style.backgroundColor = shellBg;

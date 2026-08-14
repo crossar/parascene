@@ -2547,6 +2547,44 @@ function filenameFromVideoUrl(url, fallbackId) {
 	return fallback;
 }
 
+function videoMimeFromFilename(filename, blobType) {
+	const type = typeof blobType === 'string' ? blobType.trim().toLowerCase() : '';
+	if (type && type !== 'application/octet-stream' && type !== 'binary/octet-stream') return blobType;
+	const name = String(filename || '').toLowerCase();
+	if (name.endsWith('.webm')) return 'video/webm';
+	if (name.endsWith('.mov')) return 'video/quicktime';
+	if (name.endsWith('.m4v')) return 'video/x-m4v';
+	return 'video/mp4';
+}
+
+function isMobileVideoDownloadShare() {
+	const ua = navigator.userAgent || '';
+	if (/Android|iPhone|iPod|Mobile/i.test(ua)) return true;
+	if (/iPad/i.test(ua)) return true;
+	return Number(navigator.maxTouchPoints) > 1 && /Mac/i.test(ua);
+}
+
+function canShareVideoFile(file) {
+	if (!isMobileVideoDownloadShare()) return false;
+	if (typeof navigator.share !== 'function') return false;
+	if (typeof navigator.canShare !== 'function') return true;
+	try {
+		return navigator.canShare({ files: [file] });
+	} catch {
+		return false;
+	}
+}
+
+function triggerAnchorDownload(objectUrl, filename) {
+	const a = document.createElement('a');
+	a.href = objectUrl;
+	a.download = filename;
+	a.rel = 'noopener';
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+}
+
 function resolveOwnerDownloadableVideo() {
 	if (lastDetailIsGroupCreation) {
 		const source = lastGroupSourcesById.get(Number(lastGroupSelectedSourceId));
@@ -2588,14 +2626,19 @@ async function downloadOwnerCreationVideo() {
 		throw new Error('Could not download video');
 	}
 	const blob = await res.blob();
+	const file = new File([blob], filename, {
+		type: videoMimeFromFilename(filename, blob.type || res.headers.get('Content-Type') || '')
+	});
+	if (canShareVideoFile(file)) {
+		try {
+			await navigator.share({ files: [file], title: filename });
+			return;
+		} catch (err) {
+			if (err && typeof err === 'object' && err.name === 'AbortError') return;
+		}
+	}
 	const objectUrl = URL.createObjectURL(blob);
-	const a = document.createElement('a');
-	a.href = objectUrl;
-	a.download = filename;
-	a.rel = 'noopener';
-	document.body.appendChild(a);
-	a.click();
-	a.remove();
+	triggerAnchorDownload(objectUrl, filename);
 	window.setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
 }
 
