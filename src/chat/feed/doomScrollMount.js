@@ -390,9 +390,8 @@ export async function mountChatDoomScroll(opts) {
 		const userPaused = slide.getAttribute('data-chat-doom-user-paused') === '1';
 		const isActive = slide.classList.contains('chat-doom-slide--active');
 		if (isDoomYoutubeSlide(slide)) {
-			const showPlayHint = userPaused && isActive;
-			o.hidden = !showPlayHint;
-			o.setAttribute('aria-hidden', showPlayHint ? 'false' : 'true');
+			o.hidden = true;
+			o.setAttribute('aria-hidden', 'true');
 			return;
 		}
 		const v = resolveDoomSlideVideo(slide);
