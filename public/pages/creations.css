@@ -5254,10 +5254,6 @@ button.creation-detail-history-thumb-link.creation-detail-history-unavailable.cr
 		box-sizing: border-box;
 		z-index: 2;
 		min-width: 0;
-		background: color-mix(in srgb, var(--surface-strong) 84%, transparent);
-		backdrop-filter: blur(18px) saturate(165%);
-		-webkit-backdrop-filter: blur(18px) saturate(165%);
-		border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
 	}
 
 	.creation-detail-lineage-modal .creation-detail-lineage-modal-mobile-chrome-toolbar {
@@ -5268,23 +5264,6 @@ button.creation-detail-history-thumb-link.creation-detail-history-unavailable.cr
 		flex: 0 0 58px;
 		height: 58px;
 		min-width: 0;
-	}
-
-	.creation-detail-lineage-modal .creation-detail-lineage-modal-mobile-chrome.chat-page-mobile-chrome::before {
-		content: '';
-		position: absolute;
-		left: 0;
-		right: 0;
-		top: 0;
-		bottom: 0;
-		pointer-events: none;
-		background: linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--accent) 11%, transparent) 0%,
-			color-mix(in srgb, var(--accent) 4%, transparent) 46%,
-			transparent 100%
-		);
-		opacity: 0.9;
 	}
 
 	.creation-detail-lineage-modal .creation-detail-lineage-modal-mobile-chrome.chat-page-mobile-chrome > *,

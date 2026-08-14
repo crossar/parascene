@@ -52,6 +52,20 @@
 	--color-amber-bg-subtle: color-mix(in srgb, var(--color-amber) 18%, var(--surface));
 	--color-purple-fg: color-mix(in srgb, var(--color-purple) 88%, var(--text));
 	--color-purple-bg-subtle: color-mix(in srgb, var(--color-purple) 12%, transparent);
+
+	/* Fade glass: opaque fill at the solid edge, clearer toward content (header fades down). */
+	--glass-fade-fill: var(--bg);
+	--glass-fade-filter: blur(20px) saturate(180%);
+	--glass-fade-edge: color-mix(in srgb, var(--border) 30%, transparent);
+	--glass-fade-sheen: linear-gradient(to bottom,
+			rgba(255, 255, 255, 0.1) 0%,
+			rgba(255, 255, 255, 0.05) 30%,
+			transparent 100%);
+	--glass-fade-background: linear-gradient(to bottom,
+			color-mix(in srgb, var(--glass-fade-fill) 100%, transparent) 0%,
+			color-mix(in srgb, var(--glass-fade-fill) 95%, transparent) 20%,
+			color-mix(in srgb, var(--glass-fade-fill) 80%, transparent) 50%,
+			color-mix(in srgb, var(--glass-fade-fill) 40%, transparent) 100%);
 }
 
 /* Original dark theme (commented out)
@@ -116,6 +130,12 @@
 		--color-amber-bg-subtle: color-mix(in srgb, var(--color-amber) 30%, var(--surface));
 		--color-purple-fg: color-mix(in srgb, var(--color-purple) 82%, white);
 		--color-purple-bg-subtle: color-mix(in srgb, var(--color-purple) 14%, transparent);
+
+		--glass-fade-fill: var(--surface);
+		--glass-fade-sheen: linear-gradient(to bottom,
+				rgba(255, 255, 255, 0.05) 0%,
+				rgba(255, 255, 255, 0.02) 30%,
+				transparent 100%);
 	}
 }
 
@@ -301,45 +321,14 @@ header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrom
 	top: 0;
 	z-index: 1000;
 	padding: 8px 0px;
-	background: linear-gradient(to bottom,
-			rgba(246, 247, 251, 1) 0%,
-			rgba(246, 247, 251, 0.95) 20%,
-			rgba(246, 247, 251, 0.8) 50%,
-			rgba(246, 247, 251, 0.4) 100%);
-	backdrop-filter: blur(20px) saturate(180%);
-	-webkit-backdrop-filter: blur(20px) saturate(180%);
-	border-bottom: 1px solid rgba(226, 232, 240, 0.3);
+	background: var(--glass-fade-background);
+	backdrop-filter: var(--glass-fade-filter);
+	-webkit-backdrop-filter: var(--glass-fade-filter);
+	border-bottom: 1px solid var(--glass-fade-edge);
 	overflow: visible;
 }
 
-/* Original dark theme header (commented out)
-@media (prefers-color-scheme: dark) {
-  header {
-    background: linear-gradient(
-      to bottom,
-      rgba(17, 24, 39, 1) 0%,
-      rgba(17, 24, 39, 0.95) 20%,
-      rgba(17, 24, 39, 0.8) 50%,
-      rgba(17, 24, 39, 0.4) 100%
-    );
-    border-bottom: 1px solid rgba(39, 50, 74, 0.3);
-  }
-}
-*/
-
-/* Subtle royal purple dark theme header */
-@media (prefers-color-scheme: dark) {
-	header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) {
-		background: linear-gradient(to bottom,
-				rgba(26, 22, 40, 1) 0%,
-				rgba(26, 22, 40, 0.95) 20%,
-				rgba(26, 22, 40, 0.8) 50%,
-				rgba(26, 22, 40, 0.4) 100%);
-		border-bottom: 1px solid rgba(61, 53, 82, 0.3);
-	}
-}
-
-/* Subtle gradient overlay for additional depth */
+/* Subtle sheen overlay for additional depth */
 header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome)::before {
 	content: '';
 	position: absolute;
@@ -347,21 +336,9 @@ header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrom
 	left: 0;
 	right: 0;
 	height: 100%;
-	background: linear-gradient(to bottom,
-			rgba(255, 255, 255, 0.1) 0%,
-			rgba(255, 255, 255, 0.05) 30%,
-			transparent 100%);
+	background: var(--glass-fade-sheen);
 	pointer-events: none;
 	z-index: 0;
-}
-
-@media (prefers-color-scheme: dark) {
-	header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome)::before {
-		background: linear-gradient(to bottom,
-				rgba(255, 255, 255, 0.05) 0%,
-				rgba(255, 255, 255, 0.02) 30%,
-				transparent 100%);
-	}
 }
 
 /* Ensure header content is above the gradient overlay */
@@ -7755,17 +7732,15 @@ body.chat-page .chat-page-thread-body {
 	}
 }
 
-/* Connect chat thread topbar + Connect sidebar head — same glass stack as main app header. */
+/* Nested/thread/overlay chrome — same fade glass as the main app header. */
+.chat-page-header:not(.chat-page-header--transparent),
 .chat-page-topbar,
-.chat-page-sidebar-head {
-	background: linear-gradient(to bottom,
-			rgba(246, 247, 251, 1) 0%,
-			rgba(246, 247, 251, 0.95) 20%,
-			rgba(246, 247, 251, 0.8) 50%,
-			rgba(246, 247, 251, 0.4) 100%);
-	backdrop-filter: blur(20px) saturate(180%);
-	-webkit-backdrop-filter: blur(20px) saturate(180%);
-	border-bottom: 1px solid rgba(226, 232, 240, 0.3);
+.chat-page-sidebar-head,
+.creation-detail-overlay-chrome {
+	background: var(--glass-fade-background);
+	backdrop-filter: var(--glass-fade-filter);
+	-webkit-backdrop-filter: var(--glass-fade-filter);
+	border-bottom: 1px solid var(--glass-fade-edge);
 }
 
 .chat-page-topbar {
@@ -7787,39 +7762,16 @@ body.chat-page .chat-page-thread-body {
 	overflow: visible;
 }
 
-@media (prefers-color-scheme: dark) {
-	.chat-page-topbar,
-	.chat-page-sidebar-head {
-		background: linear-gradient(to bottom,
-				rgba(26, 22, 40, 1) 0%,
-				rgba(26, 22, 40, 0.95) 20%,
-				rgba(26, 22, 40, 0.8) 50%,
-				rgba(26, 22, 40, 0.4) 100%);
-		border-bottom: 1px solid rgba(61, 53, 82, 0.3);
-	}
-}
-
+.chat-page-header:not(.chat-page-header--transparent)::before,
 header.chat-page-topbar::before,
-.chat-page-sidebar-head::before {
+.chat-page-sidebar-head::before,
+.creation-detail-overlay-chrome::before {
 	content: '';
 	position: absolute;
 	inset: 0;
 	pointer-events: none;
 	z-index: 0;
-	background: linear-gradient(to bottom,
-			rgba(255, 255, 255, 0.1) 0%,
-			rgba(255, 255, 255, 0.05) 30%,
-			transparent 100%);
-}
-
-@media (prefers-color-scheme: dark) {
-	header.chat-page-topbar::before,
-	.chat-page-sidebar-head::before {
-		background: linear-gradient(to bottom,
-				rgba(255, 255, 255, 0.05) 0%,
-				rgba(255, 255, 255, 0.02) 30%,
-				transparent 100%);
-	}
+	background: var(--glass-fade-sheen);
 }
 
 header.chat-page-topbar::after {
@@ -7827,8 +7779,10 @@ header.chat-page-topbar::after {
 	display: none;
 }
 
+.chat-page-header:not(.chat-page-header--transparent) > *,
 .chat-page-topbar > *,
-.chat-page-sidebar-head > * {
+.chat-page-sidebar-head > *,
+.creation-detail-overlay-chrome > * {
 	position: relative;
 	z-index: 1;
 }
@@ -7872,25 +7826,10 @@ header.chat-page-topbar::after {
 .chat-page-canvas-panel-head {
 	position: relative;
 	overflow: visible;
-	background: linear-gradient(to bottom,
-			rgba(246, 247, 251, 1) 0%,
-			rgba(246, 247, 251, 0.95) 20%,
-			rgba(246, 247, 251, 0.8) 50%,
-			rgba(246, 247, 251, 0.4) 100%);
-	backdrop-filter: blur(20px) saturate(180%);
-	-webkit-backdrop-filter: blur(20px) saturate(180%);
-	border-bottom: 1px solid rgba(226, 232, 240, 0.3);
-}
-
-@media (prefers-color-scheme: dark) {
-	.chat-page-canvas-panel-head {
-		background: linear-gradient(to bottom,
-				rgba(26, 22, 40, 1) 0%,
-				rgba(26, 22, 40, 0.95) 20%,
-				rgba(26, 22, 40, 0.8) 50%,
-				rgba(26, 22, 40, 0.4) 100%);
-		border-bottom: 1px solid rgba(61, 53, 82, 0.3);
-	}
+	background: var(--glass-fade-background);
+	backdrop-filter: var(--glass-fade-filter);
+	-webkit-backdrop-filter: var(--glass-fade-filter);
+	border-bottom: 1px solid var(--glass-fade-edge);
 }
 
 .chat-page-canvas-panel-head::before {
@@ -7899,19 +7838,7 @@ header.chat-page-topbar::after {
 	inset: 0;
 	pointer-events: none;
 	z-index: 0;
-	background: linear-gradient(to bottom,
-			rgba(255, 255, 255, 0.1) 0%,
-			rgba(255, 255, 255, 0.05) 30%,
-			transparent 100%);
-}
-
-@media (prefers-color-scheme: dark) {
-	.chat-page-canvas-panel-head::before {
-		background: linear-gradient(to bottom,
-				rgba(255, 255, 255, 0.05) 0%,
-				rgba(255, 255, 255, 0.02) 30%,
-				transparent 100%);
-	}
+	background: var(--glass-fade-sheen);
 }
 
 .chat-page-canvas-panel-head > * {
@@ -7943,14 +7870,10 @@ body.chat-page .chat-page-canvas-panel-body {
 
 @media (max-width: 768px) {
 	.chat-page-mobile-chrome {
-		background: linear-gradient(to bottom,
-				rgba(246, 247, 251, 1) 0%,
-				rgba(246, 247, 251, 0.95) 20%,
-				rgba(246, 247, 251, 0.8) 50%,
-				rgba(246, 247, 251, 0.4) 100%);
-		backdrop-filter: blur(20px) saturate(180%);
-		-webkit-backdrop-filter: blur(20px) saturate(180%);
-		border-bottom: 1px solid rgba(226, 232, 240, 0.3);
+		background: var(--glass-fade-background);
+		backdrop-filter: var(--glass-fade-filter);
+		-webkit-backdrop-filter: var(--glass-fade-filter);
+		border-bottom: 1px solid var(--glass-fade-edge);
 	}
 
 	.chat-page-mobile-chrome::before {
@@ -7959,33 +7882,12 @@ body.chat-page .chat-page-canvas-panel-body {
 		inset: 0;
 		pointer-events: none;
 		z-index: 0;
-		background: linear-gradient(to bottom,
-				rgba(255, 255, 255, 0.1) 0%,
-				rgba(255, 255, 255, 0.05) 30%,
-				transparent 100%);
+		background: var(--glass-fade-sheen);
 	}
 
 	.chat-page-mobile-chrome > * {
 		position: relative;
 		z-index: 1;
-	}
-}
-
-@media (max-width: 768px) and (prefers-color-scheme: dark) {
-	.chat-page-mobile-chrome {
-		background: linear-gradient(to bottom,
-				rgba(26, 22, 40, 1) 0%,
-				rgba(26, 22, 40, 0.95) 20%,
-				rgba(26, 22, 40, 0.8) 50%,
-				rgba(26, 22, 40, 0.4) 100%);
-		border-bottom: 1px solid rgba(61, 53, 82, 0.3);
-	}
-
-	.chat-page-mobile-chrome::before {
-		background: linear-gradient(to bottom,
-				rgba(255, 255, 255, 0.05) 0%,
-				rgba(255, 255, 255, 0.02) 30%,
-				transparent 100%);
 	}
 }
 
@@ -13159,25 +13061,6 @@ button.msg-reply-indicator-inner:hover {
 	box-sizing: border-box;
 	z-index: 3;
 	min-width: 0;
-	background: color-mix(in srgb, var(--surface-strong) 62%, transparent);
-	backdrop-filter: blur(18px) saturate(165%);
-	-webkit-backdrop-filter: blur(18px) saturate(165%);
-	border-bottom: 1px solid color-mix(in srgb, var(--border) 36%, transparent);
-}
-
-.creation-detail-overlay-chrome::before {
-	content: '';
-	position: absolute;
-	inset: 0;
-	pointer-events: none;
-	z-index: 0;
-	background: linear-gradient(
-		180deg,
-		color-mix(in srgb, var(--accent) 11%, transparent) 0%,
-		color-mix(in srgb, var(--accent) 4%, transparent) 46%,
-		transparent 100%
-	);
-	opacity: 0.9;
 }
 
 .creation-detail-overlay-chrome > * {

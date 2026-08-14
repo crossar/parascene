@@ -1176,11 +1176,6 @@ html.chat-page body.chat-page .challenge-pane-organize-entry {
 		padding-top: calc(58px + 10px) !important;
 	}
 
-	html.chat-page body.chat-page .chat-page-thread-body > .chat-page-header {
-		background: color-mix(in srgb, var(--surface-strong) 62%, transparent) !important;
-		border-bottom-color: color-mix(in srgb, var(--border) 36%, transparent) !important;
-	}
-
 	html.chat-page body.chat-page .chat-page-thread-body > .chat-page-header .chat-page-back,
 	html.chat-page body.chat-page .chat-page-thread-body > .chat-page-header .chat-page-header-title,
 	html.chat-page body.chat-page .chat-page-thread-body > .chat-page-header .chat-page-header-actions {

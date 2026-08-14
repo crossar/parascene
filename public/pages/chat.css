@@ -2176,28 +2176,6 @@ body.chat-page.chat-page--mobile-sidebar-open .chat-page-sidebar-create-sticky {
 		box-sizing: border-box;
 		z-index: 45;
 		min-width: 0;
-		background: color-mix(in srgb, var(--surface-strong) 62%, transparent);
-		backdrop-filter: blur(18px) saturate(165%);
-		-webkit-backdrop-filter: blur(18px) saturate(165%);
-		border-bottom: 1px solid color-mix(in srgb, var(--border) 36%, transparent);
-	}
-
-	.chat-page-thread-body > .chat-page-header::before,
-	.chat-page-thread-body > header.chat-page-header.chat-page-topbar::before {
-		content: '';
-		position: absolute;
-		left: 0;
-		right: 0;
-		top: 0;
-		bottom: 0;
-		pointer-events: none;
-		background: linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--accent) 11%, transparent) 0%,
-			color-mix(in srgb, var(--accent) 4%, transparent) 46%,
-			transparent 100%
-		);
-		opacity: 0.9;
 	}
 
 	.chat-page-header > * {
@@ -4445,24 +4423,6 @@ body.chat-page.chat-page--doom-scroll .chat-route {
 	box-sizing: border-box;
 	z-index: 3;
 	min-width: 0;
-	background: color-mix(in srgb, var(--surface-strong) 62%, transparent);
-	backdrop-filter: blur(18px) saturate(165%);
-	-webkit-backdrop-filter: blur(18px) saturate(165%);
-	border-bottom: 1px solid color-mix(in srgb, var(--border) 36%, transparent);
-}
-
-.chat-page-header.creation-detail-overlay-chrome::before {
-	content: '';
-	position: absolute;
-	inset: 0;
-	pointer-events: none;
-	background: linear-gradient(
-		180deg,
-		color-mix(in srgb, var(--accent) 11%, transparent) 0%,
-		color-mix(in srgb, var(--accent) 4%, transparent) 46%,
-		transparent 100%
-	);
-	opacity: 0.9;
 }
 
 .chat-page-header.creation-detail-overlay-chrome > * {
