@@ -295,8 +295,8 @@ header .logo,
 	-ms-user-select: none;
 }
 
-/* App shell nav only — chat uses `<header class="chat-page-topbar">` / `<header class="chat-page-mobile-chrome">`, not this block. */
-header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) {
+/* App shell nav only — chat nested headers use `.chat-page-header`, not this block. */
+header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) {
 	position: sticky;
 	top: 0;
 	z-index: 1000;
@@ -329,7 +329,7 @@ header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail
 
 /* Subtle royal purple dark theme header */
 @media (prefers-color-scheme: dark) {
-	header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) {
+	header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) {
 		background: linear-gradient(to bottom,
 				rgba(26, 22, 40, 1) 0%,
 				rgba(26, 22, 40, 0.95) 20%,
@@ -340,7 +340,7 @@ header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail
 }
 
 /* Subtle gradient overlay for additional depth */
-header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome)::before {
+header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome)::before {
 	content: '';
 	position: absolute;
 	top: 0;
@@ -356,7 +356,7 @@ header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail
 }
 
 @media (prefers-color-scheme: dark) {
-	header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome)::before {
+	header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome)::before {
 		background: linear-gradient(to bottom,
 				rgba(255, 255, 255, 0.05) 0%,
 				rgba(255, 255, 255, 0.02) 30%,
@@ -398,7 +398,7 @@ app-navigation {
 		z-index: 1000;
 	}
 
-	header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) {
+	header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) {
 		padding: 4px 0px;
 		position: sticky;
 		top: 0;
@@ -547,18 +547,18 @@ header .header-actions {
 	flex-shrink: 0;
 }
 
-header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) h1,
-header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) p {
+header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) h1,
+header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) p {
 	max-width: 960px;
 	margin: 0 auto;
 }
 
-header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) h1 {
+header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) h1 {
 	font-size: 1.75rem;
 	letter-spacing: -0.02em;
 }
 
-header:not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) p {
+header:not(.chat-page-header):not(.chat-page-topbar):not(.chat-page-mobile-chrome):not(.creation-detail-overlay-chrome) p {
 	margin-top: 6px;
 	color: var(--text-muted);
 }
@@ -6516,28 +6516,22 @@ body.chat-page main.chat-page-outer {
 		}
 	}
 
-	body.chat-page .chat-page-topbar {
+	body.chat-page .chat-page-header.chat-page-topbar {
 		display: flex;
 		justify-content: space-between;
 	}
 
-	body.chat-page .chat-page-topbar .chat-page-back {
+	body.chat-page .chat-page-header.chat-page-topbar .chat-page-back {
 		display: none;
 	}
 
-	body.chat-page .chat-page-topbar .chat-page-title {
+	body.chat-page .chat-page-header.chat-page-topbar .chat-page-header-title,
+	body.chat-page .chat-page-header.chat-page-topbar .chat-page-title {
 		flex: 0 1 auto;
 	}
 
-	body.chat-page .chat-page-topbar .chat-page-topbar-actions {
+	body.chat-page .chat-page-header.chat-page-topbar .chat-page-header-actions {
 		margin-left: auto;
-	}
-
-	.chat-page-sidebar-back.chat-page-back {
-		width: 40px;
-		height: 40px;
-		margin: 0;
-		flex-shrink: 0;
 	}
 
 	.chat-page-sidebar-connect {
@@ -7996,16 +7990,24 @@ body.chat-page .chat-page-canvas-panel-body {
 }
 
 .chat-page-back {
+	-webkit-appearance: none;
+	appearance: none;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	width: 44px;
 	height: 44px;
-	margin: -6px 0 -6px -6px;
+	margin: 0;
+	padding: 0;
+	border: none;
 	border-radius: 50%;
+	background: transparent;
 	color: var(--text);
 	text-decoration: none;
+	cursor: pointer;
 	flex-shrink: 0;
+	font: inherit;
+	line-height: 1;
 	-webkit-tap-highlight-color: transparent;
 	touch-action: manipulation;
 }
@@ -8015,33 +8017,76 @@ body.chat-page .chat-page-canvas-panel-body {
 	outline-offset: 2px;
 }
 
-/*
- * Inter `<-` ligature ink sits high in the em box. Nudge so it optically
- * lines up with adjacent header title text. Mobile needs a larger offset
- * than desktop (plain-text overlay titles vs icon+label chrome).
- */
 .chat-page-back-icon,
+.chat-page-back-icon-svg {
+	display: block;
+	width: 22px;
+	height: 22px;
+	flex-shrink: 0;
+	overflow: visible;
+}
+
 .blog-edit-back-icon {
 	display: block;
 	line-height: 1;
 	letter-spacing: 0;
 	font-variant-ligatures: common-ligatures contextual;
 	font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
-	transform: translateY(-1px);
 }
 
-@media (max-width: 768px) {
-	.chat-page-back-icon,
-	.blog-edit-back-icon {
-		transform: translateY(5px);
-	}
-}
-
-.chat-page-back-icon-svg {
-	display: block;
-	width: 22px;
-	height: 22px;
+.chat-page-header-actions {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
 	flex-shrink: 0;
+	gap: 6px;
+}
+
+/*
+ * Nested header slots share one 44px row. Title uses the same line-height as
+ * that row so caps sit on the icon midline (not the font’s extra em-box).
+ */
+.chat-page-header:not(.chat-page-header--transparent) {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+}
+
+.chat-page-header:not(.chat-page-header--transparent) > .chat-page-back,
+.chat-page-header:not(.chat-page-header--transparent) > .chat-page-header-title,
+.chat-page-header:not(.chat-page-header--transparent) > .chat-page-header-actions {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	align-self: center;
+	box-sizing: border-box;
+	height: 44px;
+	min-height: 44px;
+	max-height: 44px;
+	margin: 0;
+	padding: 0;
+}
+
+.chat-page-header:not(.chat-page-header--transparent) > .chat-page-back {
+	justify-content: center;
+}
+
+.chat-page-header-title-text {
+	display: flex;
+	align-items: center;
+	flex: 1 1 auto;
+	min-width: 0;
+	height: auto;
+	max-height: 44px;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	line-height: 1;
+	font-size: inherit;
+	font-weight: inherit;
+	letter-spacing: normal;
 }
 
 .chat-page-title {
@@ -13096,8 +13141,108 @@ button.msg-reply-indicator-inner:hover {
 	visibility: visible;
 }
 
+.creation-detail-overlay-chrome.chat-page-header,
 .creation-detail-overlay-chrome {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 5px;
+	position: absolute;
+	top: env(safe-area-inset-top, 0px);
+	left: 0;
+	right: 0;
+	flex-shrink: 0;
+	width: 100%;
+	height: 58px;
+	min-height: 58px;
+	padding: 0 6px;
+	box-sizing: border-box;
 	z-index: 3;
+	min-width: 0;
+	background: color-mix(in srgb, var(--surface-strong) 62%, transparent);
+	backdrop-filter: blur(18px) saturate(165%);
+	-webkit-backdrop-filter: blur(18px) saturate(165%);
+	border-bottom: 1px solid color-mix(in srgb, var(--border) 36%, transparent);
+}
+
+.creation-detail-overlay-chrome::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	z-index: 0;
+	background: linear-gradient(
+		180deg,
+		color-mix(in srgb, var(--accent) 11%, transparent) 0%,
+		color-mix(in srgb, var(--accent) 4%, transparent) 46%,
+		transparent 100%
+	);
+	opacity: 0.9;
+}
+
+.creation-detail-overlay-chrome > * {
+	position: relative;
+	z-index: 1;
+}
+
+.creation-detail-overlay-chrome .chat-page-header-title {
+	margin: 0;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	align-self: center;
+	flex: 1 1 auto;
+	height: 44px;
+	min-height: 44px;
+	max-height: 44px;
+	min-width: 0;
+	gap: 8px;
+	font-size: 1.0625rem;
+	line-height: 1;
+	font-weight: 600;
+	color: var(--text);
+	overflow: hidden;
+}
+
+.creation-detail-overlay-chrome .chat-page-header-title-text {
+	height: auto;
+	max-height: 44px;
+	line-height: 1;
+}
+
+.creation-detail-overlay-chrome .chat-page-back,
+.creation-detail-overlay-chrome .chat-page-header-actions {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: center;
+	align-self: center;
+	height: 44px;
+	max-height: 44px;
+	padding: 0;
+}
+
+.creation-detail-overlay-chrome .creation-detail-overlay-dismiss {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 44px;
+	height: 44px;
+	padding: 0;
+	margin: 0;
+	align-self: center;
+	color: var(--text);
+}
+
+.creation-detail-overlay-chrome .creation-detail-overlay-dismiss:hover {
+	color: var(--text);
+	background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.creation-detail-overlay-chrome .creation-detail-overlay-dismiss:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
 }
 
 body.creation-detail-overlay-open {
@@ -13247,9 +13392,11 @@ body.integrations-page.integrations-embed main > .route-header:first-child {
 
 /* Creation detail in the SPA overlay is full-bleed: it manages its own horizontal layout
    (like the standalone page), so drop the side gutters + width cap other embeds rely on.
-   Top padding is just the chrome height (no +1em gap) so the hero sits flush under it. */
+   Top padding equals chrome height (no extra +1em) so at scroll 0 the hero is below the
+   overlay header; further scroll can still pass under the glass. */
 body.creation-detail-page.creation-detail-embed {
 	--workflow-embed-chrome-top: calc(58px + env(safe-area-inset-top, 0px));
+	padding-top: var(--workflow-embed-chrome-top);
 	padding-left: 0;
 	padding-right: 0;
 }

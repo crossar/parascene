@@ -60,6 +60,7 @@
 			function shouldUseAppMobileHeader(pathname) {
 				var p = String(pathname || '').replace(/\/+$/, '') || '/';
 				if (isChallengesSubPagePath(p)) return false;
+				if (p.indexOf('/chat/c/feed/doom') === 0) return false;
 				if (p === '/' || p === '/index.html' || p === '/feed' || p === '/creations' || p === '/challenges') return true;
 				if (!p.startsWith('/chat/c/')) return false;
 				var slug = p.slice('/chat/c/'.length).split('/')[0] || '';
@@ -351,33 +352,6 @@
 				<div class="chat-page-layout-resize-handle" data-chat-sidebar-resize-handle role="separator"
 					aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
 				<div class="chat-page-main-column">
-					<header class="chat-page-mobile-chrome" data-chat-mobile-chrome aria-label="Chat navigation">
-						<button type="button" class="chat-page-mobile-chrome-back" data-chat-mobile-chrome-back
-							aria-label="Back to channels">
-							<span class="chat-page-back-icon" aria-hidden="true">&lt;-</span>
-						</button>
-						<h1 class="chat-page-mobile-chrome-title" data-chat-mobile-chrome-title aria-live="polite">
-							<span class="chat-page-mobile-chrome-channel-part"
-								data-chat-mobile-chrome-channel></span><span
-								class="chat-page-mobile-chrome-title-canvas-wrap" data-chat-mobile-chrome-canvas-wrap
-								hidden><span class="chat-page-mobile-chrome-title-sep" aria-hidden="true">|</span><span
-									class="chat-page-mobile-chrome-canvas-part"
-									data-chat-mobile-chrome-canvas></span></span>
-						</h1>
-						<button type="button" class="chat-page-mobile-chrome-pinned-canvas-btn"
-							data-chat-mobile-pinned-canvas hidden></button>
-						<button type="button" class="chat-page-mobile-chrome-organize-settings"
-							data-chat-organize-settings hidden aria-label="Organizer settings"></button>
-						<button type="button" class="chat-page-mobile-chrome-caret"
-							data-chat-mobile-chrome-sheet-trigger aria-label="Channel and canvases"
-							aria-expanded="false" aria-haspopup="menu">
-							<svg class="chat-page-mobile-chrome-caret-icon" xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-								stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-								<path d="m6 9 6 6 6-6" />
-							</svg>
-						</button>
-					</header>
 					<div class="chat-page-mobile-chrome-sheet" data-chat-mobile-chrome-sheet hidden aria-hidden="true">
 						<button type="button" class="chat-page-mobile-chrome-sheet-scrim"
 							data-chat-mobile-chrome-sheet-dismiss tabindex="-1" aria-label="Dismiss menu"></button>
@@ -389,19 +363,39 @@
 						<div class="chat-page-thread-pane" data-chat-thread-pane>
 							<div class="chat-route" data-chat-page>
 								<div class="chat-page-thread-body">
-									<header class="chat-page-topbar">
-										<a href="/chat#channels" class="chat-page-back" aria-label="Back to channels">
-											<!-- do not change this to ←, it's not a real arrow -->
-											<span class="chat-page-back-icon" aria-hidden="true">&lt;-</span>
-										</a>
-										<h1 class="chat-page-title" data-chat-title data-chat-title-awaiting="1"
-											aria-hidden="true"></h1>
-										<div class="chat-page-topbar-actions">
-											<button type="button" class="chat-page-topbar-pinned-canvas-btn"
-												data-chat-topbar-pinned-canvas hidden></button>
-											<button type="button" class="chat-page-topbar-organize-settings"
-												data-chat-organize-settings hidden aria-label="Organizer settings"></button>
-											<button type="button" class="feed-card-action feed-card-action-more"
+									<header class="chat-page-header chat-page-topbar" data-chat-page-header
+										data-chat-mobile-chrome aria-label="Chat navigation">
+										<button type="button" class="chat-page-back" data-chat-header-back
+											data-chat-mobile-chrome-back aria-label="Back to channels">
+											<svg class="chat-page-back-icon chat-page-back-icon-svg" viewBox="0 0 24 24"
+												fill="none" stroke="currentColor" stroke-width="1.75"
+												stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+												<path d="M19 12H5"></path>
+												<path d="M11 6 5 12l6 6"></path>
+											</svg>
+										</button>
+										<h1 class="chat-page-header-title chat-page-title" data-chat-title
+											data-chat-mobile-chrome-title data-chat-title-awaiting="1"
+											aria-hidden="true" aria-live="polite"></h1>
+										<div class="chat-page-header-actions chat-page-topbar-actions">
+											<button type="button"
+												class="chat-page-header-pinned-canvas-btn chat-page-topbar-pinned-canvas-btn chat-page-mobile-chrome-pinned-canvas-btn"
+												data-chat-header-pinned-canvas data-chat-topbar-pinned-canvas
+												data-chat-mobile-pinned-canvas hidden></button>
+											<button type="button"
+												class="chat-page-header-organize-settings chat-page-topbar-organize-settings"
+												data-chat-organize-settings hidden
+												aria-label="Organizer settings"></button>
+											<button type="button" class="chat-page-header-caret chat-page-mobile-chrome-caret"
+												data-chat-mobile-chrome-sheet-trigger aria-label="Channel and canvases"
+												aria-expanded="false" aria-haspopup="menu">
+												<svg class="chat-page-mobile-chrome-caret-icon" xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+													stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+													<path d="m6 9 6 6 6-6" />
+												</svg>
+											</button>
+											<button type="button" class="feed-card-action feed-card-action-more chat-page-header-more"
 												data-chat-more-button aria-label="More chat actions"
 												aria-haspopup="menu" aria-expanded="false">
 												<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

@@ -12,6 +12,7 @@ import { renderCommentAvatarHtml } from '../../shared/commentItem.js';
 import { primeMediaElementForAudioLeveling } from '../../shared/mediaAudioLeveling.js';
 import { applyWhoTooltipAttr } from '../../shared/whoLabels.js';
 import { setupWhoTooltips } from '../../shared/reactionTooltipTap.js';
+import { createChatPageHeader } from '../../shared/chatPageHeader.js';
 
 /**
  * @param {unknown} s
@@ -249,15 +250,12 @@ export function createDoomScrollShell(opts = {}) {
 	wrap.className = 'chat-doom-scroll-root';
 	wrap.setAttribute('data-chat-doom-root', '1');
 
-	const top = document.createElement('div');
-	top.className = 'chat-doom-topbar';
-	/** Same back affordance as chat topbar / mobile chrome (`chat-page-back-icon`). */
-	top.innerHTML = `
-		<a href="/chat/c/feed" class="chat-page-back chat-doom-back" data-chat-doom-back aria-label="Back to feed">
-			<span class="chat-page-back-icon" aria-hidden="true">&lt;-</span>
-		</a>
-		<div class="chat-doom-topbar-spacer"></div>
-		<button type="button" class="creation-detail-video-muted-badge chat-doom-mute-btn" data-chat-doom-mute aria-label="Mute">
+	const mute = document.createElement('button');
+	mute.type = 'button';
+	mute.className = 'creation-detail-video-muted-badge chat-doom-mute-btn';
+	mute.setAttribute('data-chat-doom-mute', '');
+	mute.setAttribute('aria-label', 'Mute');
+	mute.innerHTML = `
 			<span data-chat-doom-mute-on class="chat-doom-mute-glyph">
 				<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
 					<path d="M11 5 6 9H2v6h4l5 4V5z"></path>
@@ -271,8 +269,19 @@ export function createDoomScrollShell(opts = {}) {
 					<path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
 				</svg>
 			</span>
-		</button>
 	`;
+
+	const { header: top, back } = createChatPageHeader({
+		variant: 'transparent',
+		extraClass: 'chat-doom-topbar',
+		ariaLabel: 'Doom scroll',
+		backAriaLabel: 'Back to feed',
+		titleHtml: '',
+		trailing: [mute],
+	});
+	back.classList.add('chat-doom-back');
+	back.setAttribute('data-chat-doom-back', '');
+	back.setAttribute('data-href', '/chat/c/feed');
 
 	const scroller = document.createElement('div');
 	scroller.className = 'chat-doom-scroller';

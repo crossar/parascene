@@ -1031,28 +1031,21 @@ async function mountOrganizeBoardViaSrc() {
 	const titleEl = document.querySelector('[data-chat-title]');
 	if (titleEl instanceof HTMLElement) {
 		titleEl.setAttribute('data-chat-title-label', 'Challenges › Organize');
-		titleEl.innerHTML =
-			'<span class="chat-page-header-title-text chat-page-header-title-text--breadcrumb"><a href="/challenges" class="chat-page-header-breadcrumb-link" data-chat-organize-back>Challenges</a><span class="chat-page-header-breadcrumb-sep" aria-hidden="true">›</span><span class="chat-page-header-breadcrumb-current">Organize</span></span>';
+		const mobile = window.matchMedia('(max-width: 768px)').matches;
+		titleEl.innerHTML = mobile
+			? '<span class="chat-page-header-title-text">Organize</span>'
+			: '<span class="chat-page-header-title-text chat-page-header-title-text--breadcrumb"><a href="/challenges" class="chat-page-header-breadcrumb-link" data-chat-organize-back>Challenges</a><span class="chat-page-header-breadcrumb-sep" aria-hidden="true">›</span><span class="chat-page-header-breadcrumb-current">Organize</span></span>';
 		titleEl.removeAttribute('data-chat-title-awaiting');
 		titleEl.removeAttribute('aria-hidden');
-	}
-	const mobileTitle = document.querySelector('[data-chat-mobile-chrome-channel]');
-	if (mobileTitle instanceof HTMLElement) {
-		mobileTitle.textContent = 'Organize';
 	}
 	const caret = document.querySelector('[data-chat-mobile-chrome-sheet-trigger]');
 	if (caret instanceof HTMLButtonElement) {
 		caret.hidden = true;
 		caret.setAttribute('aria-hidden', 'true');
 	}
-	const topbarBack = document.querySelector('.chat-page-topbar .chat-page-back');
-	if (topbarBack instanceof HTMLAnchorElement) {
-		topbarBack.href = '/challenges';
-		topbarBack.setAttribute('aria-label', 'Back to Challenges');
-	}
-	const mobileBack = document.querySelector('[data-chat-mobile-chrome-back]');
-	if (mobileBack instanceof HTMLElement) {
-		mobileBack.setAttribute('aria-label', 'Back to Challenges');
+	const back = document.querySelector('[data-chat-header-back], [data-chat-mobile-chrome-back], .chat-page-header .chat-page-back');
+	if (back instanceof HTMLElement) {
+		back.setAttribute('aria-label', 'Back to Challenges');
 	}
 
 	try {
@@ -1081,7 +1074,7 @@ async function mountOrganizeBoardViaSrc() {
 
 function clearHeaderOrganizeButtons() {
 	for (const btn of document.querySelectorAll(
-		'[data-chat-topbar-pinned-canvas], [data-chat-mobile-pinned-canvas]'
+		'[data-chat-header-pinned-canvas], [data-chat-topbar-pinned-canvas], [data-chat-mobile-pinned-canvas]'
 	)) {
 		if (!(btn instanceof HTMLButtonElement)) continue;
 		const isOrganize =

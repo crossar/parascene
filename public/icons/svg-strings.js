@@ -263,6 +263,15 @@ export const pinIcon = withAttributes(html`
 	</svg>
 `);
 
+/** Stroke back arrow matching Inter `<-` ligature (shaft + V head). Not chevron-left. */
+export const arrowBackIcon = withAttributes(html`
+	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+		stroke-linejoin="round" aria-hidden="true">
+		<path d="M19 12H5"></path>
+		<path d="M11 6 5 12l6 6"></path>
+	</svg>
+`);
+
 /** Curved reply arrow — hover reply actions (chat + comments). */
 export const replyTurnIcon = withAttributes(html`
 	<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">

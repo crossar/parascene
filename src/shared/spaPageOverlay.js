@@ -3,6 +3,7 @@
  */
 
 import { MODAL_DISMISS_ICON_SVG } from './modalDismiss.js';
+import { createChatPageHeader } from './chatPageHeader.js';
 import { navigateToChatPathFromOverlay, navigateToMyCreationsIfNeeded } from '/shared/createSubmit.js';
 import { SPA_OVERLAY_EMBED_READY_MESSAGE } from './embedPageRuntime.js';
 import { forwardEscapeIntoOverlayFrame } from './escapeLayers.js';
@@ -1092,24 +1093,6 @@ function updateOverlayChromeTitle(kind) {
 
 function buildOverlayChrome(target) {
 	const kind = target?.kind || 'creation-detail';
-	const toolbar = document.createElement('header');
-	toolbar.className = 'creation-detail-overlay-chrome';
-	toolbar.setAttribute('aria-label', overlayTitleForKind(kind));
-
-	const backBtn = document.createElement('button');
-	backBtn.type = 'button';
-	backBtn.className = 'chat-page-mobile-chrome-back';
-	backBtn.setAttribute('aria-label', 'Back');
-	backBtn.innerHTML = '<span class="chat-page-back-icon" aria-hidden="true">&lt;-</span>';
-	backBtn.addEventListener('click', () => dismissSpaPageOverlayViaHistory());
-
-	const title = document.createElement('h1');
-	title.className = 'chat-page-mobile-chrome-title';
-	title.innerHTML =
-		'<span class="chat-page-mobile-chrome-channel-part">' +
-		`<span class="chat-page-header-title-text">${overlayTitleForKind(kind)}</span>` +
-		'</span>';
-
 	const closeBtn = document.createElement('button');
 	closeBtn.type = 'button';
 	closeBtn.className = 'modal-dismiss creation-detail-overlay-dismiss';
@@ -1117,7 +1100,14 @@ function buildOverlayChrome(target) {
 	closeBtn.innerHTML = MODAL_DISMISS_ICON_SVG;
 	closeBtn.addEventListener('click', () => dismissEntireSpaPageOverlay());
 
-	toolbar.append(backBtn, title, closeBtn);
+	const { header: toolbar, back: backBtn } = createChatPageHeader({
+		ariaLabel: overlayTitleForKind(kind),
+		extraClass: 'creation-detail-overlay-chrome',
+		backAriaLabel: 'Back',
+		titleHtml: `<span class="chat-page-header-title-text">${overlayTitleForKind(kind)}</span>`,
+		trailing: [closeBtn],
+	});
+	backBtn.addEventListener('click', () => dismissSpaPageOverlayViaHistory());
 
 	const frame = document.createElement('iframe');
 	frame.className = 'creation-detail-overlay-frame is-overlay-loading';

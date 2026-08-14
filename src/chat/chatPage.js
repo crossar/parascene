@@ -3586,18 +3586,9 @@ export async function initChatPage(root, options = {}) {
 			titleEl.removeAttribute('data-chat-title-label');
 			titleEl.setAttribute('data-chat-title-awaiting', '1');
 			titleEl.setAttribute('aria-hidden', 'true');
+			titleEl.removeAttribute('aria-label');
 		}
 		activeHeaderMeta = null;
-		if (mainColumn instanceof HTMLElement) {
-			const mobileTitle = mainColumn.querySelector('[data-chat-mobile-chrome-title]');
-			const mobileChannel = mobileTitle?.querySelector?.('[data-chat-mobile-chrome-channel]');
-			const mobileCanvasWrap = mobileTitle?.querySelector?.('[data-chat-mobile-chrome-canvas-wrap]');
-			const mobileCanvas = mobileTitle?.querySelector?.('[data-chat-mobile-chrome-canvas]');
-			if (mobileChannel instanceof HTMLElement) mobileChannel.textContent = '';
-			if (mobileCanvas instanceof HTMLElement) mobileCanvas.textContent = '';
-			if (mobileCanvasWrap instanceof HTMLElement) mobileCanvasWrap.hidden = true;
-			if (mobileTitle instanceof HTMLElement) mobileTitle.removeAttribute('aria-label');
-		}
 	}
 
 	function syncChatBrowseViewBodyClass() {
@@ -4386,16 +4377,11 @@ export async function initChatPage(root, options = {}) {
 		};
 	}
 
-	function paintMobileChromeTitle() {
-		const h1 =
-			mainColumn instanceof HTMLElement ? mainColumn.querySelector('[data-chat-mobile-chrome-title]') : null;
-		const chEl = h1?.querySelector?.('[data-chat-mobile-chrome-channel]');
-		const wrap = h1?.querySelector?.('[data-chat-mobile-chrome-canvas-wrap]');
-		const cvEl = h1?.querySelector?.('[data-chat-mobile-chrome-canvas]');
-		if (!(h1 instanceof HTMLElement) || !(chEl instanceof HTMLElement)) return;
+	function paintChatPageHeaderTitle() {
 		const titleEl = root.querySelector('[data-chat-title]');
-		const awaiting = titleEl?.getAttribute('data-chat-title-awaiting') === '1';
-		const channelPart = awaiting ? '' : String(titleEl?.getAttribute('data-chat-title-label') || '').trim();
+		if (!(titleEl instanceof HTMLElement)) return;
+		const awaiting = titleEl.getAttribute('data-chat-title-awaiting') === '1';
+		const channelPart = awaiting ? '' : String(titleEl.getAttribute('data-chat-title-label') || '').trim();
 		const organizeMobile = isChallengesOrganizePath();
 		const detailsMobile = isChallengesDetailsPath();
 		const mobileSubLabel = organizeMobile
@@ -4403,28 +4389,18 @@ export async function initChatPage(root, options = {}) {
 			: detailsMobile
 				? challengesDetailsBreadcrumbLabel()
 				: '';
-		chEl.innerHTML = channelPart
-			? buildChatHeaderTitleInnerHtml(
-					activeHeaderMeta,
-					mobileSubLabel || channelPart,
-					{
-						mobile: true
-					}
-				)
-			: '';
-		if (wrap instanceof HTMLElement) {
-			// Keep mobile header title stable to the channel name; pinned canvas is indicated
-			// by the toggle button next to the caret.
-			wrap.hidden = true;
-			if (cvEl instanceof HTMLElement) cvEl.textContent = '';
-		}
+		const mobile = isChatPageMobileLayout();
+		const paintLabel = mobile && mobileSubLabel ? mobileSubLabel : channelPart;
+		if (!paintLabel) return;
+		titleEl.innerHTML = buildChatHeaderTitleInnerHtml(activeHeaderMeta, paintLabel, { mobile });
 		const ariaLabel = mobileSubLabel || channelPart;
-		if (ariaLabel) {
-			h1.setAttribute('aria-label', ariaLabel);
-		} else {
-			h1.removeAttribute('aria-label');
-		}
+		if (ariaLabel) titleEl.setAttribute('aria-label', ariaLabel);
+		else titleEl.removeAttribute('aria-label');
 		syncOrganizeMobileChrome();
+	}
+
+	function paintMobileChromeTitle() {
+		paintChatPageHeaderTitle();
 	}
 
 	function tearDownChatGlobalUnreadBroadcast() {
@@ -4534,14 +4510,13 @@ export async function initChatPage(root, options = {}) {
 						? `Challenges › ${challengesDetailsBreadcrumbLabel()}`
 						: label
 			);
-			titleEl.innerHTML = buildChatHeaderTitleInnerHtml(meta, label, { mobile: false });
 			if (String(label).trim()) {
 				titleEl.removeAttribute('data-chat-title-awaiting');
 				titleEl.removeAttribute('aria-hidden');
 			}
 		}
 		syncOrganizeChromeBackLink();
-		paintMobileChromeTitle();
+		paintChatPageHeaderTitle();
 	}
 
 	function buildChatHeaderAvatarHtml(meta, opts = {}) {
@@ -4672,22 +4647,9 @@ export async function initChatPage(root, options = {}) {
 
 	function syncOrganizeChromeBackLink() {
 		const challengesSub = isChallengesOrganizePath() || isChallengesDetailsPath();
-		const back = root.querySelector('.chat-page-topbar .chat-page-back');
-		if (back instanceof HTMLAnchorElement) {
-			if (challengesSub) {
-				back.href = '/challenges';
-				back.setAttribute('aria-label', 'Back to Challenges');
-			} else {
-				back.href = '/chat#channels';
-				back.setAttribute('aria-label', 'Back to channels');
-			}
-		}
-		const mobileBack =
-			mainColumn instanceof HTMLElement
-				? mainColumn.querySelector('[data-chat-mobile-chrome-back]')
-				: null;
-		if (mobileBack instanceof HTMLButtonElement || mobileBack instanceof HTMLAnchorElement) {
-			mobileBack.setAttribute(
+		const back = root.querySelector('[data-chat-header-back], [data-chat-mobile-chrome-back], .chat-page-header .chat-page-back');
+		if (back instanceof HTMLButtonElement || back instanceof HTMLAnchorElement) {
+			back.setAttribute(
 				'aria-label',
 				challengesSub ? 'Back to Challenges' : 'Back to channels'
 			);
@@ -11390,15 +11352,9 @@ export async function initChatPage(root, options = {}) {
 	function syncOrganizeSettingsButtons() {
 		const show = isChallengesOrganizePath() && chatChallengesOrganizeOceanman;
 		const gearHtml = gearIcon('chat-page-organize-settings-icon');
-		const isMobile = isChatPageMobileLayout();
 		const buttons = root.querySelectorAll('[data-chat-organize-settings]');
 		for (const btn of buttons) {
 			if (!(btn instanceof HTMLButtonElement)) continue;
-			const mobileBtn = btn.classList.contains('chat-page-mobile-chrome-organize-settings');
-			if ((mobileBtn && !isMobile) || (!mobileBtn && isMobile)) {
-				btn.hidden = true;
-				continue;
-			}
 			btn.hidden = !show;
 			if (show) {
 				btn.innerHTML = gearHtml;
@@ -14970,41 +14926,37 @@ export async function initChatPage(root, options = {}) {
 
 	/** Header accessory button: pinned canvas title (channels) or Organize (#challenges). */
 	function syncTopbarPinnedCanvasButton() {
-		const desktopBtn = root.querySelector('[data-chat-topbar-pinned-canvas]');
-		const mobileBtn = mainColumn instanceof HTMLElement
-			? mainColumn.querySelector('[data-chat-mobile-pinned-canvas]')
-			: null;
+		const btn =
+			root.querySelector('[data-chat-header-pinned-canvas]') ||
+			root.querySelector('[data-chat-topbar-pinned-canvas]') ||
+			(mainColumn instanceof HTMLElement
+				? mainColumn.querySelector('[data-chat-mobile-pinned-canvas]')
+				: null);
 		const isMobile = isChatPageMobileLayout();
 
-		const applyButtonState = (btn, { mobile = false } = {}) => {
-			if (!(btn instanceof HTMLButtonElement)) return;
-			btn.removeAttribute('data-chat-canvas-open');
-			delete btn.dataset.chatChallengesOrganizerOpen;
-			btn.classList.remove('is-active');
-			if ((mobile && !isMobile) || (!mobile && isMobile)) {
-				btn.hidden = true;
-				btn.textContent = '';
-				btn.removeAttribute('aria-label');
-				return;
-			}
+		const applyButtonState = (target) => {
+			if (!(target instanceof HTMLButtonElement)) return;
+			target.removeAttribute('data-chat-canvas-open');
+			delete target.dataset.chatChallengesOrganizerOpen;
+			target.classList.remove('is-active');
 			if (!isActiveThreadCanvasEligible()) {
-				btn.hidden = true;
-				btn.textContent = '';
-				btn.removeAttribute('aria-label');
+				target.hidden = true;
+				target.textContent = '';
+				target.removeAttribute('aria-label');
 				return;
 			}
 			const pinId = activeThreadPinnedCanvasId;
 			if (!Number.isFinite(pinId) || pinId <= 0) {
-				btn.hidden = true;
-				btn.textContent = '';
-				btn.removeAttribute('aria-label');
+				target.hidden = true;
+				target.textContent = '';
+				target.removeAttribute('aria-label');
 				return;
 			}
 			const row = chatCanvasesList.find((c) => Number(c.id) === pinId);
 			if (!row) {
-				btn.hidden = true;
-				btn.textContent = '';
-				btn.removeAttribute('aria-label');
+				target.hidden = true;
+				target.textContent = '';
+				target.removeAttribute('aria-label');
 				return;
 			}
 			const panelEl = getChatCanvasPanelEls().panel;
@@ -15013,27 +14965,25 @@ export async function initChatPage(root, options = {}) {
 				panelOpen &&
 				activeCanvasRow != null &&
 				Number(activeCanvasRow.id) === Number(pinId);
-			if (viewingPinnedInPanel && !mobile) {
-				btn.hidden = true;
-				btn.textContent = '';
-				btn.removeAttribute('aria-label');
+			if (viewingPinnedInPanel && !isMobile) {
+				target.hidden = true;
+				target.textContent = '';
+				target.removeAttribute('aria-label');
 				return;
 			}
 			const title = String(row.title || '').trim() || 'Canvas';
-			btn.hidden = false;
-			btn.textContent = title;
-			btn.setAttribute('data-chat-canvas-open', String(row.id));
-			btn.classList.toggle('is-active', viewingPinnedInPanel);
-			btn.setAttribute(
+			target.hidden = false;
+			target.textContent = title;
+			target.setAttribute('data-chat-canvas-open', String(row.id));
+			target.classList.toggle('is-active', viewingPinnedInPanel);
+			target.setAttribute(
 				'aria-label',
 				viewingPinnedInPanel
-					? `Return to channel from pinned canvas: ${title}`
-					: `Open pinned canvas: ${title}`
+					? `Close ${title}`
+					: `Open ${title}`
 			);
 		};
-
-		applyButtonState(desktopBtn, { mobile: false });
-		applyButtonState(mobileBtn, { mobile: true });
+		applyButtonState(btn);
 		syncOrganizeSettingsButtons();
 	}
 
@@ -15443,7 +15393,7 @@ export async function initChatPage(root, options = {}) {
 	canvasActionRoot.addEventListener('click', (e) => {
 		const t = e.target;
 		if (!(t instanceof Element)) return;
-		const back = t.closest('[data-chat-mobile-chrome-back]');
+		const back = t.closest('[data-chat-header-back], [data-chat-mobile-chrome-back], .chat-page-header .chat-page-back');
 		if (
 			(back instanceof HTMLButtonElement || back instanceof HTMLAnchorElement) &&
 			mainColumn instanceof HTMLElement &&
@@ -15455,34 +15405,7 @@ export async function initChatPage(root, options = {}) {
 				navigateWithinChatShell('/challenges');
 				return;
 			}
-			const next = `/chat${window.location.search || ''}#channels`;
-			const cur = `${window.location.pathname}${window.location.search || ''}${window.location.hash || ''}`;
-			if (next !== cur) {
-				history.pushState({ prsnChat: true }, '', next);
-				try {
-					window.dispatchEvent(new HashChangeEvent('hashchange'));
-				} catch {
-					window.dispatchEvent(new Event('hashchange'));
-				}
-			}
-			setMobileSidebarMode(true);
-			return;
-		}
-		const topbarBack = t.closest('.chat-page-topbar .chat-page-back');
-		if (
-			topbarBack instanceof HTMLAnchorElement &&
-			mainColumn instanceof HTMLElement &&
-			mainColumn.contains(topbarBack)
-		) {
-			if (isChallengesOrganizePath() || isChallengesDetailsPath()) {
-				e.preventDefault();
-				e.stopPropagation();
-				navigateWithinChatShell('/challenges');
-				return;
-			}
 			if (isChatPageMobileLayout()) {
-				e.preventDefault();
-				e.stopPropagation();
 				const next = `/chat${window.location.search || ''}#channels`;
 				const cur = `${window.location.pathname}${window.location.search || ''}${window.location.hash || ''}`;
 				if (next !== cur) {
@@ -15496,6 +15419,8 @@ export async function initChatPage(root, options = {}) {
 				setMobileSidebarMode(true);
 				return;
 			}
+			navigateWithinChatShell('/chat#channels');
+			return;
 		}
 		const sheetTrig = t.closest('[data-chat-mobile-chrome-sheet-trigger]');
 		if (
