@@ -1291,6 +1291,17 @@ function getCreationDetailMoreMenuItemDefs() {
 		label: 'Copy link'
 	},
 	{
+		action: 'download-video',
+		show: (d) => d.actionsContext?.showDownloadVideo,
+		icon: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+	stroke-linejoin="round" aria-hidden="true">
+	<path d="M12 3v12"></path>
+	<polyline points="7 11 12 16 17 11"></polyline>
+	<path d="M5 21h14"></path>
+</svg>`,
+		label: 'Download'
+	},
+	{
 		action: 'queue-for-later',
 		show: (d) => d.actionsContext?.showQueueForLater,
 		icon: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
@@ -1711,14 +1722,17 @@ function formatDuration(meta) {
 	return rem > 0 ? `${minutes}m ${rem}s` : `${minutes}m`;
 }
 
+function formatCreationPublishStatus(isPublished, publishedTimeAgo = '') {
+	if (!isPublished) return 'Not Published';
+	const timeAgo = typeof publishedTimeAgo === 'string' ? publishedTimeAgo.trim() : '';
+	return timeAgo ? `Published ${timeAgo}` : 'Published';
+}
+
 function buildDescriptionMetaItems({
 	serverName = '',
 	methodName = '',
 	displayModel = '',
 	durationStr = '',
-	isPublished = false,
-	publishedTimeAgo = '',
-	publishedAtTitle = '',
 	escapeHtml = (v) => String(v ?? '')
 } = {}) {
 	const metaItems = [];
@@ -1740,18 +1754,6 @@ function buildDescriptionMetaItems({
 	if (durationStr) {
 		metaItems.push(
 			html`<span class="creation-detail-description-meta-label">Duration</span> <span class="creation-detail-description-meta-value">${escapeHtml(durationStr)}</span>`
-		);
-	}
-	if (isPublished) {
-		const publishedValue = publishedTimeAgo || publishedAtTitle || '';
-		if (publishedValue) {
-			metaItems.push(
-				html`<span class="creation-detail-description-meta-label">Published</span> <span class="creation-detail-description-meta-value"${publishedAtTitle ? ` title="${escapeHtml(publishedAtTitle)}"` : ''}>${escapeHtml(publishedValue)}</span>`
-			);
-		}
-	} else if (!isPublished) {
-		metaItems.push(
-			html`<span class="creation-detail-description-meta-label">Published</span> <span class="creation-detail-description-meta-value">Not published</span>`
 		);
 	}
 	return metaItems;
@@ -2509,6 +2511,92 @@ function resetCreationDetailHeroVideoElement() {
 		}
 	}
 	if (videoMutedBadgeEl instanceof HTMLElement) videoMutedBadgeEl.hidden = true;
+}
+
+function pauseCreationDetailPlayingVideos() {
+	if (creationDetailHeroVideoPlayer && typeof creationDetailHeroVideoPlayer.pause === 'function') {
+		try {
+			creationDetailHeroVideoPlayer.pause();
+		} catch {
+			// ignore
+		}
+	}
+	document
+		.querySelectorAll('.creation-detail-image-wrapper video, .creation-detail-hero video')
+		.forEach((video) => {
+			if (!(video instanceof HTMLVideoElement) || video.paused) return;
+			try {
+				video.pause();
+			} catch {
+				// ignore
+			}
+		});
+}
+
+function filenameFromVideoUrl(url, fallbackId) {
+	const fallback = `parascene-${fallbackId}.mp4`;
+	const raw = typeof url === 'string' ? url.trim() : '';
+	if (!raw) return fallback;
+	try {
+		const path = new URL(raw, window.location.origin).pathname;
+		const base = decodeURIComponent(path.split('/').pop() || '');
+		if (base && /\.(mp4|webm|mov|m4v)$/i.test(base)) return base;
+	} catch {
+		// ignore
+	}
+	return fallback;
+}
+
+function resolveOwnerDownloadableVideo() {
+	if (lastDetailIsGroupCreation) {
+		const source = lastGroupSourcesById.get(Number(lastGroupSelectedSourceId));
+		if (!source) return null;
+		if (source.mediaType !== 'video') return null;
+		if (isExternalImportCreation('video', source.meta)) return null;
+		const url = typeof source.videoUrl === 'string' ? source.videoUrl.trim() : '';
+		if (!url) return null;
+		return { url, id: Number(source.id) };
+	}
+	const creation = lastCreationMeta;
+	if (!creation || typeof creation !== 'object') return null;
+	const mediaType =
+		typeof creation.media_type === 'string' ? creation.media_type.trim().toLowerCase() : '';
+	if (mediaType !== 'video') return null;
+	if (isExternalImportCreation(mediaType, creation.meta)) return null;
+	const url = typeof creation.video_url === 'string' ? creation.video_url.trim() : '';
+	if (!url) return null;
+	const id = Number(creation.id);
+	return { url, id: Number.isFinite(id) && id > 0 ? id : 0 };
+}
+
+async function downloadOwnerCreationVideo() {
+	const target = resolveOwnerDownloadableVideo();
+	if (!target?.url) {
+		if (typeof showToast === 'function') {
+			showToast(
+				lastDetailIsGroupCreation
+					? 'Select a video in the group to download.'
+					: 'This video cannot be downloaded.'
+			);
+		}
+		return;
+	}
+	const filename = filenameFromVideoUrl(target.url, target.id || 'video');
+	if (typeof showToast === 'function') showToast('Downloading…');
+	const res = await fetch(target.url, { credentials: 'include' });
+	if (!res.ok) {
+		throw new Error('Could not download video');
+	}
+	const blob = await res.blob();
+	const objectUrl = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = objectUrl;
+	a.download = filename;
+	a.rel = 'noopener';
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	window.setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
 }
 
 function pauseHeroVideoElement(video) {
@@ -4085,8 +4173,8 @@ async function loadCreation() {
 		const shareMountedPrivate = shareMounted && !isPublished;
 		const titleRaw =
 			typeof creation.title === 'string' ? creation.title.trim() : '';
-		const isUntitled = isPublished && !titleRaw;
-		const displayTitle = titleRaw || (isUntitled ? 'Untitled' : '');
+		const isUntitled = !titleRaw;
+		const displayTitle = titleRaw || 'Untitled';
 		const groupTitleForSourceLabels = titleRaw || 'Untitled';
 
 		// Check if current user owns this creation
@@ -4246,6 +4334,7 @@ async function loadCreation() {
 			showAdjustImage,
 			showSetAvatar: isOwner && !isImportEmbedCreation && status === 'completed' && !isFailed,
 			showCopyLink: !isImportEmbedCreation,
+			showDownloadVideo: false,
 			showRecreate: false,
 			queueForLaterLabel,
 			isFailed,
@@ -4381,6 +4470,20 @@ async function loadCreation() {
 			lastGroupSelectedSourceId = null;
 		}
 
+		actionsContext.showDownloadVideo =
+			isOwner &&
+			status === 'completed' &&
+			!isFailed &&
+			(isGroupCreation
+				? groupSources.some(
+					(source) =>
+						source.mediaType === 'video' &&
+						typeof source.videoUrl === 'string' &&
+						source.videoUrl.trim() &&
+						!isExternalImportCreation('video', source.meta)
+				)
+				: mediaType === 'video' && Boolean(creation.video_url) && !isImportEmbedCreation);
+
 		actionsContext.showRecreate =
 			!adminViewingUserDeleted &&
 			(status === 'completed' || isFailed) &&
@@ -4464,7 +4567,6 @@ async function loadCreation() {
 			`;
 		}
 
-		// Published time is shown on the model/duration meta line.
 		const publishedDateRaw = creation.published_at || creation.created_at || null;
 		const publishedDate = publishedDateRaw ? new Date(publishedDateRaw) : null;
 		const hasPublishedDate = publishedDate instanceof Date && Number.isFinite(publishedDate.valueOf());
@@ -4606,8 +4708,7 @@ async function loadCreation() {
 				</div>
 			`
 			: '';
-		const hasPublishedMeta = isPublished ? hasPublishedDate : true;
-		const hasMetaInDescription = !!(serverName || methodName || displayModel || durationStr || hasPublishedMeta);
+		const hasMetaInDescription = !!(serverName || methodName || displayModel || durationStr);
 		// Pinned / results pages: announce + comments only — no prompt, lineage, or creation meta.
 		const showDescriptionBlock =
 			!hideIdentifyActionChrome &&
@@ -4673,9 +4774,6 @@ async function loadCreation() {
 						methodName,
 						displayModel,
 						durationStr,
-						isPublished,
-						publishedTimeAgo,
-						publishedAtTitle,
 						escapeHtml
 					});
 
@@ -5100,7 +5198,7 @@ async function loadCreation() {
 				${hasNsfwTag ? html`<span class="creation-detail-nsfw-tag">NSFW</span>` : ''}
 				${needsTitleSlot ? html`<div class="creation-detail-title${isUntitled ? ' creation-detail-title-untitled' : ''}"${displayTitle ? '' : ' hidden'}>${displayTitle ? escapeHtml(displayTitle) : ''}</div>` : ''}
 			</div>` : ''}
-			${!(hasChallengeSubmission && isOwner) && !challengeMediaLocked && !isPublished ? html`<div class="creation-detail-title-byline creation-detail-title-byline-mobile">${escapeHtml(creatorHandle)} Not Published</div>` : ''}
+			<div class="creation-detail-title-byline creation-detail-title-byline-mobile"${isPublished && publishedAtTitle ? ` title="${escapeHtml(publishedAtTitle)}"` : ''}>${escapeHtml(formatCreationPublishStatus(isPublished, isPublished ? publishedTimeAgo : ''))}</div>
 			${hideIdentifyActionChrome ? '' : renderCreationDetailActionStrip(stripData, escapeHtml)}
 			${hideIdentifyActionChrome ? '' : renderCreationDetailMoreMenu(menuData, escapeHtml)}
 			${groupLeadDescriptionHtml}
@@ -5577,7 +5675,7 @@ async function loadCreation() {
 			const hasPublishedDate = publishedDate instanceof Date && Number.isFinite(publishedDate.valueOf());
 			const publishedTimeAgo =
 				pub && hasPublishedDate ? formatRelativeTime(publishedDate) || '' : '';
-			const bylineHtml = `${creatorHandle ? `${escapeHtml(creatorHandle)} ` : ''}${pub ? `Published${publishedTimeAgo ? ` ${escapeHtml(publishedTimeAgo)}` : ''}` : 'Not published'}`;
+			const bylineHtml = escapeHtml(formatCreationPublishStatus(pub, publishedTimeAgo));
 			const descSection = descRaw
 				? `<div class="creation-detail-lineage-modal-copy"><div class="creation-detail-prompt-label-row"><span class="creation-detail-prompt-label">Description</span></div><div class="creation-detail-description creation-detail-lineage-modal-prose">${processUserText(descRaw, { messageMarkdown: true })}</div></div>`
 				: '';
@@ -6777,6 +6875,7 @@ async function loadCreation() {
 					closeMobileMoreMenu();
 					return;
 				}
+				pauseCreationDetailPlayingVideos();
 				const rect = moreBtn.getBoundingClientRect();
 				const gap = 8;
 				moreMenu.style.position = 'fixed';
@@ -6806,6 +6905,14 @@ async function loadCreation() {
 				const targets = {
 					'more-info': () => openDetailsModal(),
 					'copy-link': () => detailContent.querySelector('[data-copy-link-button]')?.click(),
+					'download-video': () => {
+						closeMobileMoreMenu();
+						void downloadOwnerCreationVideo().catch((err) => {
+							if (typeof showToast === 'function') {
+								showToast(err?.message || 'Could not download video');
+							}
+						});
+					},
 					'recreate': () => {
 						void handleRecreateInAdvanced();
 					},
@@ -7084,14 +7191,10 @@ async function loadCreation() {
 						titleEl.textContent = sourceTitleRaw;
 						titleEl.hidden = false;
 						titleEl.classList.remove('creation-detail-title-untitled');
-					} else if (isPublished) {
+					} else {
 						titleEl.textContent = 'Untitled';
 						titleEl.hidden = false;
 						titleEl.classList.add('creation-detail-title-untitled');
-					} else {
-						titleEl.textContent = '';
-						titleEl.hidden = true;
-						titleEl.classList.remove('creation-detail-title-untitled');
 					}
 				}
 				if (mainDescriptionEl) {
@@ -7118,9 +7221,6 @@ async function loadCreation() {
 						methodName: parts.methodName || '',
 						displayModel: parts.displayModel || '',
 						durationStr: parts.durationStr || '',
-						isPublished,
-						publishedTimeAgo,
-						publishedAtTitle,
 						escapeHtml: (v) => String(v ?? '')
 							.replace(/&/g, '&amp;')
 							.replace(/</g, '&lt;')

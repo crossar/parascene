@@ -57,8 +57,7 @@ function mergePublishedFlags(primaryValue, fallbackValue) {
 function seedDisplayTitle(seedLike) {
 	const raw = seedTitleText(seedLike?.title);
 	if (raw && raw !== 'Untitled') return { text: raw, untitled: false };
-	if (seedIsPublished(seedLike)) return { text: 'Untitled', untitled: true };
-	return { text: '', untitled: false };
+	return { text: 'Untitled', untitled: true };
 }
 
 function pickSeedString(...values) {
@@ -1208,15 +1207,6 @@ export function creationDetailChromeHtmlFromSeed(seed) {
 			`<span class="creation-detail-description-meta-label">Duration</span> <span class="creation-detail-description-meta-value">${esc(durationStr)}</span>`
 		);
 	}
-	if (isPublished && publishedTimeAgo) {
-		metaBits.push(
-			`<span class="creation-detail-description-meta-label">Published</span> <span class="creation-detail-description-meta-value">${esc(publishedTimeAgo)}</span>`
-		);
-	} else if (!isPublished) {
-		metaBits.push(
-			`<span class="creation-detail-description-meta-label">Published</span> <span class="creation-detail-description-meta-value">Not published</span>`
-		);
-	}
 	const metaLine =
 		hideIdentify || !metaBits.length
 			? ''
@@ -1235,13 +1225,12 @@ export function creationDetailChromeHtmlFromSeed(seed) {
 			</div>`
 				: '';
 
-	const unpublishedByline =
-		!isPublished &&
-		!hideIdentify &&
-		!(Array.isArray(meta?.challenge_organizer_refs) && meta.challenge_organizer_refs.length > 0) &&
-		!(isOwner && Array.isArray(meta?.challenge_submissions) && meta.challenge_submissions.length > 0)
-			? `<div class="creation-detail-title-byline creation-detail-title-byline-mobile">${handle ? `@${esc(handle)} ` : ''}Not Published</div>`
-			: '';
+	const publishStatus = isPublished
+		? publishedTimeAgo
+			? `Published ${publishedTimeAgo}`
+			: 'Published'
+		: 'Not Published';
+	const publishByline = `<div class="creation-detail-title-byline creation-detail-title-byline-mobile">${esc(publishStatus)}</div>`;
 
 	const promptBlock = hideIdentify
 		? ''
@@ -1313,7 +1302,7 @@ export function creationDetailChromeHtmlFromSeed(seed) {
 			</div>`;
 
 	return `${titleRow}
-			${unpublishedByline}
+			${publishByline}
 			${actionStrip}
 			${seedGroupSectionHtml(seed)}
 			${descriptionHtml}

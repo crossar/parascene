@@ -3429,7 +3429,7 @@ body.view-nsfw .creation-detail-image-wrapper.nsfw::after {
 	margin-bottom: 0;
 }
 
-/* Byline under title: "@handle Published 3 hr. ago" or "@handle Not Published" (all viewports) */
+/* Byline under title: "Published 3 hr. ago" or "Not Published" (all viewports) */
 .creation-detail-title-byline.creation-detail-title-byline-mobile {
 	display: block;
 	color: var(--text-muted);
