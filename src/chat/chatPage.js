@@ -60,10 +60,8 @@ import { bindMobileCreationsBulkLongPress } from '../shared/creationsBulkLongPre
 import { showToast } from '/shared/toast.js';
 import { openChatHistoryCopyModal } from '../shared/chatHistoryCopyModal.js';
 import {
-	notificationChatHref,
-	notificationCreationHref,
-	notificationPrimaryClickable,
-	notificationPrimaryHref
+	navigateNotificationPrimaryHref,
+	notificationPrimaryClickable
 } from '../shared/notificationNav.js';
 import { dismissChallengeVoteModalFromBrowserHistoryIfOpen as dismissChallengeVoteModalImpl } from './challenges/challengeVoteModal.js';
 import {
@@ -6947,17 +6945,7 @@ export async function initChatPage(root, options = {}) {
 					}
 					closeChatSidebarNotificationsMenu();
 					document.dispatchEvent(new CustomEvent('close-all-modals'));
-					const href = notificationPrimaryHref(notification);
-					if (href) {
-						if (parseCreationNavigationTargetId(href) && shouldUseSpaPageOverlay()) {
-							navigateToCreationDetailFromSpa(href);
-						} else if (notificationChatHref(notification)) {
-							navigateWithinChatShell(href);
-						} else if (shouldUseSpaPageOverlay() && parseSpaOverlayTarget(href)) {
-							navigateToSpaPageFromSpa(href);
-						} else {
-							window.location.href = href;
-						}
+					if (navigateNotificationPrimaryHref(notification)) {
 						return;
 					}
 					if (notification.type === 'tip') {

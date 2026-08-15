@@ -9,6 +9,7 @@
  * - clearPageHashtagTargets()
  * - attachTriggeredSuggest(field, options)  — field: HTMLTextAreaElement | HTMLInputElement (type text)
  * - attachMentionSuggest(field) — @ only
+ * - attachCommentComposerSuggest(field) — @ and /gen
  * - attachChatMentionSuggest(field) — @ only + chat special mentions
  * - attachPromptInlineSuggest(field) — @ and $ (styles)
  * - attachCreateComposerSuggest(field) — @ (users, personas, styles) and $ (styles)
@@ -619,7 +620,25 @@ function getCombinedInlineSuggestions({ source, q, limit }, signal) {
 	if (source === "styles") return getStyleSuggestions({ source, q, limit }, signal);
 	if (source === "chat_hashtags") return getHashtagSuggestions({ q, limit });
 	if (source === "chat_commands") return getCommandSuggestions({ source, q, limit }, signal);
+	if (source === "comment_commands") return getCommentCommandSuggestions({ q, limit });
 	return defaultGetSuggestions({ source, q, limit }, signal);
+}
+
+function getCommentCommandSuggestions({ q, limit }) {
+	const qLower = String(q || "").trim().toLowerCase();
+	const cap = capForLimit(limit);
+	const out = CHAT_COMMAND_ITEMS.filter((item) => item?.command === "gen").filter((item) => {
+		if (!qLower) return true;
+		const handle = itemHandle(item);
+		const label = String(item?.label || "").toLowerCase();
+		return handle.includes(qLower) || label.includes(qLower);
+	});
+	return Promise.resolve(
+		out.slice(0, cap).map((item) => ({
+			...item,
+			sublabel: "Generate a sticker reply",
+		}))
+	);
 }
 
 function attachWindowListeners() {
@@ -1401,6 +1420,17 @@ export function attachMentionSuggest(textarea) {
 	attachTriggeredSuggest(textarea, {
 		triggers: [{ char: "@", minChars: 1, source: "users" }],
 		getSuggestions: getMentionSuggestions
+	});
+}
+
+/** @mentions and `/gen` — creation-detail / doom comments composer. */
+export function attachCommentComposerSuggest(textarea) {
+	attachTriggeredSuggest(textarea, {
+		triggers: [
+			{ char: "@", minChars: 1, source: "users" },
+			{ char: "/", minChars: 1, source: "comment_commands" }
+		],
+		getSuggestions: getCombinedInlineSuggestions
 	});
 }
 

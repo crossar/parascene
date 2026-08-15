@@ -8,10 +8,8 @@ import { getHelpHref } from '../../helpUrl.js';
 import { hydrateChatAudibleNotificationsFromServer } from '/shared/chatAudibleNotificationsPref.js';
 import { subscribeUserBroadcast } from '../../realtimeBroadcast.js';
 import {
-	notificationChatHref,
-	notificationCreationHref,
-	notificationPrimaryClickable,
-	notificationPrimaryHref
+	navigateNotificationPrimaryHref,
+	notificationPrimaryClickable
 } from '../../notificationNav.js';
 import {
 	applyFeedBetaNavLabelsToDom,
@@ -863,10 +861,10 @@ class AppNavigation extends HTMLElement {
 							}
 							this.closeNotificationsMenu();
 							document.dispatchEvent(new CustomEvent('close-all-modals'));
-							const href = notificationPrimaryHref(notification);
-							if (href) {
-								window.location.href = href;
-							} else if (notification.type === 'tip') {
+							if (navigateNotificationPrimaryHref(notification)) {
+								return;
+							}
+							if (notification.type === 'tip') {
 								document.dispatchEvent(new CustomEvent('open-notifications', {
 									detail: { notificationId: notification.id }
 								}));

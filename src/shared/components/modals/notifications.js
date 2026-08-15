@@ -1,9 +1,7 @@
 import { formatDateTime, formatRelativeTime } from '../../datetime.js';
 import { fetchJsonWithStatusDeduped } from '../../api.js';
-import { closeModalsAndNavigate } from '../../navigation.js';
 import {
-	notificationChatHref,
-	notificationCreationHref,
+	navigateNotificationPrimaryHref,
 	notificationPrimaryClickable,
 	notificationPrimaryHref
 } from '../../notificationNav.js';
@@ -309,10 +307,12 @@ class AppModalNotifications extends HTMLElement {
 					} catch {
 						// ignore
 					}
-					const href = notificationPrimaryHref(notification);
-					if (href) {
-						closeModalsAndNavigate(href);
-					} else if (notification?.type === 'tip') {
+					if (notificationPrimaryHref(notification)) {
+						document.dispatchEvent(new CustomEvent('close-all-modals'));
+						navigateNotificationPrimaryHref(notification);
+						return;
+					}
+					if (notification?.type === 'tip') {
 						this.openDetail(notification.id);
 						item.classList.remove('is-loading');
 						item.removeAttribute('aria-busy');
@@ -385,6 +385,17 @@ class AppModalNotifications extends HTMLElement {
 			viewAllButton.addEventListener('click', () => {
 				this.close();
 				this.openList();
+			});
+		}
+
+		const relatedLink = this.shadowRoot.querySelector('a.notification-action.is-primary');
+		if (relatedLink) {
+			relatedLink.addEventListener('click', (ev) => {
+				if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+				if (typeof ev.button === 'number' && ev.button !== 0) return;
+				ev.preventDefault();
+				document.dispatchEvent(new CustomEvent('close-all-modals'));
+				navigateNotificationPrimaryHref(notification);
 			});
 		}
 

@@ -9,10 +9,8 @@ let setNsfwContentEnabled;
 let notifyIcon;
 let creditIcon;
 let getHelpHref;
-let notificationCreationHref;
-let notificationChatHref;
-let notificationPrimaryHref;
 let notificationPrimaryClickable;
+let navigateNotificationPrimaryHref;
 let feedNavLabel;
 let readFeedBetaEnabledSync;
 let setFeedBetaEnabledClient;
@@ -130,10 +128,8 @@ async function loadDeps() {
 		hydrateChatAudibleNotificationsFromServer = chatAudiblePrefMod.hydrateChatAudibleNotificationsFromServer;
 
 		const notifNavMod = await import(`../../shared/notificationNav.js${qs}`);
-		notificationCreationHref = notifNavMod.notificationCreationHref;
-		notificationChatHref = notifNavMod.notificationChatHref;
-		notificationPrimaryHref = notifNavMod.notificationPrimaryHref;
 		notificationPrimaryClickable = notifNavMod.notificationPrimaryClickable;
+		navigateNotificationPrimaryHref = notifNavMod.navigateNotificationPrimaryHref;
 
 		const feedBetaNavMod = await import(`../../shared/feedBetaNav.js${qs}`);
 		feedNavLabel = feedBetaNavMod.feedNavLabel;
@@ -929,10 +925,10 @@ class AppNavigation extends HTMLElement {
 							}
 							this.closeNotificationsMenu();
 							document.dispatchEvent(new CustomEvent('close-all-modals'));
-							const href = notificationPrimaryHref(notification);
-							if (href) {
-								window.location.href = href;
-							} else if (notification.type === 'tip') {
+							if (navigateNotificationPrimaryHref(notification)) {
+								return;
+							}
+							if (notification.type === 'tip') {
 								document.dispatchEvent(new CustomEvent('open-notifications', {
 									detail: { notificationId: notification.id }
 								}));

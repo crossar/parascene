@@ -1,9 +1,7 @@
 let formatDateTime;
 let formatRelativeTime;
 let fetchJsonWithStatusDeduped;
-let closeModalsAndNavigate;
-let notificationCreationHref;
-let notificationChatHref;
+let navigateNotificationPrimaryHref;
 let notificationPrimaryHref;
 let notificationPrimaryClickable;
 let modalDismissIconSvg;
@@ -31,12 +29,8 @@ async function loadDeps() {
 		const apiMod = await import(`../../shared/api.js${qs}`);
 		fetchJsonWithStatusDeduped = apiMod.fetchJsonWithStatusDeduped;
 
-		const navMod = await import(`../../shared/navigation.js${qs}`);
-		closeModalsAndNavigate = navMod.closeModalsAndNavigate;
-
 		const notifNavMod = await import(`../../shared/notificationNav.js${qs}`);
-		notificationCreationHref = notifNavMod.notificationCreationHref;
-		notificationChatHref = notifNavMod.notificationChatHref;
+		navigateNotificationPrimaryHref = notifNavMod.navigateNotificationPrimaryHref;
 		notificationPrimaryHref = notifNavMod.notificationPrimaryHref;
 		notificationPrimaryClickable = notifNavMod.notificationPrimaryClickable;
 
@@ -348,10 +342,12 @@ class AppModalNotifications extends HTMLElement {
 					} catch {
 						// ignore
 					}
-					const href = notificationPrimaryHref(notification);
-					if (href) {
-						closeModalsAndNavigate(href);
-					} else if (notification?.type === 'tip') {
+					if (notificationPrimaryHref(notification)) {
+						document.dispatchEvent(new CustomEvent('close-all-modals'));
+						navigateNotificationPrimaryHref(notification);
+						return;
+					}
+					if (notification?.type === 'tip') {
 						this.openDetail(notification.id);
 						item.classList.remove('is-loading');
 						item.removeAttribute('aria-busy');
@@ -424,6 +420,17 @@ class AppModalNotifications extends HTMLElement {
 			viewAllButton.addEventListener('click', () => {
 				this.close();
 				this.openList();
+			});
+		}
+
+		const relatedLink = this.shadowRoot.querySelector('a.notification-action.is-primary');
+		if (relatedLink) {
+			relatedLink.addEventListener('click', (ev) => {
+				if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+				if (typeof ev.button === 'number' && ev.button !== 0) return;
+				ev.preventDefault();
+				document.dispatchEvent(new CustomEvent('close-all-modals'));
+				navigateNotificationPrimaryHref(notification);
 			});
 		}
 

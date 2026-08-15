@@ -4464,6 +4464,29 @@ body.view-nsfw .feed-card-image--group-carousel.nsfw::after {
 	font-weight: 600;
 }
 
+.comment-gen-modal {
+	width: min(480px, 96vw);
+}
+
+.comment-gen-modal .comment-sticker-modal-close {
+	z-index: 3;
+}
+
+.comment-gen-modal-prompt {
+	width: 100%;
+	min-height: 88px;
+	resize: vertical;
+	margin-top: 12px;
+	box-sizing: border-box;
+}
+
+.comment-gen-modal-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 14px;
+}
+
 .comment-sticker-modal-head {
 	display: flex;
 	align-items: flex-start;
@@ -4604,6 +4627,10 @@ body.view-nsfw .feed-card-image--group-carousel.nsfw::after {
 	.comment-sticker-modal {
 		width: min(520px, 96vw);
 		padding: 14px;
+	}
+
+	.comment-gen-modal {
+		width: min(480px, 96vw);
 	}
 
 	.comment-sticker-modal-title {

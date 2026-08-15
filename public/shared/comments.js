@@ -18,9 +18,9 @@ export function buildCreatedImageActivityUrl(createdImageId, { order, limit, off
 	return `/api/created-images/${encodeURIComponent(String(createdImageId))}/activity${toQuery({ order, limit, offset })}`;
 }
 
-export async function fetchCreatedImageActivity(createdImageId, { order = 'asc', limit = 50, offset = 0 } = {}) {
+export async function fetchCreatedImageActivity(createdImageId, { order = 'asc', limit = 50, offset = 0, windowMs = 500 } = {}) {
 	const url = buildCreatedImageActivityUrl(createdImageId, { order, limit, offset });
-	return fetchJsonWithStatusDeduped(url, { credentials: 'include' }, { windowMs: 500 });
+	return fetchJsonWithStatusDeduped(url, { credentials: 'include' }, { windowMs });
 }
 
 export function buildLatestCommentsUrl({ limit, before } = {}) {

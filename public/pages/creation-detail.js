@@ -5241,7 +5241,7 @@ async function loadCreation() {
 				${hasNsfwTag ? html`<span class="creation-detail-nsfw-tag">NSFW</span>` : ''}
 				${needsTitleSlot ? html`<div class="creation-detail-title${isUntitled ? ' creation-detail-title-untitled' : ''}"${displayTitle ? '' : ' hidden'}>${displayTitle ? escapeHtml(displayTitle) : ''}</div>` : ''}
 			</div>` : ''}
-			<div class="creation-detail-title-byline creation-detail-title-byline-mobile"${isPublished && publishedAtTitle ? ` title="${escapeHtml(publishedAtTitle)}"` : ''}>${escapeHtml(formatCreationPublishStatus(isPublished, isPublished ? publishedTimeAgo : ''))}</div>
+			${hideIdentifyActionChrome ? '' : html`<div class="creation-detail-title-byline creation-detail-title-byline-mobile"${isPublished && publishedAtTitle ? ` title="${escapeHtml(publishedAtTitle)}"` : ''}>${escapeHtml(formatCreationPublishStatus(isPublished, isPublished ? publishedTimeAgo : ''))}</div>`}
 			${hideIdentifyActionChrome ? '' : renderCreationDetailActionStrip(stripData, escapeHtml)}
 			${hideIdentifyActionChrome ? '' : renderCreationDetailMoreMenu(menuData, escapeHtml)}
 			${groupLeadDescriptionHtml}

@@ -2,7 +2,8 @@
  * Mountable comments thread for a single created image.
  *
  * Renders composer + activity list (tips + comments) with interactive reactions,
- * inline replies, edit/delete, image upload, and sticker quick-send. Used by:
+ * inline replies, edit/delete, image upload, sticker quick-send, and generated
+ * image replies (`/gen` or + menu). Used by:
  *   - /creations/:id (creation-detail page)
  *   - Chat doom-scroll comments bottom sheet
  *
@@ -67,6 +68,8 @@ function loadDeps() {
 			attachAutoGrowTextarea: autogrowMod.attachAutoGrowTextarea,
 			composerEnterKeySubmits: autogrowMod.composerEnterKeySubmits,
 			attachMentionSuggest: suggestMod.attachMentionSuggest,
+			attachCommentComposerSuggest: suggestMod.attachCommentComposerSuggest,
+			attachPromptInlineSuggest: suggestMod.attachPromptInlineSuggest,
 			isTriggeredSuggestPopupOpen: suggestMod.isTriggeredSuggestPopupOpen,
 			addPageUsers: suggestMod.addPageUsers,
 			buildProfilePath: profileLinksMod.buildProfilePath,
@@ -81,6 +84,7 @@ function loadDeps() {
 			renderEmptyState: emptyStateMod.renderEmptyState,
 			renderCommentAvatarHtml: commentItemMod.renderCommentAvatarHtml,
 			uploadImageFile: createSubmitMod.uploadImageFile,
+			formatMentionsFailureForDialog: createSubmitMod.formatMentionsFailureForDialog,
 			getAvatarColor: avatarMod.getAvatarColor,
 			setupWhoTooltips: tooltipTapMod.setupWhoTooltips,
 		};
@@ -98,6 +102,47 @@ function escapeHtml(value) {
 }
 
 const DEFAULT_PLACEHOLDER = 'What do you like about this creation?';
+const COMMENT_GEN_POLL_MS = 2400;
+const COMMENT_GEN_MODEL = 'xai/grok-imagine-image';
+
+function parseCommentGenCommand(text) {
+	const m = String(text || '').trim().match(/^\/gen(?:\s+(.+))?$/i);
+	if (!m) return null;
+	return { prompt: String(m[1] || '').trim() };
+}
+
+function extractStyleKeyFromGenPrompt(prompt) {
+	const tokens = String(prompt || '').match(/\$[a-z0-9_-]+/gi) || [];
+	if (tokens.length === 0) return { styleKey: '', promptWithoutStyle: String(prompt || '').trim() };
+	const last = String(tokens[tokens.length - 1] || '').replace(/^\$/, '').trim().toLowerCase();
+	const promptWithoutStyle = String(prompt || '')
+		.replace(/\$[a-z0-9_-]+/gi, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+	return { styleKey: last === 'none' ? '' : last, promptWithoutStyle };
+}
+
+function extractMentionsForGen(prompt) {
+	const text = typeof prompt === 'string' ? prompt : '';
+	if (!text) return [];
+	const out = [];
+	const seen = new Set();
+	const re = /@([a-zA-Z0-9_]+)/g;
+	let match;
+	while ((match = re.exec(text)) !== null) {
+		const full = `@${match[1]}`;
+		if (seen.has(full)) continue;
+		seen.add(full);
+		out.push(full);
+	}
+	return out;
+}
+
+function buildCommentGenCreationToken() {
+	const ts = Date.now().toString(36);
+	const rand = Math.random().toString(36).slice(2, 10);
+	return `crt_${ts}_${rand}`;
+}
 
 /**
  * @typedef {object} ThreadViewer
@@ -153,6 +198,8 @@ export async function mountCreationCommentsThread(container, options) {
 		attachAutoGrowTextarea,
 		composerEnterKeySubmits,
 		attachMentionSuggest,
+		attachCommentComposerSuggest,
+		attachPromptInlineSuggest,
 		isTriggeredSuggestPopupOpen,
 		addPageUsers,
 		buildProfilePath,
@@ -167,9 +214,15 @@ export async function mountCreationCommentsThread(container, options) {
 		renderEmptyState,
 		renderCommentAvatarHtml,
 		uploadImageFile,
+		formatMentionsFailureForDialog,
 		getAvatarColor,
 		setupWhoTooltips,
 	} = deps;
+
+	const attachCommentSuggest =
+		typeof attachCommentComposerSuggest === 'function'
+			? attachCommentComposerSuggest
+			: attachMentionSuggest;
 
 	const viewerRaw = opts.viewer || {};
 	const currentUserId = Number(viewerRaw.id);
@@ -433,7 +486,7 @@ export async function mountCreationCommentsThread(container, options) {
 		const ta = commentListEl.querySelector(`[data-comment-inline-textarea="${pid}"]`);
 		if (!(ta instanceof HTMLTextAreaElement)) return;
 		if (ta.dataset.inlineComposerHydrated !== '1') {
-			attachMentionSuggest(ta);
+			attachCommentSuggest(ta);
 			const miniRefresh = attachAutoGrowTextarea(ta);
 			miniRefresh();
 			ta.dataset.inlineComposerHydrated = '1';
@@ -581,7 +634,7 @@ export async function mountCreationCommentsThread(container, options) {
 		const metaRow = row.querySelector('.comment-meta-row');
 		if (!(metaRow instanceof HTMLElement)) {
 			// Comment is in edit mode (no meta row); fall back to full render so state stays consistent.
-			renderComments();
+			renderComments({ force: true });
 			return;
 		}
 		const metaRight = metaRow.querySelector('.comment-meta-right');
@@ -608,7 +661,12 @@ export async function mountCreationCommentsThread(container, options) {
 			.join('|');
 	}
 
-	function renderComments() {
+	function commentsViewSignature(items) {
+		const activity = commentsActivitySignature(items);
+		return `${activity}|edit:${commentEditingId ?? ''}`;
+	}
+
+	function renderComments({ force = false } = {}) {
 		if (!commentListEl) return;
 
 		const list = Array.isArray(commentsState.activity) ? commentsState.activity : [];
@@ -617,7 +675,7 @@ export async function mountCreationCommentsThread(container, options) {
 			if (commentsToolbarEl instanceof HTMLElement) {
 				commentsToolbarEl.style.display = 'none';
 			}
-			if (commentListEl.querySelector('.comments-empty')) {
+			if (!force && commentListEl.querySelector('.comments-empty')) {
 				lastRenderedActivitySig = 'empty';
 				return;
 			}
@@ -626,8 +684,8 @@ export async function mountCreationCommentsThread(container, options) {
 			return;
 		}
 
-		const nextSig = commentsActivitySignature(list);
-		if (nextSig && nextSig === lastRenderedActivitySig) return;
+		const nextSig = commentsViewSignature(list);
+		if (!force && nextSig && nextSig === lastRenderedActivitySig) return;
 		lastRenderedActivitySig = nextSig;
 
 		if (commentsToolbarEl instanceof HTMLElement) {
@@ -1061,6 +1119,19 @@ export async function mountCreationCommentsThread(container, options) {
 					return;
 				}
 				try {
+					const genCmd = parseCommentGenCommand(body);
+					if (genCmd) {
+						commentAttachContext = { kind: 'inline', referencedCommentId: cid };
+						if (ta instanceof HTMLTextAreaElement) {
+							ta.value = '';
+							syncInlineReplySubmitUi(ta);
+						}
+						openCommentGenModal({
+							prompt: genCmd.prompt,
+							autoSubmit: Boolean(genCmd.prompt),
+						});
+						return;
+					}
 					await submitCommentText(body, { referencedCommentId: cid });
 					if (ta instanceof HTMLTextAreaElement) {
 						ta.value = '';
@@ -1086,17 +1157,40 @@ export async function mountCreationCommentsThread(container, options) {
 			const canModerateComment = isAdmin || (Number(item?.user_id) > 0 && Number(item.user_id) === Number(currentUserId));
 			if (!canModerateComment) return;
 			if (!window.confirm('Delete this comment? This cannot be undone.')) return;
-			if (delBtn instanceof HTMLButtonElement) delBtn.disabled = true;
+			const prevActivity = Array.isArray(commentsState.activity) ? commentsState.activity.slice() : [];
+			const prevCount = commentsState.commentCount;
+			commentsState.activity = prevActivity.filter(
+				(it) => !(it.type === 'comment' && Number(it.id) === cid)
+			);
+			if (Number(commentEditingId) === cid) {
+				commentEditingId = null;
+				commentEditDraft = '';
+				commentEditBusy = false;
+				commentEditMinHeightPx = 0;
+			}
+			if (Number(commentInlineReplyParentId) === cid) {
+				commentInlineReplyParentId = null;
+			}
+			setCommentCount(Math.max(0, Number(prevCount || 0) - 1));
+			renderComments({ force: true });
 			try {
 				const res = await deleteCreatedImageComment(cid);
 				if (!res?.ok) {
+					commentsState.activity = prevActivity;
+					setCommentCount(prevCount);
+					renderComments({ force: true });
 					const msg = typeof res?.data?.error === 'string' ? res.data.error : 'Failed to delete comment';
 					alert(msg);
 					return;
 				}
-				await loadComments({ scrollIfHash: false, showSkeleton: false });
-			} finally {
-				if (delBtn instanceof HTMLButtonElement) delBtn.disabled = false;
+				const apiCount = Number(res?.data?.comment_count);
+				if (Number.isFinite(apiCount) && apiCount >= 0) setCommentCount(apiCount);
+				await loadComments({ scrollIfHash: false, showSkeleton: false, fresh: true });
+			} catch (err) {
+				commentsState.activity = prevActivity;
+				setCommentCount(prevCount);
+				renderComments({ force: true });
+				alert(err?.message || 'Failed to delete comment');
 			}
 			return;
 		}
@@ -1114,7 +1208,7 @@ export async function mountCreationCommentsThread(container, options) {
 				commentEditingId = null;
 				commentEditDraft = '';
 				commentEditBusy = false;
-				renderComments();
+				renderComments({ force: true });
 				return;
 			}
 			commentInlineReplyParentId = null;
@@ -1127,7 +1221,7 @@ export async function mountCreationCommentsThread(container, options) {
 					: 0;
 			commentEditMinHeightPx = Math.max(92, measuredHeight + 14);
 			commentEditBusy = false;
-			renderComments();
+			renderComments({ force: true });
 			const input = commentListEl.querySelector(`[data-comment-edit-input="${cid}"]`);
 			if (input instanceof HTMLTextAreaElement) {
 				if (!scrollDoomSheetCommentFieldIntoView(input)) {
@@ -1148,7 +1242,7 @@ export async function mountCreationCommentsThread(container, options) {
 			commentEditDraft = '';
 			commentEditBusy = false;
 			commentEditMinHeightPx = 0;
-			renderComments();
+			renderComments({ force: true });
 			return;
 		}
 
@@ -1193,7 +1287,7 @@ export async function mountCreationCommentsThread(container, options) {
 				commentEditDraft = '';
 				commentEditBusy = false;
 				commentEditMinHeightPx = 0;
-				renderComments();
+				renderComments({ force: true });
 			} finally {
 				commentEditBusy = false;
 				if (editSaveBtn instanceof HTMLButtonElement) {
@@ -1325,7 +1419,7 @@ export async function mountCreationCommentsThread(container, options) {
 			commentEditDraft = '';
 			commentEditBusy = false;
 			commentEditMinHeightPx = 0;
-			renderComments();
+			renderComments({ force: true });
 			return;
 		}
 		if (e.key === 'Enter' && !e.shiftKey) {
@@ -1349,7 +1443,7 @@ export async function mountCreationCommentsThread(container, options) {
 		commentListEl.addEventListener('keydown', onCommentListKeydown);
 	}
 
-	async function loadComments({ scrollIfHash = false, showSkeleton = true } = {}) {
+	async function loadComments({ scrollIfHash = false, showSkeleton = true, fresh = false } = {}) {
 		if (!commentListEl) return;
 
 		const commentsSection = root.querySelector('[data-comments-section]');
@@ -1369,7 +1463,12 @@ export async function mountCreationCommentsThread(container, options) {
 		}
 
 		try {
-			const res = await fetchCreatedImageActivity(creationId, { order: commentsState.order, limit: 50, offset: 0 })
+			const res = await fetchCreatedImageActivity(creationId, {
+				order: commentsState.order,
+				limit: 50,
+				offset: 0,
+				windowMs: fresh ? 0 : 500,
+			})
 				.catch(() => ({ ok: false, status: 0, data: null }));
 
 			if (!res.ok) {
@@ -1521,7 +1620,7 @@ export async function mountCreationCommentsThread(container, options) {
 		if (Number.isFinite(refCid) && refCid > 0) {
 			commentInlineReplyParentId = null;
 		}
-		await loadComments({ scrollIfHash: false, showSkeleton: false });
+		await loadComments({ scrollIfHash: false, showSkeleton: false, fresh: true });
 		return { ok: true };
 	}
 
@@ -1550,6 +1649,18 @@ export async function mountCreationCommentsThread(container, options) {
 			setCommentActionButtonLoading(commentSubmitBtn, true);
 		}
 		try {
+			const genCmd = parseCommentGenCommand(text);
+			if (genCmd) {
+				commentAttachContext = { kind: 'main', referencedCommentId: null };
+				commentTextarea.value = '';
+				refreshCommentTextarea();
+				setSubmitVisibility();
+				openCommentGenModal({
+					prompt: genCmd.prompt,
+					autoSubmit: Boolean(genCmd.prompt),
+				});
+				return;
+			}
 			await submitCommentText(text);
 			commentTextarea.value = '';
 			refreshCommentTextarea();
@@ -1575,7 +1686,7 @@ export async function mountCreationCommentsThread(container, options) {
 	};
 
 	if (commentTextarea instanceof HTMLTextAreaElement) {
-		attachMentionSuggest(commentTextarea);
+		attachCommentSuggest(commentTextarea);
 		commentTextarea.addEventListener('input', onComposerInput);
 		commentTextarea.addEventListener('keydown', onComposerKeydown);
 		commentTextarea.addEventListener('paste', onComposerPaste);
@@ -1586,9 +1697,11 @@ export async function mountCreationCommentsThread(container, options) {
 	}
 
 	/* Comment media/sticker attachments:
-	 * - primary "+" opens a choice popup ("Upload an image" or "Use a sticker")
+	 * - primary "+" opens a choice popup (upload, stickers, generate sticker)
 	 * - sticker picker loads/saves URLs in users.meta.comment_stickers
-	 * - selecting any item inserts URL into comment text; renderer handles enrichment */
+	 * - generate sticker uses the same create job as chat /gen, then posts as a sticker
+	 * - `/gen <prompt>` opens that modal with the prompt filled and generation already started
+	 * - selecting any sticker inserts URL into comment text; renderer handles enrichment */
 	function getInlineReplyComposerElements(referencedCommentId) {
 		if (!(commentListEl instanceof HTMLElement)) return {};
 		const cid = Number(referencedCommentId);
@@ -1643,6 +1756,9 @@ export async function mountCreationCommentsThread(container, options) {
 	let commentStickerUrls = null;
 	let commentAttachChoiceModal = null;
 	let commentStickerModal = null;
+	let commentGenModal = null;
+	let commentGenAbort = null;
+	let commentGenBusy = false;
 	let commentAttachChoiceOutsideClick = null;
 	let commentAttachChoiceEscape = null;
 	const COMMENT_STICKER_SLOT_LIMIT = 12;
@@ -1735,6 +1851,15 @@ export async function mountCreationCommentsThread(container, options) {
 				</span>
 				<span class="comment-attach-popover-item-label">Use a Sticker</span>
 			</button>
+			<button type="button" class="comment-attach-popover-item" data-comment-attach-choice-gen role="menuitem">
+				<span class="comment-attach-popover-item-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z"></path>
+						<path d="M19 14l.7 1.9L21.6 16.6l-1.9.7L19 19.2l-.7-1.9-1.9-.7 1.9-.7L19 14z"></path>
+					</svg>
+				</span>
+				<span class="comment-attach-popover-item-label">Generate Sticker</span>
+			</button>
 		`;
 		pop.querySelector('[data-comment-attach-choice-upload]')?.addEventListener('click', () => {
 			closeCommentAttachChoiceModal();
@@ -1747,6 +1872,10 @@ export async function mountCreationCommentsThread(container, options) {
 		pop.querySelector('[data-comment-attach-choice-sticker]')?.addEventListener('click', () => {
 			closeCommentAttachChoiceModal();
 			void openCommentStickerModal();
+		});
+		pop.querySelector('[data-comment-attach-choice-gen]')?.addEventListener('click', () => {
+			closeCommentAttachChoiceModal();
+			openCommentGenModal({ prompt: '', autoSubmit: false });
 		});
 		document.body.appendChild(pop);
 		commentAttachChoiceModal = pop;
@@ -1767,6 +1896,296 @@ export async function mountCreationCommentsThread(container, options) {
 		};
 		document.addEventListener('keydown', commentAttachChoiceEscape, true);
 		return pop;
+	}
+
+	function sleepCommentGen(ms) {
+		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+
+	function setCommentGenStatus(text, { tone } = {}) {
+		const status = commentGenModal?.querySelector?.('[data-comment-gen-status]');
+		if (!(status instanceof HTMLElement)) return;
+		status.textContent = String(text || '');
+		status.classList.toggle('is-error', tone === 'error');
+	}
+
+	function setCommentGenBusy(isBusy) {
+		commentGenBusy = Boolean(isBusy);
+		const busyEl = commentGenModal?.querySelector?.('[data-comment-gen-busy]');
+		if (busyEl instanceof HTMLElement) busyEl.hidden = !commentGenBusy;
+		const promptEl = commentGenModal?.querySelector?.('[data-comment-gen-prompt]');
+		if (promptEl instanceof HTMLTextAreaElement) promptEl.disabled = commentGenBusy;
+		const submitBtn = commentGenModal?.querySelector?.('[data-comment-gen-submit]');
+		if (submitBtn instanceof HTMLButtonElement) {
+			submitBtn.disabled = commentGenBusy;
+			submitBtn.classList.toggle('is-loading', commentGenBusy);
+		}
+	}
+
+	function abortCommentGen() {
+		if (commentGenAbort) {
+			try { commentGenAbort.abort(); } catch { /* ignore */ }
+			commentGenAbort = null;
+		}
+	}
+
+	function closeCommentGenModal() {
+		if (!(commentGenModal instanceof HTMLElement)) return;
+		abortCommentGen();
+		commentGenBusy = false;
+		commentGenModal.classList.remove('open');
+		commentGenModal.setAttribute('aria-hidden', 'true');
+		setCommentGenBusy(false);
+		setCommentGenStatus('');
+	}
+
+	async function validateMentionsForCommentGen(prompt) {
+		const mentions = extractMentionsForGen(prompt);
+		if (mentions.length === 0) return { ok: true, mentions };
+		const res = await fetch('/api/create/validate', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'include',
+			body: JSON.stringify({ args: { prompt } }),
+		});
+		const data = await res.json().catch(() => ({}));
+		return { ok: res.ok, mentions, data };
+	}
+
+	async function startCommentStickerGeneration(fullPrompt, signal) {
+		const { styleKey, promptWithoutStyle } = extractStyleKeyFromGenPrompt(fullPrompt);
+		if (!promptWithoutStyle) throw new Error('Describe the sticker to generate.');
+		const mentionsResult = await validateMentionsForCommentGen(promptWithoutStyle);
+		if (signal?.aborted) throw new Error('Cancelled');
+		let hydrateMentions = false;
+		if (!mentionsResult.ok) {
+			let message = 'Mentions could not be validated. Submit anyway?';
+			try {
+				if (typeof formatMentionsFailureForDialog === 'function') {
+					message = `${formatMentionsFailureForDialog(mentionsResult.data)}\n\nSubmit anyway?`;
+				}
+			} catch {
+				// ignore
+			}
+			if (!window.confirm(message)) throw new Error('Cancelled');
+		} else if (mentionsResult.mentions.length > 0) {
+			hydrateMentions = true;
+		}
+		const body = {
+			server_id: 1,
+			method: 'replicate',
+			args: {
+				prompt: promptWithoutStyle,
+				model: COMMENT_GEN_MODEL,
+			},
+			creation_token: buildCommentGenCreationToken(),
+			...(hydrateMentions ? { hydrate_mentions: true } : {}),
+			...(styleKey ? { style_key: styleKey } : {}),
+		};
+		const res = await fetch('/api/create', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'include',
+			signal,
+			body: JSON.stringify(body),
+		});
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) {
+			throw new Error(data?.error || data?.message || 'Failed to start generation.');
+		}
+		const genId = Number(data?.id);
+		if (!Number.isFinite(genId) || genId <= 0) {
+			throw new Error('Generation started but no creation id returned.');
+		}
+		return genId;
+	}
+
+	async function waitForCommentStickerGeneration(generationId, signal) {
+		while (!signal?.aborted) {
+			const res = await fetch(`/api/create/images/${Number(generationId)}`, {
+				credentials: 'include',
+				signal,
+			}).catch((err) => {
+				if (signal?.aborted) return null;
+				return err;
+			});
+			if (signal?.aborted) throw new Error('Cancelled');
+			if (!res || typeof res.ok !== 'boolean') {
+				await sleepCommentGen(COMMENT_GEN_POLL_MS);
+				continue;
+			}
+			const data = await res.json().catch(() => ({}));
+			const status = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
+			if (status === 'creating' || status === 'pending' || status === 'queued' || status === 'processing') {
+				await sleepCommentGen(COMMENT_GEN_POLL_MS);
+				continue;
+			}
+			if (status === 'completed') return data;
+			throw new Error(typeof data?.error === 'string' && data.error.trim() ? data.error.trim() : 'Generation failed');
+		}
+		throw new Error('Cancelled');
+	}
+
+	async function commentGenResultToStickerUrl(generationId, data) {
+		const imageUrl = typeof data?.url === 'string' && data.url.trim()
+			? data.url.trim()
+			: typeof data?.thumbnail_url === 'string' && data.thumbnail_url.trim()
+				? data.thumbnail_url.trim()
+				: '';
+		if (imageUrl && typeof uploadImageFile === 'function') {
+			try {
+				const imgRes = await fetch(imageUrl, { credentials: 'include' });
+				if (imgRes.ok) {
+					const blob = await imgRes.blob();
+					if (blob && blob.size > 0) {
+						const type = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/png';
+						const file = new File([blob], 'sticker.png', { type });
+						const url = await uploadImageFile(file, { uploadKind: 'generic' });
+						if (typeof url === 'string' && url.trim()) return url.trim();
+					}
+				}
+			} catch {
+				// fall through to creation path
+			}
+		}
+		return `/creations/${Number(generationId)}`;
+	}
+
+	async function postGeneratedCommentSticker(url) {
+		if (commentAttachContext?.kind === 'inline') {
+			await submitCommentText(url, {
+				referencedCommentId: Number(commentAttachContext.referencedCommentId),
+			});
+		} else {
+			await submitCommentText(url);
+		}
+		if (url.startsWith('/api/images/generic/')) {
+			const existing = normalizeCommentStickerSlotList(commentStickerUrls);
+			const next = [url, ...existing.filter((x) => x !== url)].slice(0, COMMENT_STICKER_SLOT_LIMIT);
+			commentStickerUrls = next;
+			void persistCommentStickerUrls(next).catch(() => {});
+		}
+	}
+
+	async function submitCommentGenModal() {
+		if (commentGenBusy) return;
+		const promptEl = commentGenModal?.querySelector?.('[data-comment-gen-prompt]');
+		const fullPrompt = promptEl instanceof HTMLTextAreaElement ? String(promptEl.value || '').trim() : '';
+		if (!fullPrompt) {
+			setCommentGenStatus('Describe the sticker to generate.', { tone: 'error' });
+			if (promptEl instanceof HTMLTextAreaElement) promptEl.focus();
+			return;
+		}
+		abortCommentGen();
+		const ac = new AbortController();
+		commentGenAbort = ac;
+		setCommentGenStatus('Generating…');
+		setCommentGenBusy(true);
+		try {
+			const genId = await startCommentStickerGeneration(fullPrompt, ac.signal);
+			const data = await waitForCommentStickerGeneration(genId, ac.signal);
+			setCommentGenStatus('Posting…');
+			const url = await commentGenResultToStickerUrl(genId, data);
+			await postGeneratedCommentSticker(url);
+			closeCommentGenModal();
+			const ta = resolveAttachTextarea(commentAttachContext);
+			if (ta instanceof HTMLTextAreaElement) ta.focus();
+		} catch (err) {
+			if (String(err?.message || '') === 'Cancelled' || ac.signal.aborted) {
+				setCommentGenStatus('');
+				return;
+			}
+			setCommentGenStatus(err?.message || 'Could not generate sticker.', { tone: 'error' });
+		} finally {
+			if (commentGenAbort === ac) commentGenAbort = null;
+			setCommentGenBusy(false);
+		}
+	}
+
+	function ensureCommentGenModal() {
+		if (commentGenModal instanceof HTMLElement) return commentGenModal;
+		const overlay = document.createElement('div');
+		overlay.className = 'comment-sticker-modal-overlay comment-gen-modal-overlay';
+		overlay.setAttribute('aria-hidden', 'true');
+		overlay.innerHTML = `
+			<div class="comment-sticker-modal comment-gen-modal" role="dialog" aria-modal="true" aria-label="Generate sticker">
+				<div class="comment-sticker-modal-head">
+					<div class="comment-sticker-modal-title">Generate Sticker</div>
+					<button type="button" class="comment-sticker-modal-close" data-comment-gen-close aria-label="Close">
+						<svg class="comment-sticker-modal-close-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<line x1="18" y1="6" x2="6" y2="18"></line>
+							<line x1="6" y1="6" x2="18" y2="18"></line>
+						</svg>
+					</button>
+				</div>
+				<textarea class="comment-textarea comment-gen-modal-prompt" rows="3" maxlength="4000" placeholder="Describe the sticker" data-comment-gen-prompt></textarea>
+				<span class="comment-sticker-modal-status" data-comment-gen-status aria-live="polite"></span>
+				<div class="comment-gen-modal-actions">
+					<button type="button" class="btn-primary" data-comment-gen-submit>Generate</button>
+				</div>
+				<div class="comment-sticker-modal-busy" data-comment-gen-busy hidden aria-hidden="true">
+					<span class="comment-sticker-modal-busy-spinner"></span>
+				</div>
+			</div>
+		`;
+		overlay.addEventListener('click', (e) => {
+			if (e.target === overlay && !commentGenBusy) closeCommentGenModal();
+		});
+		overlay.querySelector('[data-comment-gen-close]')?.addEventListener('click', () => {
+			closeCommentGenModal();
+		});
+		overlay.querySelector('[data-comment-gen-submit]')?.addEventListener('click', () => {
+			void submitCommentGenModal();
+		});
+		const promptEl = overlay.querySelector('[data-comment-gen-prompt]');
+		if (promptEl instanceof HTMLTextAreaElement) {
+			if (typeof attachPromptInlineSuggest === 'function') {
+				attachPromptInlineSuggest(promptEl);
+			}
+			promptEl.addEventListener('keydown', (e) => {
+				if (e.key !== 'Enter' || e.shiftKey) return;
+				if (typeof isTriggeredSuggestPopupOpen === 'function' && isTriggeredSuggestPopupOpen(promptEl)) {
+					return;
+				}
+				e.preventDefault();
+				void submitCommentGenModal();
+			});
+		}
+		document.body.appendChild(overlay);
+		commentGenModal = overlay;
+		return overlay;
+	}
+
+	function openCommentGenModal({ prompt = '', autoSubmit = false } = {}) {
+		const modal = ensureCommentGenModal();
+		abortCommentGen();
+		setCommentGenBusy(false);
+		setCommentGenStatus('');
+		const promptEl = modal.querySelector('[data-comment-gen-prompt]');
+		if (promptEl instanceof HTMLTextAreaElement) {
+			promptEl.value = String(prompt || '');
+			promptEl.disabled = false;
+		}
+		modal.classList.add('open');
+		modal.setAttribute('aria-hidden', 'false');
+		if (modal.dataset.escapeBound !== '1') {
+			modal.dataset.escapeBound = '1';
+			document.addEventListener('keydown', (e) => {
+				if (e.key !== 'Escape') return;
+				if (!(commentGenModal instanceof HTMLElement)) return;
+				if (commentGenModal.getAttribute('aria-hidden') === 'true') return;
+				if (!commentGenModal.classList.contains('open')) return;
+				e.preventDefault();
+				closeCommentGenModal();
+			});
+		}
+		if (autoSubmit && String(prompt || '').trim()) {
+			void submitCommentGenModal();
+		} else if (promptEl instanceof HTMLTextAreaElement) {
+			promptEl.focus();
+			const len = promptEl.value.length;
+			try { promptEl.setSelectionRange(len, len); } catch { /* ignore */ }
+		}
 	}
 
 	function ensureCommentStickerModal() {
@@ -2117,6 +2536,11 @@ export async function mountCreationCommentsThread(container, options) {
 		setCommentsLoading(false);
 		try { closeReactionPicker(); } catch { /* ignore */ }
 		try { closeCommentAttachChoiceModal(); } catch { /* ignore */ }
+		try { closeCommentGenModal(); } catch { /* ignore */ }
+		if (commentGenModal instanceof HTMLElement) {
+			try { commentGenModal.remove(); } catch { /* ignore */ }
+			commentGenModal = null;
+		}
 		if (commentStickerModal instanceof HTMLElement) {
 			try { commentStickerModal.remove(); } catch { /* ignore */ }
 			commentStickerModal = null;
@@ -2154,6 +2578,6 @@ export async function mountCreationCommentsThread(container, options) {
 
 	return {
 		teardown,
-		refresh: () => loadComments({ scrollIfHash: false }),
+		refresh: () => loadComments({ scrollIfHash: false, fresh: true }),
 	};
 }

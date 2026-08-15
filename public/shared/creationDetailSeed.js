@@ -1230,7 +1230,9 @@ export function creationDetailChromeHtmlFromSeed(seed) {
 			? `Published ${publishedTimeAgo}`
 			: 'Published'
 		: 'Not Published';
-	const publishByline = `<div class="creation-detail-title-byline creation-detail-title-byline-mobile">${esc(publishStatus)}</div>`;
+	const publishByline = hideIdentify
+		? ''
+		: `<div class="creation-detail-title-byline creation-detail-title-byline-mobile">${esc(publishStatus)}</div>`;
 
 	const promptBlock = hideIdentify
 		? ''
