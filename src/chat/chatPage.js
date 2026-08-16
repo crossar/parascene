@@ -10446,7 +10446,10 @@ export async function initChatPage(root, options = {}) {
 					const challengeOnlyParam = chatCreationsOnlyChallenge ? '&challenge_only=1' : '';
 					const res = await fetchJsonWithStatusDeduped(
 						`/api/create/images?limit=${CREATIONS_CHANNEL_PAGE_SIZE}&offset=${offset}${challengeOnlyParam}`,
-						{ credentials: 'include' },
+						{
+							credentials: 'include',
+							cache: forceFreshFirstPage && offset === 0 ? 'reload' : 'default'
+						},
 						listDedupeOpts
 					);
 					if (!res.ok) {
@@ -10582,8 +10585,6 @@ export async function initChatPage(root, options = {}) {
 		if (reason === 'like-changed') return;
 
 		if (reason === 'comment-changed') return;
-
-		if (reason === 'edited') return;
 
 		if (reason === 'challenge-submitted' || reason === 'challenge-withdrawn') return;
 

@@ -3,6 +3,7 @@
  * All navigation and post-mutation refresh from creation-detail + its modals should go through here.
  */
 
+import { invalidateAppCaches } from './api.js';
 import { notifyCreationDetailEmbedShellSync } from './creationDetailEmbedShell.js';
 import {
 	CHAT_HASHTAG_INTENT_MESSAGE,
@@ -62,6 +63,10 @@ export function registerCreationDetailRefreshHandler(fn) {
  * @param {{ creationId?: number|string, scopes?: string[], standaloneReload?: boolean, skipContentRefresh?: boolean }} [options]
  */
 export async function refreshAfterMutation(reason, options = {}) {
+	invalidateAppCaches({
+		tags: ['creations', 'feed', 'explore'],
+		urls: ['/api/create/images']
+	});
 	if (options.skipContentRefresh !== true && typeof refreshHandler === 'function') {
 		await refreshHandler();
 	}

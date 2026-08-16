@@ -1227,8 +1227,8 @@ class AppRouteCreations extends HTMLElement {
 			const challengeOnlyParam = this._filterOnlyChallenge ? '&challenge_only=1' : '';
 			const creationsResult = await fetchJsonWithStatusDeduped(
 				`/api/create/images?limit=${CREATIONS_PAGE_SIZE}&offset=${offset}${challengeOnlyParam}`,
-				{ credentials: 'include' },
-				{ windowMs: 500 }
+				{ credentials: 'include', cache: force ? 'reload' : 'default' },
+				{ windowMs: force ? 0 : 500, dedupeKey: force ? `creations-list-${Date.now()}` : undefined }
 			).catch(() => ({ ok: false, status: 0, data: null }));
 
 			let cont = this.querySelector("[data-creations-container]");

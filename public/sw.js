@@ -468,6 +468,9 @@ async function revalidateDataRequest(request) {
 }
 
 async function staleWhileRevalidateData(request) {
+	if (request.cache === "reload" || request.cache === "no-store") {
+		return revalidateDataRequest(request);
+	}
 	const cache = await caches.open(DATA_CACHE);
 	const cached = await cache.match(request);
 	if (cached) {
@@ -563,7 +566,10 @@ async function invalidateByMessage(msg) {
 	for (const tag of tags) {
 		if (tag === "feed") dataPrefixes.add("/api/feed");
 		if (tag === "explore") dataPrefixes.add("/api/explore");
-		if (tag === "creations") dataPrefixes.add("/api/creations");
+		if (tag === "creations") {
+			dataPrefixes.add("/api/creations");
+			dataPrefixes.add("/api/create/images");
+		}
 		if (tag === "userProfiles") dataPrefixes.add("/api/users/");
 	}
 	for (const url of urls) {

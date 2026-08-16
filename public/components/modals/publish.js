@@ -657,9 +657,27 @@ class AppModalPublish extends HTMLElement {
 		}
 
 		this.close();
+		try {
+			const qs = getImportQuery(getAssetVersionParam());
+			const seedMod = await import(`../../shared/creationDetailSeed.js${qs}`);
+			const prev = seedMod.readCreationDetailSeed(this._creationId);
+			if (prev) {
+				const titleRaw = typeof title === 'string' ? title.trim() : '';
+				seedMod.writeCreationDetailSeed({
+					...prev,
+					title: titleRaw || 'Untitled',
+					title_untitled: !titleRaw,
+					summary: typeof description === 'string' ? description : prev.summary,
+					published: true,
+					published_at: new Date().toISOString()
+				});
+			}
+		} catch {
+			// ignore
+		}
 		const { refreshAfterMutation, isCreationDetailEmbed, navigate } = await loadCreationDetailRuntime();
 		if (isCreationDetailEmbed()) {
-			await refreshAfterMutation('published', { creationId: this._creationId });
+			await refreshAfterMutation('published', { creationId: this._creationId, title });
 			return;
 		}
 

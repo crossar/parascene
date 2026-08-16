@@ -48,9 +48,9 @@ function seedIsPublished(seedLike) {
 
 function mergePublishedFlags(primaryValue, fallbackValue) {
 	const primary = seedPublishedFlag(primaryValue);
+	if (primary != null) return primary;
 	const fallback = seedPublishedFlag(fallbackValue);
-	if (primary === false || fallback === false) return false;
-	if (primary === true || fallback === true) return true;
+	if (fallback != null) return fallback;
 	return true;
 }
 

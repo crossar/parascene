@@ -3752,6 +3752,7 @@ async function loadCreation() {
 		const response = await perf.timeAsync('creationApi', 'fetch', () =>
 			fetch(`/api/create/images/${creationId}${challengeSubmitQs}`, {
 				credentials: 'include',
+				cache: 'reload',
 				headers
 			})
 		);

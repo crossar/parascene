@@ -80,7 +80,9 @@ export function hydrateRouteCardMedia(mediaEl, item, options = {}) {
 		const carouselSources = getFeedItemGroupCarouselSources(feedItem);
 		if (carouselSources.length > 1) {
 			markRouteMediaGroupHost(mediaEl);
-			setupFeedCardGroupCarousel(mediaEl, feedItem);
+			setupFeedCardGroupCarousel(mediaEl, feedItem, {
+				preferThumbnail: options.preferThumbnail !== false
+			});
 			return { kind: "group-carousel" };
 		}
 	}

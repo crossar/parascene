@@ -144,6 +144,23 @@ export function apiGetJsonDeduped(path, { windowMs = 2000 } = {}) {
  * urls: specific same-origin paths/urls to evict from data cache
  */
 export function invalidateAppCaches({ tags = [], urls = [], all = false } = {}) {
+	pruneSettled();
+	if (all === true) {
+		settled.clear();
+	} else {
+		const prefixes = [];
+		for (const tag of tags) {
+			if (tag === 'feed') prefixes.push('/api/feed');
+			if (tag === 'explore') prefixes.push('/api/explore');
+			if (tag === 'creations') prefixes.push('/api/creations', '/api/create/images');
+		}
+		for (const url of urls) prefixes.push(String(url || ''));
+		if (prefixes.length) {
+			for (const key of [...settled.keys()]) {
+				if (prefixes.some((prefix) => prefix && key.includes(prefix))) settled.delete(key);
+			}
+		}
+	}
 	void postMessageToServiceWorker({
 		type: 'PRSN_SW_INVALIDATE',
 		tags,

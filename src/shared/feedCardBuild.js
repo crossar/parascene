@@ -47,7 +47,8 @@ import { openFeedBetaWhyModal } from './feedBetaWhyModal.js';
 import { mountSequentialVideoPlayer } from './sequentialVideoPlayer.js';
 import {
 	groupCreationBadgeHtml,
-	resolveGroupCoverDisplayUrl
+	resolveGroupCoverDisplayUrl,
+	appendThumbnailVariant
 } from './creationGroupMedia.js';
 import { creationTitleDisplay } from './creationCard.js';
 import { applyWhoTooltipAttr } from './whoLabels.js';
@@ -345,7 +346,7 @@ export function setupFeedCardGroupVideoPlaylist(imageContainer, item, options = 
 	return player;
 }
 
-export function getFeedItemGroupCarouselSources(item) {
+export function getFeedItemGroupCarouselSources(item, preferThumbnail = false) {
 	const creationId = Number(item?.created_image_id ?? item?.id);
 	const parsedMeta = parseFeedItemMeta(item);
 	const groupPayload =
@@ -362,16 +363,18 @@ export function getFeedItemGroupCarouselSources(item) {
 		const sourceTitle = typeof source?.title === 'string' ? source.title.trim() : '';
 		out.push({
 			url,
+			displayUrl: preferThumbnail ? appendThumbnailVariant(url) : url,
 			title: sourceTitle || item?.title || 'Grouped creation image'
 		});
 	}
 	return out;
 }
 
-export function setupFeedCardGroupCarousel(imageContainer, item) {
+export function setupFeedCardGroupCarousel(imageContainer, item, options = {}) {
 	if (!(imageContainer instanceof HTMLElement)) return false;
 	if (imageContainer.querySelector('[data-feed-card-group-carousel]')) return true;
-	const sources = getFeedItemGroupCarouselSources(item);
+	const preferThumbnail = options.preferThumbnail === true;
+	const sources = getFeedItemGroupCarouselSources(item, preferThumbnail);
 	if (sources.length <= 1) return false;
 
 	const stack = document.createElement('div');
@@ -382,7 +385,7 @@ export function setupFeedCardGroupCarousel(imageContainer, item) {
 		const source = sources[i];
 		const img = document.createElement('img');
 		img.className = `feed-card-group-img${i === 0 ? ' is-active' : ''}`;
-		img.src = source.url;
+		img.src = source.displayUrl || source.url;
 		img.alt = source.title;
 		img.loading = i === 0 ? 'eager' : 'lazy';
 		img.decoding = 'async';
@@ -1907,7 +1910,7 @@ function finishFeedCreationCardMediaAndClick(
 			applyFeedCardCreationProcessingState(imageContainer, imageEl);
 		} else {
 			const canShowVideo = isVideo && Boolean(videoUrl);
-			const hasGroupCarousel = !isVideo && setupFeedCardGroupCarousel(imageContainer, item);
+			const hasGroupCarousel = !isVideo && setupFeedCardGroupCarousel(imageContainer, item, { preferThumbnail });
 			if (!displayUrl && !canShowVideo && !hasGroupCarousel) {
 				markFeedCardImageUnavailable(imageContainer, imageEl, {
 					state: moderated ? 'moderated' : 'missing',
@@ -1916,7 +1919,7 @@ function finishFeedCreationCardMediaAndClick(
 			} else if (displayUrl && !hasGroupCarousel) {
 				attachFeedCardImage(imageEl, imageContainer, item, itemIndex, preferThumbnail);
 				if (!isVideo && !hasGroupCarousel) {
-					setupFeedCardGroupCarousel(imageContainer, item);
+					setupFeedCardGroupCarousel(imageContainer, item, { preferThumbnail });
 				}
 			} else if (hasGroupCarousel) {
 				teardownFeedCardCreationProcessingUi(imageContainer);

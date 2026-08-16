@@ -380,6 +380,9 @@ export function applyCreationDetailShellSyncDomPatches(detail, root = document) 
 	}
 	if (reason === 'published') {
 		patchCreationCardPublishedInDocument(creationId, true, root);
+		if (detail.title !== undefined) {
+			patchCreationCardTitleInDocument(creationId, detail.title, root);
+		}
 		return;
 	}
 	if (reason === 'unpublished') {
