@@ -12,6 +12,10 @@ import {
 	removeChallengeOrganizerRefFromMeta,
 	listChallengeOrganizerRefsFromMeta
 } from '../../src/shared/challengeOrganizerRefMeta.js';
+import {
+	ensureChallengeHeroPreview,
+	persistChallengeHeroPreviewUrlOnConfig
+} from './challengeHeroPreview.js';
 
 /**
  * @param {unknown} meta
@@ -133,11 +137,13 @@ export async function clearChallengeAttachmentsOnSoftDelete(args) {
  *   prevPayload?: object|null,
  *   nextPayload: object|null|undefined,
  *   sb?: import('@supabase/supabase-js').SupabaseClient | null,
+ *   storage?: object | null,
  *   messagesNewestFirst?: { body?: unknown }[] | null
  * }} args
  */
 export async function syncChallengeOrganizerCreationRefsOnConfigWrite(args) {
 	const queries = args?.queries;
+	const storage = args?.storage || null;
 	const nextPayload = args?.nextPayload;
 	const prevPayload = args?.prevPayload && typeof args.prevPayload === 'object' ? args.prevPayload : null;
 	if (!queries || !nextPayload || typeof nextPayload !== 'object') return;
@@ -147,6 +153,9 @@ export async function syncChallengeOrganizerCreationRefsOnConfigWrite(args) {
 
 	let effectivePrev = prevPayload;
 	let effectiveNext = nextPayload;
+	let persistThreadId = 0;
+	/** @type {number[]} */
+	let persistMessageIds = [];
 
 	try {
 		const sb = args?.sb;
@@ -157,7 +166,10 @@ export async function syncChallengeOrganizerCreationRefsOnConfigWrite(args) {
 				fetchThreadMessagesNewestFirst
 			} = await import('./challengeSubmitShared.js');
 			const tid = await findChallengesChannelThreadId(sb);
-			if (tid) messages = await fetchThreadMessagesNewestFirst(sb, tid);
+			if (tid) {
+				persistThreadId = Number(tid) || 0;
+				messages = await fetchThreadMessagesNewestFirst(sb, tid);
+			}
 		}
 		if (messages) {
 			const { tryParseChallengeJsonBody } = await import('./challengeSubmitShared.js');
@@ -169,6 +181,9 @@ export async function syncChallengeOrganizerCreationRefsOnConfigWrite(args) {
 				if (String(p.challenge_id || '').trim() !== challengeId) continue;
 				entriesNewestFirst.push({ msg: m, payload: p });
 			}
+			persistMessageIds = entriesNewestFirst
+				.map((e) => Number(e?.msg?.id))
+				.filter((id) => Number.isFinite(id) && id > 0);
 			// Sync runs after the DB write, so the newest row is already nextPayload.
 			const chronological = [...entriesNewestFirst].reverse();
 			const older = chronological.slice(0, -1);
@@ -291,6 +306,42 @@ export async function syncChallengeOrganizerCreationRefsOnConfigWrite(args) {
 		});
 	} catch (err) {
 		console.warn('[challengeOrganizerRefSync] pin copy refresh', err?.message || err);
+	}
+
+	const heroCreationId = nextByRole.get('hero');
+	if (Number.isFinite(heroCreationId) && /** @type {number} */ (heroCreationId) > 0 && storage) {
+		try {
+			const previewUrl = await ensureChallengeHeroPreview({
+				storage,
+				queries,
+				creationId: /** @type {number} */ (heroCreationId)
+			});
+			if (previewUrl && args?.sb && persistThreadId > 0 && persistMessageIds.length > 0) {
+				await persistChallengeHeroPreviewUrlOnConfig({
+					sb: args.sb,
+					threadId: persistThreadId,
+					challengeId,
+					messageIds: persistMessageIds,
+					merged: effectiveNext,
+					url: previewUrl
+				});
+			}
+		} catch (err) {
+			console.warn('[challengeOrganizerRefSync] hero preview', err?.message || err);
+		}
+	} else if (args?.sb && persistThreadId > 0 && persistMessageIds.length > 0) {
+		try {
+			await persistChallengeHeroPreviewUrlOnConfig({
+				sb: args.sb,
+				threadId: persistThreadId,
+				challengeId,
+				messageIds: persistMessageIds,
+				merged: effectiveNext,
+				url: ''
+			});
+		} catch (err) {
+			console.warn('[challengeOrganizerRefSync] clear hero preview', err?.message || err);
+		}
 	}
 }
 

@@ -15,6 +15,7 @@ import {
 import {
 	aspectRatioForGroupFirstSource,
 	shouldGenerateFitThumbnail,
+	sniffImageContentType,
 	withGroupAspectRatioFromFirst,
 } from "./utils/fitThumbnail.js";
 import { buildProviderHeaders } from "./utils/providerAuth.js";
@@ -434,16 +435,17 @@ export default function createCreateRoutes({ queries, storage }) {
 					? filename
 					: (resolveCreatedImageStorageFilename(image) || filename);
 			const imageBuffer = await storage.getImageBuffer(storageFilename, { variant });
-			if (wantsFit) {
-				res.setHeader(
-					"Content-Type",
-					isPng(imageBuffer) ? "image/png" : "image/jpeg"
-				);
+			if (wantsThumbnail || wantsFit) {
+				const sniffed = sniffImageContentType(imageBuffer);
+				const contentType =
+					sniffed !== "application/octet-stream"
+						? sniffed
+						: wantsFit
+							? "image/jpeg"
+							: "image/png";
+				res.setHeader("Content-Type", contentType);
 				res.setHeader("Cache-Control", "public, max-age=3600");
-				const body = isPng(imageBuffer)
-					? await ensurePngBuffer(imageBuffer)
-					: imageBuffer;
-				return res.send(body);
+				return res.send(imageBuffer);
 			}
 			const png = await ensurePngBuffer(imageBuffer);
 

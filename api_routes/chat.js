@@ -3003,6 +3003,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 				await syncChallengeOrganizerCreationRefsOnConfigWrite({
 					queries,
 					sb,
+					storage,
 					prevPayload: merged,
 					nextPayload: persisted.payload
 				});
@@ -3483,6 +3484,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 					await syncChallengeOrganizerCreationRefsOnConfigWrite({
 						queries,
 						sb,
+						storage,
 						prevPayload: null,
 						nextPayload: tryParseChallengeJsonBody(body)
 					});
@@ -4130,6 +4132,7 @@ function buildChannelInviteSystemBody({ inviterHandle, invitedHandles }) {
 					await syncChallengeOrganizerCreationRefsOnConfigWrite({
 						queries,
 						sb,
+						storage,
 						prevPayload: tryParseChallengeJsonBody(msg.body),
 						nextPayload: tryParseChallengeJsonBody(newBody)
 					});

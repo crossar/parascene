@@ -5,6 +5,7 @@ import { RELATED_PARAM_DEFAULTS, RELATED_PARAM_KEYS } from "./relatedParams.js";
 import { getThumbnailUrl } from "../api_routes/utils/url.js";
 import {
 	buildFitThumbnailBuffer,
+	buildSquareThumbnailBuffer,
 	fitThumbnailStorageKey,
 	shouldGenerateFitThumbnail,
 } from "../api_routes/utils/fitThumbnail.js";
@@ -7965,7 +7966,7 @@ export function openDb() {
 		const { error: fitError } = await storageClient.storage
 			.from(STORAGE_THUMBNAIL_BUCKET)
 			.upload(fitKey, fitBuffer, {
-				contentType: "image/jpeg",
+				contentType: "image/webp",
 				upsert: true
 			});
 		if (fitError) {
@@ -7988,14 +7989,11 @@ export function openDb() {
 				throw new Error(`Failed to upload image to Supabase Storage: ${error.message}`);
 			}
 
-			const thumbnailBuffer = await sharp(buffer)
-				.resize(250, 250, { fit: "cover" })
-				.png()
-				.toBuffer();
+			const thumbnailBuffer = await buildSquareThumbnailBuffer(buffer);
 			const { error: thumbnailError } = await storageClient.storage
 				.from(STORAGE_THUMBNAIL_BUCKET)
 				.upload(filename, thumbnailBuffer, {
-					contentType: "image/png",
+					contentType: "image/webp",
 					upsert: true
 				});
 			if (thumbnailError) {

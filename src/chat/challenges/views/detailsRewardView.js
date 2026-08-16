@@ -1,4 +1,4 @@
-import { pickChallengeHeroImageUrl } from '../challengeAdmin.js';
+import { pickChallengeHeroImageUrl, pickChallengeHeroPreviewUrl } from '../challengeAdmin.js';
 import {
 	challengeConfigHasPrizesBlock,
 	challengePrizesParticipationEnabled,
@@ -23,8 +23,10 @@ export function renderChallengeHeroImage(cfg, titleFallback) {
 	const challengeId =
 		cfg && cfg.challenge_id != null ? String(cfg.challenge_id).trim() : '';
 	const challengeIdAttr = challengeId ? ` data-challenge-id="${esc(challengeId)}"` : '';
+	const preview = pickChallengeHeroPreviewUrl(cfg);
+	const previewAttr = preview ? ` data-challenge-hero-preview-url="${esc(preview)}"` : '';
 	return `<section class="challenge-pane-section challenge-pane-hero-image-section" aria-label="Challenge image">
-			<div class="challenge-pane-hero-image-wrap challenge-pane-hero-image-wrap--strip challenge-pane-hero-image-wrap--pending" data-challenge-hero-pending data-challenge-hero-ref="${esc(raw)}"${challengeIdAttr}>
+			<div class="challenge-pane-hero-image-wrap challenge-pane-hero-image-wrap--strip challenge-pane-hero-image-wrap--pending" data-challenge-hero-pending data-challenge-hero-ref="${esc(raw)}"${challengeIdAttr}${previewAttr}>
 				<span class="challenge-pane-hero-image-placeholder" data-challenge-hero-placeholder aria-hidden="true"></span>
 				<img class="challenge-pane-hero-image" alt="${esc(alt)}" decoding="async" data-challenge-hero-img hidden />
 				<p class="challenge-pane-muted challenge-pane-hero-image-fallback" data-challenge-hero-fallback hidden></p>

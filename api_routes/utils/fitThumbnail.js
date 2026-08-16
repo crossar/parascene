@@ -9,11 +9,16 @@ import {
 
 /** Long edge for native-aspect (`fit`) board thumbs. */
 export const FIT_THUMB_LONG_EDGE = 720;
-export const FIT_THUMB_JPEG_QUALITY = 85;
+/** Square cover thumb (`?variant=thumbnail`). */
+export const SQUARE_THUMB_SIZE = 250;
+export const CREATED_THUMB_WEBP_QUALITY = 82;
+/** @deprecated Use CREATED_THUMB_WEBP_QUALITY — fit thumbs are WebP now. */
+export const FIT_THUMB_JPEG_QUALITY = CREATED_THUMB_WEBP_QUALITY;
 
 /**
  * Storage key for native-aspect fit thumb in the thumbnail bucket.
- * Square thumb keeps the full-image filename; fit uses `{base}_fit.jpg`.
+ * Square thumb keeps the full-image filename; fit still uses `{base}_fit.jpg`
+ * as the object key (bytes are WebP; URLs stay `?variant=fit`).
  * @param {string} filename — full image or square-thumb storage key
  * @returns {string}
  */
@@ -37,7 +42,7 @@ export function shouldGenerateFitThumbnail(width, height) {
 }
 
 /**
- * Build a native-aspect JPEG thumb (long edge FIT_THUMB_LONG_EDGE).
+ * Build a native-aspect WebP thumb (long edge FIT_THUMB_LONG_EDGE).
  * @param {Buffer} buffer
  * @returns {Promise<Buffer>}
  */
@@ -57,7 +62,52 @@ export async function buildFitThumbnailBuffer(buffer) {
 		const nh = Math.max(1, Math.round(h * scale));
 		pipeline = pipeline.resize(nw, nh, { fit: "inside", withoutEnlargement: true });
 	}
-	return pipeline.jpeg({ quality: FIT_THUMB_JPEG_QUALITY, mozjpeg: true }).toBuffer();
+	return pipeline.webp({ quality: CREATED_THUMB_WEBP_QUALITY }).toBuffer();
+}
+
+/**
+ * Build a 250×250 cover-crop WebP thumb (`?variant=thumbnail`).
+ * @param {Buffer} buffer
+ * @returns {Promise<Buffer>}
+ */
+export async function buildSquareThumbnailBuffer(buffer) {
+	return sharp(buffer, { failOn: "none" })
+		.rotate()
+		.resize(SQUARE_THUMB_SIZE, SQUARE_THUMB_SIZE, { fit: "cover", position: "centre" })
+		.webp({ quality: CREATED_THUMB_WEBP_QUALITY })
+		.toBuffer();
+}
+
+/**
+ * @param {Buffer|null|undefined} buffer
+ * @returns {string}
+ */
+export function sniffImageContentType(buffer) {
+	if (!buffer || !Buffer.isBuffer(buffer) || buffer.length < 12) {
+		return "application/octet-stream";
+	}
+	if (
+		buffer[0] === 0x89 &&
+		buffer[1] === 0x50 &&
+		buffer[2] === 0x4e &&
+		buffer[3] === 0x47
+	) {
+		return "image/png";
+	}
+	if (buffer[0] === 0xff && buffer[1] === 0xd8) return "image/jpeg";
+	if (
+		buffer[0] === 0x52 &&
+		buffer[1] === 0x49 &&
+		buffer[2] === 0x46 &&
+		buffer[3] === 0x46 &&
+		buffer[8] === 0x57 &&
+		buffer[9] === 0x45 &&
+		buffer[10] === 0x42 &&
+		buffer[11] === 0x50
+	) {
+		return "image/webp";
+	}
+	return "application/octet-stream";
 }
 
 /**

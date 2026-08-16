@@ -79,7 +79,16 @@ export function createSelectFeedBetaSitewideCatalog(serviceClient, deps) {
 		if (createdImageIds.length === 0) return page;
 
 		const id = viewerId ?? null;
-		const [countResult, commentResult, likedResult, profileResult] = await Promise.all([
+		const authorIds = [
+			...new Set(
+				page
+					.map((item) => item.user_id)
+					.filter((uid) => uid != null && Number.isFinite(Number(uid)))
+					.map((uid) => Number(uid))
+					.filter((uid) => uid > 0)
+			)
+		];
+		const [countResult, commentResult, likedResult, profileResult, userResult] = await Promise.all([
 			serviceClient
 				.from(prefixedTable('created_image_like_counts'))
 				.select('created_image_id, like_count')
@@ -95,30 +104,22 @@ export function createSelectFeedBetaSitewideCatalog(serviceClient, deps) {
 						.eq('user_id', id)
 						.in('created_image_id', createdImageIds)
 				: Promise.resolve({ data: [], error: null }),
-			(() => {
-				const authorIds = [
-					...new Set(
-						page
-							.map((item) => item.user_id)
-							.filter((uid) => uid != null && Number.isFinite(Number(uid)))
-							.map((uid) => Number(uid))
-							.filter((uid) => uid > 0)
-					)
-				];
-				if (authorIds.length === 0) {
-					return Promise.resolve({ data: [], error: null });
-				}
-				return serviceClient
-					.from(prefixedTable('user_profiles'))
-					.select('user_id, user_name, display_name, avatar_url')
-					.in('user_id', authorIds);
-			})()
+			authorIds.length === 0
+				? Promise.resolve({ data: [], error: null })
+				: serviceClient
+						.from(prefixedTable('user_profiles'))
+						.select('user_id, user_name, display_name, avatar_url')
+						.in('user_id', authorIds),
+			authorIds.length === 0
+				? Promise.resolve({ data: [], error: null })
+				: serviceClient.from(prefixedTable('users')).select('id, meta').in('id', authorIds)
 		]);
 
 		if (countResult.error) throw countResult.error;
 		if (commentResult.error) throw commentResult.error;
 		if (likedResult.error) throw likedResult.error;
 		if (profileResult.error) throw profileResult.error;
+		if (userResult.error) throw userResult.error;
 
 		const countById = new Map(
 			(countResult.data ?? []).map((row) => [String(row.created_image_id), Number(row.like_count ?? 0)])
@@ -135,10 +136,17 @@ export function createSelectFeedBetaSitewideCatalog(serviceClient, deps) {
 		const profileByUserId = new Map(
 			(profileResult.data ?? []).map((row) => [String(row.user_id), row])
 		);
+		const planByUserId = new Map();
+		for (const row of userResult.data ?? []) {
+			const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {};
+			planByUserId.set(String(row.id), meta.plan === 'founder' ? 'founder' : 'free');
+		}
 
 		return page.map((item) => {
 			const key = item.created_image_id != null ? String(item.created_image_id) : null;
 			const profile = item.user_id != null ? profileByUserId.get(String(item.user_id)) ?? null : null;
+			const authorPlan =
+				item.user_id != null ? (planByUserId.get(String(item.user_id)) ?? 'free') : 'free';
 			return {
 				...item,
 				like_count: key ? (countById.get(key) ?? 0) : 0,
@@ -146,7 +154,8 @@ export function createSelectFeedBetaSitewideCatalog(serviceClient, deps) {
 				viewer_liked: key && likedIdSet ? likedIdSet.has(key) : false,
 				author_user_name: profile?.user_name ?? null,
 				author_display_name: profile?.display_name ?? null,
-				author_avatar_url: profile?.avatar_url ?? null
+				author_avatar_url: profile?.avatar_url ?? null,
+				author_plan: authorPlan
 			};
 		});
 	}

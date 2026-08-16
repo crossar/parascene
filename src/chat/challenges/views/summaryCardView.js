@@ -4,7 +4,7 @@ import { CHALLENGE_TRACK_LABELS, pickChallengeTrack } from '../model/tracks.js';
 import { rankedSubmissionsForPeerVoting } from '../model/participantSlice.js';
 import { participantHeroViewModel } from './presentParticipantHero.js';
 import { renderChallengeCountdowns } from './countdownView.js';
-import { pickChallengeHeroImageUrl } from '../challengeAdmin.js';
+import { pickChallengeHeroImageUrl, pickChallengeHeroPreviewUrl } from '../challengeAdmin.js';
 
 /**
  * Compact summary card for the /challenges board (one per active challenge).
@@ -29,6 +29,8 @@ export function renderChallengeSummaryCard(item) {
 	const phaseLabel = challengePhaseDisplayLabel(phase);
 	const countdownHtml = renderChallengeCountdowns(cfg, phase, item.nowMs);
 	const heroRef = pickChallengeHeroImageUrl(cfg) || '';
+	const heroPreview = pickChallengeHeroPreviewUrl(cfg);
+	const previewAttr = heroPreview ? ` data-challenge-hero-preview-url="${esc(heroPreview)}"` : '';
 	const peerRanked = rankedSubmissionsForPeerVoting(ranked, item.viewerId ?? null);
 	const canVote = (phase === 'voting' || phase === 'submit_and_vote') && peerRanked.length > 0;
 	const canSubmit = phase === 'submitting' || phase === 'submit_and_vote';
@@ -39,7 +41,7 @@ export function renderChallengeSummaryCard(item) {
 		.join(' · ');
 
 	const thumb = heroRef
-		? `<div class="challenge-pane-summary-thumb challenge-pane-hero-image-wrap challenge-pane-hero-image-wrap--pending" data-challenge-hero-pending data-challenge-hero-ref="${esc(heroRef)}" data-challenge-id="${esc(challengeId)}">
+		? `<div class="challenge-pane-summary-thumb challenge-pane-hero-image-wrap challenge-pane-hero-image-wrap--pending" data-challenge-hero-pending data-challenge-hero-ref="${esc(heroRef)}" data-challenge-id="${esc(challengeId)}"${previewAttr}>
 			<span class="challenge-pane-hero-image-placeholder" data-challenge-hero-placeholder aria-hidden="true"></span>
 			<img class="challenge-pane-summary-thumb-img" data-challenge-hero-img alt="" hidden loading="lazy" decoding="async" />
 			<span class="challenge-pane-hero-image-fallback" data-challenge-hero-fallback hidden></span>

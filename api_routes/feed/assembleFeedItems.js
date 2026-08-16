@@ -11,6 +11,7 @@ import {
 	mergeEditorialPinIntoPage
 } from "./editorialPin.js";
 import { stampWhoMetaOnCreationRows } from "../utils/whoMeta.js";
+import { stampAuthorPlanOnCreationRows } from "./stampAuthorPlan.js";
 
 /**
  * Combine creation rows, NSFW filter, blog merge, challenge engagement card, editorial pin, newbie tips.
@@ -62,9 +63,13 @@ export async function assembleFeedItems({
 				: buildEditorialPinFeedItems(queries, { enableNsfw, feedSurface: surface }))
 		: Promise.resolve({ items: [], pins: [], defaults: {} });
 
+	const rowsWithPlan = await (timing
+		? timing.timeAsync('assemble.author_plan', () => stampAuthorPlanOnCreationRows(queries, rows))
+		: stampAuthorPlanOnCreationRows(queries, rows));
+
 	let itemsWithImages = timing
-		? timing.time('assemble.transform', () => rows.map(transformFeedCreationRow))
-		: rows.map(transformFeedCreationRow);
+		? timing.time('assemble.transform', () => rowsWithPlan.map(transformFeedCreationRow))
+		: rowsWithPlan.map(transformFeedCreationRow);
 	if (!enableNsfw) {
 		itemsWithImages = itemsWithImages.filter((item) => !item.nsfw);
 	}

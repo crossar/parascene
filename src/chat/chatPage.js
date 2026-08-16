@@ -10583,6 +10583,8 @@ export async function initChatPage(root, options = {}) {
 
 		if (reason === 'comment-changed') return;
 
+		if (reason === 'edited') return;
+
 		if (reason === 'challenge-submitted' || reason === 'challenge-withdrawn') return;
 
 		const refreshCreationsLane =

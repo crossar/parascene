@@ -1221,7 +1221,7 @@ export function creationDetailChromeHtmlFromSeed(seed) {
 			: title || nsfw
 				? `<div class="creation-detail-title-row">
 				${nsfw ? '<span class="creation-detail-nsfw-tag">NSFW</span>' : ''}
-				${title ? `<div class="creation-detail-title${titleUntitled || seed.title_untitled ? ' creation-detail-title-untitled' : ''}">${esc(title)}</div>` : ''}
+				${title ? `<div class="creation-detail-title${titleUntitled ? ' creation-detail-title-untitled' : ''}">${esc(title)}</div>` : ''}
 			</div>`
 				: '';
 

@@ -226,6 +226,14 @@ class AppRouteFeed extends HTMLElement {
 			this.patchFeedItemCommentState(detail);
 			return;
 		}
+		if (detail.reason === 'edited') {
+			this.patchFeedItemTitle(detail);
+			return;
+		}
+		if (detail.reason === 'profile-updated') {
+			this.loadFeed({ force: true });
+			return;
+		}
 		if (detail.reason === 'challenge-submitted' || detail.reason === 'challenge-withdrawn') {
 			this.patchFeedItemChallengeState(detail);
 			return;
@@ -238,6 +246,20 @@ class AppRouteFeed extends HTMLElement {
 				: window.location.pathname.slice(1).split('/')[0]);
 		if (route !== 'feed') return;
 		this.loadFeed({ force: true });
+	}
+
+	patchFeedItemTitle(detail) {
+		const id = Number(detail.creationId);
+		if (!Number.isFinite(id) || id <= 0) return;
+		if (!Object.prototype.hasOwnProperty.call(detail, 'title')) return;
+		const title = typeof detail.title === 'string' ? detail.title : '';
+		if (!Array.isArray(this.feedItems)) return;
+		for (const item of this.feedItems) {
+			const itemId = Number(item?.created_image_id ?? item?.id);
+			if (itemId !== id) continue;
+			item.title = title;
+			break;
+		}
 	}
 
 	patchFeedItemLikeState(detail) {
@@ -934,7 +956,7 @@ class AppRouteFeed extends HTMLElement {
 
 			const feed = await fetchJsonWithStatusDeduped("/api/feed?limit=20&offset=0", {
 				credentials: 'include'
-			}, { windowMs: 30000 });
+			}, { windowMs: force ? 0 : 30000 });
 			if (!feed.ok) throw new Error("Failed to load feed.");
 			let items = Array.isArray(feed.data?.items) ? feed.data.items : [];
 			const hasMore = Boolean(feed.data?.hasMore);

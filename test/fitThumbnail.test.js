@@ -3,10 +3,13 @@ import sharp from "sharp";
 import {
 	aspectRatioForGroupFirstSource,
 	buildFitThumbnailBuffer,
+	buildSquareThumbnailBuffer,
 	fitThumbnailStorageKey,
 	shouldGenerateFitThumbnail,
+	sniffImageContentType,
 	withGroupAspectRatioFromFirst,
 	FIT_THUMB_LONG_EDGE,
+	SQUARE_THUMB_SIZE,
 } from "../api_routes/utils/fitThumbnail.js";
 import {
 	getFitThumbnailUrl,
@@ -31,7 +34,7 @@ describe("fit thumbnail helpers", () => {
 		);
 	});
 
-	it("builds a long-edge JPEG preserving aspect", async () => {
+	it("builds a long-edge WebP preserving aspect", async () => {
 		const src = await sharp({
 			create: { width: 1440, height: 2560, channels: 3, background: "#224466" },
 		})
@@ -39,9 +42,23 @@ describe("fit thumbnail helpers", () => {
 			.toBuffer();
 		const out = await buildFitThumbnailBuffer(src);
 		const meta = await sharp(out).metadata();
-		expect(meta.format).toBe("jpeg");
+		expect(meta.format).toBe("webp");
 		expect(meta.height).toBe(FIT_THUMB_LONG_EDGE);
 		expect(meta.width).toBe(Math.round((1440 / 2560) * FIT_THUMB_LONG_EDGE));
+	});
+
+	it("builds a 250 square WebP cover thumb", async () => {
+		const src = await sharp({
+			create: { width: 800, height: 400, channels: 3, background: "#112233" },
+		})
+			.png()
+			.toBuffer();
+		const out = await buildSquareThumbnailBuffer(src);
+		const meta = await sharp(out).metadata();
+		expect(meta.format).toBe("webp");
+		expect(meta.width).toBe(SQUARE_THUMB_SIZE);
+		expect(meta.height).toBe(SQUARE_THUMB_SIZE);
+		expect(sniffImageContentType(out)).toBe("image/webp");
 	});
 
 	it("group aspect prefers MVP creative ratio on first source", () => {

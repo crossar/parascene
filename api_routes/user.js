@@ -4,7 +4,11 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import Busboy from "busboy";
 import path from "path";
-import sharp from "sharp";
+import {
+	shouldDeleteOldProfileAvatarKey,
+	storeProcessedProfileAvatar
+} from "./utils/profileAvatar.js";
+import { bumpFeedVersionCounter } from "./feed/feedVersion.js";
 import Stripe from "stripe";
 import { sendTemplatedEmail } from "../email/index.js";
 import { getEffectiveEmailRecipient } from "./utils/emailSettings.js";
@@ -217,6 +221,14 @@ export default function createProfileRoutes({ queries }) {
 			.filter(Boolean)
 			.map((seg) => encodeURIComponent(seg));
 		return `/api/images/generic/${segments.join("/")}`;
+	}
+
+	async function bumpFeedAfterAvatarChange() {
+		try {
+			await bumpFeedVersionCounter(queries);
+		} catch {
+			// ignore
+		}
 	}
 
 	function parseJsonField(raw, fallback, errorMessage) {
@@ -1239,8 +1251,18 @@ export default function createProfileRoutes({ queries }) {
 						);
 						const createdImageId = insertResult?.insertId;
 						if (createdImageId) {
-							payload.avatar_url = newUrl;
+							if (storage?.uploadGenericImage) {
+								try {
+									const storedAvatar = await storeProcessedProfileAvatar(storage, req.auth.userId, buffer);
+									payload.avatar_url = storedAvatar.url;
+								} catch {
+									payload.avatar_url = newUrl;
+								}
+							} else {
+								payload.avatar_url = newUrl;
+							}
 							await queries.upsertUserProfile.run(req.auth.userId, payload);
+							await bumpFeedAfterAvatarChange();
 							const title = payload.display_name
 								? `Welcome @${String(payload.user_name).trim()}`
 								: "Profile portrait";
@@ -1433,22 +1455,15 @@ export default function createProfileRoutes({ queries }) {
 			}
 
 			if (!avatarRemove && avatarFile?.buffer?.length) {
-				let resized;
 				try {
-					resized = await sharp(avatarFile.buffer)
-						.rotate()
-						.resize(128, 128, { fit: "cover" })
-						.png()
-						.toBuffer();
+					const storedAvatar = await storeProcessedProfileAvatar(storage, req.auth.userId, avatarFile.buffer);
+					avatar_url = storedAvatar.url;
 				} catch {
 					return res.status(400).json({ error: "Invalid avatar image" });
 				}
-				const key = `profile/${req.auth.userId}/avatar_${now}_${rand}.png`;
-				const stored = await storage.uploadGenericImage(resized, key, {
-					contentType: "image/png"
-				});
-				avatar_url = buildGenericUrl(stored);
-				if (oldAvatarKey && storage.deleteGenericImage) pendingDeletes.push(oldAvatarKey);
+				if (shouldDeleteOldProfileAvatarKey(oldAvatarKey, req.auth.userId) && storage.deleteGenericImage) {
+					pendingDeletes.push(oldAvatarKey);
+				}
 			} else if (!avatarRemove && !avatarFile?.buffer?.length) {
 				const tryUrl = typeof fields?.avatar_try_url === "string" ? fields.avatar_try_url.trim() : "";
 				const tryPrefix = "/api/try/images/";
@@ -1468,19 +1483,29 @@ export default function createProfileRoutes({ queries }) {
 							// Idempotent: if we already promoted this anon to a creation (e.g. retry or double-submit), reuse it and avoid saving twice.
 							let createdImageId = null;
 							let newUrl = null;
+							let existingCreation = null;
 							if (avatarAnonRow?.id != null && queries.selectCreatedImagesForUser?.all) {
 								const existingCreations = await queries.selectCreatedImagesForUser.all(req.auth.userId, { limit: 500 });
-								const existing = (existingCreations || []).find(
+								existingCreation = (existingCreations || []).find(
 									(c) => c.meta && typeof c.meta === "object" && (Number(c.meta.source_anon_id) === Number(avatarAnonRow.id))
 								);
-								if (existing && (existing.file_path || existing.filename)) {
-									newUrl = existing.file_path || (existing.filename ? `/api/images/created/${existing.filename}` : null);
-									createdImageId = existing.id;
+								if (existingCreation && (existingCreation.file_path || existingCreation.filename)) {
+									newUrl = existingCreation.file_path || (existingCreation.filename ? `/api/images/created/${existingCreation.filename}` : null);
+									createdImageId = existingCreation.id;
 								}
 							}
 							if (newUrl && createdImageId != null) {
-								avatar_url = newUrl;
-								if (oldAvatarKey && storage.deleteGenericImage) pendingDeletes.push(oldAvatarKey);
+								const existingFilename = existingCreation?.filename;
+								if (existingFilename && storage.getImageBuffer) {
+									const sourceBuffer = await storage.getImageBuffer(existingFilename);
+									const storedAvatar = await storeProcessedProfileAvatar(storage, req.auth.userId, sourceBuffer);
+									avatar_url = storedAvatar.url;
+								} else {
+									avatar_url = newUrl;
+								}
+								if (shouldDeleteOldProfileAvatarKey(oldAvatarKey, req.auth.userId) && storage.deleteGenericImage) {
+									pendingDeletes.push(oldAvatarKey);
+								}
 								if (queries.updateTryRequestsTransitionedByCreatedImageAnonId?.run && queries.deleteCreatedImageAnon?.run && storage.deleteImageAnon) {
 									try {
 										await queries.updateTryRequestsTransitionedByCreatedImageAnonId.run(avatarAnonRow.id, {
@@ -1513,8 +1538,11 @@ export default function createProfileRoutes({ queries }) {
 								);
 								createdImageId = insertResult?.insertId;
 								if (createdImageId) {
-									avatar_url = newUrl;
-									if (oldAvatarKey && storage.deleteGenericImage) pendingDeletes.push(oldAvatarKey);
+									const storedAvatar = await storeProcessedProfileAvatar(storage, req.auth.userId, buffer);
+									avatar_url = storedAvatar.url;
+									if (shouldDeleteOldProfileAvatarKey(oldAvatarKey, req.auth.userId) && storage.deleteGenericImage) {
+										pendingDeletes.push(oldAvatarKey);
+									}
 									if (avatarAnonRow?.id && queries.updateTryRequestsTransitionedByCreatedImageAnonId?.run && queries.deleteCreatedImageAnon?.run && storage.deleteImageAnon) {
 										try {
 											await queries.updateTryRequestsTransitionedByCreatedImageAnonId.run(avatarAnonRow.id, {
@@ -1534,17 +1562,11 @@ export default function createProfileRoutes({ queries }) {
 						// Fallback: copy to profile storage only (no creation)
 						try {
 							const buffer = await storage.getImageBufferAnon(filename);
-							const resized = await sharp(buffer)
-								.rotate()
-								.resize(128, 128, { fit: "cover" })
-								.png()
-								.toBuffer();
-							const key = `profile/${req.auth.userId}/avatar_${now}_${rand}.png`;
-							const stored = await storage.uploadGenericImage(resized, key, {
-								contentType: "image/png"
-							});
-							avatar_url = buildGenericUrl(stored);
-							if (oldAvatarKey && storage.deleteGenericImage) pendingDeletes.push(oldAvatarKey);
+							const storedAvatar = await storeProcessedProfileAvatar(storage, req.auth.userId, buffer);
+							avatar_url = storedAvatar.url;
+							if (shouldDeleteOldProfileAvatarKey(oldAvatarKey, req.auth.userId) && storage.deleteGenericImage) {
+								pendingDeletes.push(oldAvatarKey);
+							}
 							if (storage.deleteImageAnon && queries.selectCreatedImageAnonByFilename?.get && queries.deleteCreatedImageAnon?.run) {
 								try {
 									const anonRow = await queries.selectCreatedImageAnonByFilename.get(filename);
@@ -1597,10 +1619,9 @@ export default function createProfileRoutes({ queries }) {
 			};
 
 			await queries.upsertUserProfile.run(req.auth.userId, payload);
-			const updatedRow = await queries.selectUserProfileByUserId?.get(req.auth.userId);
-			const profile = normalizeProfileRow(updatedRow);
-
-			// Best-effort delete old images after profile update.
+			if (avatar_url !== oldAvatarUrl) {
+				await bumpFeedAfterAvatarChange();
+			}
 			if (storage.deleteGenericImage && pendingDeletes.length > 0) {
 				for (const key of pendingDeletes) {
 					try {
@@ -1653,16 +1674,8 @@ export default function createProfileRoutes({ queries }) {
 			const oldAvatarUrl = existingProfile.avatar_url || null;
 			const oldAvatarKey = extractGenericKey(oldAvatarUrl);
 			const buffer = await storage.getImageBuffer(image.filename);
-			const now = Date.now();
-			const rand = Math.random().toString(36).slice(2, 9);
-			const resized = await sharp(buffer)
-				.rotate()
-				.resize(128, 128, { fit: "cover" })
-				.png()
-				.toBuffer();
-			const key = `profile/${req.auth.userId}/avatar_${now}_${rand}.png`;
-			const stored = await storage.uploadGenericImage(resized, key, { contentType: "image/png" });
-			const avatar_url = buildGenericUrl(stored);
+			const storedAvatar = await storeProcessedProfileAvatar(storage, req.auth.userId, buffer);
+			const avatar_url = storedAvatar.url;
 			const metaMerged = mergePrsnCidsIntoProfileMeta(existingProfile.meta ?? {}, getClientIdFromRequest(req));
 			const payload = {
 				user_name: existingProfile.user_name ?? null,
@@ -1675,7 +1688,8 @@ export default function createProfileRoutes({ queries }) {
 				meta: metaMerged
 			};
 			await queries.upsertUserProfile.run(req.auth.userId, payload);
-			if (oldAvatarKey && storage.deleteGenericImage) {
+			await bumpFeedAfterAvatarChange();
+			if (shouldDeleteOldProfileAvatarKey(oldAvatarKey, req.auth.userId) && storage.deleteGenericImage) {
 				try {
 					await storage.deleteGenericImage(oldAvatarKey);
 				} catch (_) {}

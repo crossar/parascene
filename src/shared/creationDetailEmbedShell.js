@@ -46,11 +46,17 @@ export function defaultScopesForCreationShellSyncReason(reason) {
 			return [
 				CREATION_DETAIL_SHELL_SCOPE.CREATIONS,
 				CREATION_DETAIL_SHELL_SCOPE.CHAT_CREATIONS,
+				CREATION_DETAIL_SHELL_SCOPE.FEED,
+				CREATION_DETAIL_SHELL_SCOPE.CHAT_FEED,
+				CREATION_DETAIL_SHELL_SCOPE.EXPLORE,
+				CREATION_DETAIL_SHELL_SCOPE.CHAT_EXPLORE,
 				CREATION_DETAIL_SHELL_SCOPE.CREATION,
 			];
 		case 'profile-updated':
 			return [
 				CREATION_DETAIL_SHELL_SCOPE.CREATIONS,
+				CREATION_DETAIL_SHELL_SCOPE.FEED,
+				CREATION_DETAIL_SHELL_SCOPE.CHAT_FEED,
 				CREATION_DETAIL_SHELL_SCOPE.CREATION,
 			];
 		case 'status-changed':
@@ -126,6 +132,9 @@ export function normalizeCreationDetailShellSyncDetail(payload) {
 		const commentCount = Number(payload.comment_count);
 		if (Number.isFinite(commentCount)) detail.comment_count = Math.max(0, commentCount);
 	}
+	if (Object.prototype.hasOwnProperty.call(payload, 'title')) {
+		detail.title = typeof payload.title === 'string' ? payload.title : '';
+	}
 	return detail;
 }
 
@@ -147,6 +156,7 @@ export function notifyCreationDetailEmbedShellSync(options = {}) {
 		like_count: options.like_count,
 		viewer_liked: options.viewer_liked,
 		comment_count: options.comment_count,
+		title: options.title,
 	});
 	if (!detail) return false;
 	try {
@@ -159,6 +169,7 @@ export function notifyCreationDetailEmbedShellSync(options = {}) {
 		if (detail.like_count !== undefined) message.like_count = detail.like_count;
 		if (typeof detail.viewer_liked === 'boolean') message.viewer_liked = detail.viewer_liked;
 		if (detail.comment_count !== undefined) message.comment_count = detail.comment_count;
+		if (detail.title !== undefined) message.title = detail.title;
 		window.parent.postMessage(message, window.location.origin);
 		return true;
 	} catch {
@@ -183,6 +194,29 @@ export function removeCreationCardsFromDocument(creationId, root = document) {
 	scopeRoot.querySelectorAll(`.feed-card[data-creation-id="${id}"]`).forEach((el) => el.remove());
 	scopeRoot.querySelectorAll(`.feed-card[data-image-id="${id}"]`).forEach((el) => el.remove());
 	scopeRoot.querySelectorAll(`.route-card[data-image-id="${id}"]`).forEach((el) => el.remove());
+}
+
+export function patchCreationCardTitleInDocument(creationId, title, root = document) {
+	const id = String(creationId);
+	if (!id) return;
+	const raw = typeof title === 'string' ? title.trim() : '';
+	const untitled = !raw;
+	const text = raw || 'Untitled';
+	const scopeRoot = resolveDomPatchRoot(root);
+	const selectors = [
+		`.feed-card[data-creation-id="${id}"] .feed-card-title`,
+		`.feed-card[data-image-id="${id}"] .feed-card-title`,
+		`.route-card[data-image-id="${id}"] .feed-card-title`,
+		`.route-card[data-image-id="${id}"] .route-details-title`,
+	];
+	for (const sel of selectors) {
+		scopeRoot.querySelectorAll(sel).forEach((el) => {
+			if (!(el instanceof HTMLElement)) return;
+			el.textContent = text;
+			el.classList.toggle('feed-card-title--untitled', untitled);
+			el.classList.toggle('creation-detail-title-untitled', untitled);
+		});
+	}
 }
 
 /**
@@ -351,6 +385,10 @@ export function applyCreationDetailShellSyncDomPatches(detail, root = document) 
 	if (reason === 'unpublished') {
 		patchCreationCardPublishedInDocument(creationId, false, root);
 		removePublicLaneCreationCardsFromDocument(creationId, root);
+		return;
+	}
+	if (reason === 'edited' && detail.title !== undefined) {
+		patchCreationCardTitleInDocument(creationId, detail.title, root);
 		return;
 	}
 	if (reason === 'like-changed' && typeof detail.viewer_liked === 'boolean') {

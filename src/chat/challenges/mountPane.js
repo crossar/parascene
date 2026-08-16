@@ -35,13 +35,18 @@ function imageUrlFromCreationPayload(data) {
 		typeof data.status === 'string' ? data.status.trim().toLowerCase() : 'completed';
 	if (statusRaw !== 'completed') return null;
 	const mediaType = typeof data.media_type === 'string' ? data.media_type : 'image';
+	const previewFromMeta =
+		typeof data.meta?.challenge_hero_preview_url === 'string'
+			? data.meta.challenge_hero_preview_url.trim()
+			: '';
+	if (previewFromMeta) return previewFromMeta;
 	const url = typeof data.url === 'string' ? data.url.trim() : '';
 	const thumb =
 		typeof data.thumbnail_url === 'string' ? data.thumbnail_url.trim() : '';
 	if (mediaType === 'video') {
 		return thumb || url || null;
 	}
-	// Challenges page heroes: full-quality media URL (not thumbnail/fit).
+	// Prefer dedicated 16:9 hero preview; otherwise full-quality media URL.
 	return url || thumb || null;
 }
 
@@ -80,19 +85,22 @@ async function hydrateChallengeHeroImage(rootEl) {
 				}
 			};
 
-			let src = null;
+			let src = wrap.getAttribute('data-challenge-hero-preview-url') || '';
+			src = src.trim() || null;
 			const challengeId = wrap.getAttribute('data-challenge-id') || '';
 			const challengeOpts = challengeId ? { challengeId } : null;
-			const cref = parseHeroCreationOrShareRef(raw);
-			if (cref?.kind === 'creation') {
-				const data = await fetchCreationEmbedPayload(
-					cref.creationId,
-					cref.shareOpts,
-					challengeOpts
-				);
-				src = imageUrlFromCreationPayload(data);
-			} else {
-				src = parseHeroDirectMediaUrl(raw);
+			if (!src) {
+				const cref = parseHeroCreationOrShareRef(raw);
+				if (cref?.kind === 'creation') {
+					const data = await fetchCreationEmbedPayload(
+						cref.creationId,
+						cref.shareOpts,
+						challengeOpts
+					);
+					src = imageUrlFromCreationPayload(data);
+				} else {
+					src = parseHeroDirectMediaUrl(raw);
+				}
 			}
 
 			if (!src || !(img instanceof HTMLImageElement)) {

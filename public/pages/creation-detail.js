@@ -775,6 +775,18 @@ function commitCreationDetailContentHtml(detailContent, nextHtml) {
 			if (nextNsfw && !stickyRow.querySelector('.creation-detail-nsfw-tag')) {
 				stickyRow.prepend(nextNsfw);
 			}
+			const nextTitle = nextRow.querySelector('.creation-detail-title');
+			if (stickyTitle instanceof HTMLElement && nextTitle instanceof HTMLElement) {
+				const nextText = nextTitle.textContent?.trim() || '';
+				const nextUntitled = nextTitle.classList.contains('creation-detail-title-untitled');
+				if (nextText && (nextText !== stickyText || nextUntitled !== stickyTitle.classList.contains('creation-detail-title-untitled'))) {
+					stickyTitle.textContent = nextText;
+					stickyTitle.classList.toggle('creation-detail-title-untitled', nextUntitled);
+					stickyTitle.hidden = false;
+				}
+			} else if (nextTitle instanceof HTMLElement && !stickyTitle) {
+				stickyRow.appendChild(nextTitle);
+			}
 			nextRow.replaceWith(stickyRow);
 		}
 	}
@@ -4037,6 +4049,16 @@ async function loadCreation() {
 
 		const creationWithLikes = { ...creation, ...likeMeta, created_image_id: creationId };
 		lastCreationMeta = creation;
+		try {
+			const qs = getImportQuery(getAssetVersionParam());
+			const seedMod = await import(`/shared/creationDetailSeed.js${qs}`);
+			const fromApi = seedMod.feedItemToCreationDetailSeed(creation);
+			const prev = seedMod.readCreationDetailSeed(creationId);
+			const next = fromApi && prev ? seedMod.mergeCreationDetailSeeds(fromApi, prev) : fromApi || prev;
+			if (next) seedMod.writeCreationDetailSeed(next);
+		} catch {
+			// ignore
+		}
 		const likeCount = getCreationLikeCount(creationWithLikes);
 
 		// Set image and blurred background depending on status

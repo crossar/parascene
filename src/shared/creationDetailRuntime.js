@@ -72,6 +72,10 @@ export async function refreshAfterMutation(reason, options = {}) {
 				creationId,
 				reason,
 				scopes: options.scopes,
+				like_count: options.like_count,
+				viewer_liked: options.viewer_liked,
+				comment_count: options.comment_count,
+				title: options.title,
 			});
 		}
 		return;

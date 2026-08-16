@@ -3344,6 +3344,12 @@ app-route-feed {
 	gap: 12px;
 	align-items: start;
 	padding: 0px 4px 0;
+	overflow: visible;
+}
+
+.feed-card-footer-grid .user-avatar-link:has(.avatar-with-founder-flair) {
+	overflow: visible;
+	padding-bottom: 8px;
 }
 
 .feed-card-content {

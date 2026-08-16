@@ -118,6 +118,7 @@ export default function createTryRoutes({ queries, storage }) {
 				callerFeature = body.context.feature;
 			}
 		}
+		const isAvatarTry = callerSource === "welcome_avatar" || callerSource === "profile_avatar";
 
 		const baseRouteHint =
 			typeof req.originalUrl === "string" && req.originalUrl.trim()
@@ -140,12 +141,16 @@ export default function createTryRoutes({ queries, storage }) {
 			}
 		}
 
+		if (isAvatarTry) {
+			args = { ...args, aspect_ratio: "1:1" };
+		}
+
 		// Canonical prompt for idempotency: same prompt => same creation (return existing if found)
 		const rawPrompt = body.prompt ?? args?.prompt;
 		const canonicalPrompt =
 			rawPrompt != null && typeof rawPrompt === "string" && rawPrompt.trim() ? rawPrompt.trim() : null;
 
-		if (canonicalPrompt) {
+		if (canonicalPrompt && !isAvatarTry) {
 			// Pool first: if we have 1+ completed images for this prompt, always serve a random one (so refresh gives variety).
 			const sinceIso = new Date(Date.now() - TRY_PROMPT_CACHE_TTL_MS).toISOString();
 			const cachedList = await queries.selectRecentCompletedCreatedImageAnonByPrompt?.all?.(

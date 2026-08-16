@@ -2,6 +2,10 @@ import express from "express";
 import path from "path";
 import Busboy from "busboy";
 import sharp from "sharp";
+import {
+	shouldDeleteOldProfileAvatarKey,
+	storeProcessedProfileAvatar
+} from "./utils/profileAvatar.js";
 import { buildProviderHeaders, resolveProviderAuthToken } from "./utils/providerAuth.js";
 import {
 	fetchImageBufferFromUrl,
@@ -696,18 +700,10 @@ export default function createAdminRoutes({ queries, storage }) {
 			if (filename && !filename.includes("..") && !filename.includes("/")) {
 				try {
 					const buffer = await storageInst.getImageBufferAnon(filename);
-					const resized = await sharp(buffer)
-						.rotate()
-						.resize(128, 128, { fit: "cover" })
-						.png()
-						.toBuffer();
-					const now = Date.now();
-					const rand = Math.random().toString(36).slice(2, 9);
-					const key = `profile/${targetUserId}/avatar_${now}_${rand}.png`;
-					const stored = await storageInst.uploadGenericImage(resized, key, { contentType: "image/png" });
-					finalAvatarUrl = buildGenericUrl(stored ?? key);
+					const storedAvatar = await storeProcessedProfileAvatar(storageInst, targetUserId, buffer);
+					finalAvatarUrl = storedAvatar.url;
 					const oldAvatarKey = extractGenericKey(existingProfile.avatar_url);
-					if (oldAvatarKey && storageInst?.deleteGenericImage) {
+					if (shouldDeleteOldProfileAvatarKey(oldAvatarKey, targetUserId) && storageInst?.deleteGenericImage) {
 						try {
 							await storageInst.deleteGenericImage(oldAvatarKey);
 						} catch {
@@ -818,20 +814,13 @@ export default function createAdminRoutes({ queries, storage }) {
 		}
 
 		if (!avatarRemove && avatarFile?.buffer?.length) {
-			let resized;
 			try {
-				resized = await sharp(avatarFile.buffer)
-					.rotate()
-					.resize(128, 128, { fit: "cover" })
-					.png()
-					.toBuffer();
+				const storedAvatar = await storeProcessedProfileAvatar(storageInst, targetUserId, avatarFile.buffer);
+				avatar_url = storedAvatar.url;
 			} catch {
 				return res.status(400).json({ error: "Invalid avatar image" });
 			}
-			const key = `profile/${targetUserId}/avatar_${now}_${rand}.png`;
-			const stored = await storageInst.uploadGenericImage(resized, key, { contentType: "image/png" });
-			avatar_url = buildGenericUrl(stored ?? key);
-			if (oldAvatarKey && storageInst.deleteGenericImage) pendingDeletes.push(oldAvatarKey);
+			if (shouldDeleteOldProfileAvatarKey(oldAvatarKey, targetUserId) && storageInst.deleteGenericImage) pendingDeletes.push(oldAvatarKey);
 		} else if (!avatarRemove && !avatarFile?.buffer?.length) {
 			const tryUrl = typeof fields?.avatar_try_url === "string" ? fields.avatar_try_url.trim() : "";
 			const tryPrefix = "/api/try/images/";
@@ -841,15 +830,9 @@ export default function createAdminRoutes({ queries, storage }) {
 				if (filename && !filename.includes("..") && !filename.includes("/") && storageInst.getImageBufferAnon) {
 					try {
 						const buffer = await storageInst.getImageBufferAnon(filename);
-						const resized = await sharp(buffer)
-							.rotate()
-							.resize(128, 128, { fit: "cover" })
-							.png()
-							.toBuffer();
-						const key = `profile/${targetUserId}/avatar_${now}_${rand}.png`;
-						const stored = await storageInst.uploadGenericImage(resized, key, { contentType: "image/png" });
-						avatar_url = buildGenericUrl(stored ?? key);
-						if (oldAvatarKey && storageInst.deleteGenericImage) pendingDeletes.push(oldAvatarKey);
+						const storedAvatar = await storeProcessedProfileAvatar(storageInst, targetUserId, buffer);
+						avatar_url = storedAvatar.url;
+						if (shouldDeleteOldProfileAvatarKey(oldAvatarKey, targetUserId) && storageInst.deleteGenericImage) pendingDeletes.push(oldAvatarKey);
 						if (queries.selectCreatedImageAnonByFilename?.get && queries.deleteCreatedImageAnon?.run && storageInst.deleteImageAnon) {
 							try {
 								const anonRow = await queries.selectCreatedImageAnonByFilename.get(filename);
@@ -964,7 +947,7 @@ export default function createAdminRoutes({ queries, storage }) {
 		const prompt = buildAvatarPrompt(characterDescription, variationKey);
 		const server_id = TRY_DEFAULT_SERVER_ID;
 		const method = TRY_DEFAULT_METHOD;
-		const args = { prompt, model: TRY_DEFAULT_MODEL, prompt_upsampling: true };
+		const args = { prompt, model: TRY_DEFAULT_MODEL, prompt_upsampling: true, aspect_ratio: "1:1" };
 
 		const server = await queries.selectServerById.get(server_id);
 		if (!server || server.status !== "active") {

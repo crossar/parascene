@@ -314,6 +314,16 @@ export function pickChallengeHeroImageUrl(cfg) {
 	return '';
 }
 
+/**
+ * Dedicated 16:9 WebP generated when a creation is attached as challenge hero.
+ * @param {object | null | undefined} cfg challenge_config payload
+ */
+export function pickChallengeHeroPreviewUrl(cfg) {
+	if (!cfg || typeof cfg !== 'object') return '';
+	const s = typeof cfg.hero_preview_url === 'string' ? cfg.hero_preview_url.trim() : '';
+	return s.length > HERO_MEDIA_REF_MAX ? s.slice(0, HERO_MEDIA_REF_MAX) : s;
+}
+
 /** @param {unknown} raw organizer form value before save */
 export function normalizeChallengeHeroRefForSave(raw) {
 	let s = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();

@@ -1,5 +1,11 @@
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
+import {
+	buildFitThumbnailBuffer,
+	buildSquareThumbnailBuffer,
+	fitThumbnailStorageKey,
+	shouldGenerateFitThumbnail
+} from "../../api_routes/utils/fitThumbnail.js";
 import sharp from "sharp";
 
 function requireEnv(name) {
@@ -104,21 +110,37 @@ async function main() {
 		const arrayBuffer = await data.arrayBuffer();
 		const buffer = Buffer.from(arrayBuffer);
 
-		const thumbnailBuffer = await sharp(buffer)
-			.resize(250, 250, { fit: "cover" })
-			.png()
-			.toBuffer();
+		const thumbnailBuffer = await buildSquareThumbnailBuffer(buffer);
 
 		const { error: uploadError } = await storage
 			.from(thumbnailBucket)
 			.upload(filename, thumbnailBuffer, {
-				contentType: "image/png",
+				contentType: "image/webp",
 				upsert: true
 			});
 
 		if (uploadError) {
 			console.warn(`Skip ${filename}: upload failed (${uploadError.message})`);
 			continue;
+		}
+
+		try {
+			const dims = await sharp(buffer, { failOn: "none" }).metadata();
+			const w = Number(dims.width) || 0;
+			const h = Number(dims.height) || 0;
+			if (w > 0 && h > 0 && shouldGenerateFitThumbnail(w, h)) {
+				const fitBuffer = await buildFitThumbnailBuffer(buffer);
+				const fitKey = fitThumbnailStorageKey(filename);
+				const { error: fitError } = await storage.from(thumbnailBucket).upload(fitKey, fitBuffer, {
+					contentType: "image/webp",
+					upsert: true
+				});
+				if (fitError) {
+					console.warn(`Skip fit ${filename}: ${fitError.message}`);
+				}
+			}
+		} catch (fitErr) {
+			console.warn(`Skip fit ${filename}: ${fitErr?.message || fitErr}`);
 		}
 
 		created += 1;
