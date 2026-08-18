@@ -292,8 +292,10 @@ body:not(.loaded) {
 }
 
 /* Overlay iframe already has a parent veil; don't keep embed documents invisible until JS. */
-html.create-page-embed-doc body:not(.loaded),
-body.create-page-embed:not(.loaded) {
+html[class*='embed-doc'] body:not(.loaded),
+body.create-page-embed:not(.loaded),
+body.creation-edit-embed:not(.loaded),
+body.creation-detail-embed:not(.loaded) {
 	visibility: visible;
 	opacity: 1;
 }

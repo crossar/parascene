@@ -2,13 +2,19 @@
  * Mutate: server list from API; default server/method in ./generationDefaults.js.
  */
 
-import { isPublicGenerationServerId } from './generationDefaults.js';
-
 const _qs = (() => {
-	const v = document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || '';
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
 	return v ? `?v=${encodeURIComponent(v)}` : '';
 })();
-const { fetchJsonWithStatusDeduped } = await import(`./api.js${_qs}`);
+const [generationDefaultsMod, apiMod] = await Promise.all([
+	import(`./generationDefaults.js${_qs}`),
+	import(`./api.js${_qs}`),
+]);
+const { isPublicGenerationServerId } = generationDefaultsMod;
+const { fetchJsonWithStatusDeduped } = apiMod;
 
 export function getMethodIntentList(method) {
 	if (Array.isArray(method?.intents)) {

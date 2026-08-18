@@ -22,6 +22,9 @@ const [
 	import(`../../shared/aspectRatio.js${_qs}`),
 	import(`../../shared/createSettingsSync.js${_qs}`),
 	import(`../../shared/embedPageRuntime.js${_qs}`),
+	// Define app-tabs before this module's customElements.define — connectedCallback
+	// paints <app-tabs> and calls setActiveTab; an unupgraded node has no such method.
+	import(`../elements/tabs.js${_qs}`),
 ]);
 const { isSystemReservedBlogCampaignId } = blogCampaignPathMod;
 const {
@@ -735,11 +738,15 @@ class AppRouteCreate extends HTMLElement {
 			// the profile gate resolves, so render-time `_showBlogTab` may still be false here.
 			// setActiveTab() safely falls back to the first tab when the target id isn't present.
 			const CREATE_TAB_IDS = this._embedOnly ? ['basic'] : ['basic', 'advanced', 'blog'];
+			const setCreateActiveTab = (id, opts) => {
+				if (typeof tabsEl.setActiveTab !== 'function') return;
+				tabsEl.setActiveTab(id, opts);
+			};
 			const syncTabFromHash = () => {
 				if (window.location.pathname !== '/create') return;
 				const hash = (window.location.hash || '').replace(/^#/, '').toLowerCase();
 				if (!CREATE_TAB_IDS.includes(hash)) return;
-				tabsEl.setActiveTab(hash, { focus: false });
+				setCreateActiveTab(hash, { focus: false });
 				try {
 					const stored = sessionStorage.getItem(this.storageKey);
 					const selections = stored ? JSON.parse(stored) : {};
@@ -750,11 +757,13 @@ class AppRouteCreate extends HTMLElement {
 				}
 			};
 
-			// Prefer URL hash over sessionStorage when present; default to basic when neither is set
-			if (window.location.pathname === '/create') {
+			const applyInitialCreateTab = () => {
+				if (typeof tabsEl.setActiveTab !== 'function') return;
+				// Prefer URL hash over sessionStorage when present; default to basic when neither is set
+				if (window.location.pathname !== '/create') return;
 				const hash = (window.location.hash || '').replace(/^#/, '').toLowerCase();
 				if (CREATE_TAB_IDS.includes(hash)) {
-					tabsEl.setActiveTab(hash);
+					setCreateActiveTab(hash);
 					try {
 						const stored = sessionStorage.getItem(this.storageKey);
 						const selections = stored ? JSON.parse(stored) : {};
@@ -763,21 +772,30 @@ class AppRouteCreate extends HTMLElement {
 					} catch (e) {
 						// Ignore storage errors
 					}
-				} else {
-					try {
-						const stored = sessionStorage.getItem(this.storageKey);
-						const selections = stored ? JSON.parse(stored) : {};
-						const tab = selections?.tab;
-						if (CREATE_TAB_IDS.includes(tab)) {
-							tabsEl.setActiveTab(tab);
-						} else {
-							tabsEl.setActiveTab('basic');
-						}
-					} catch (e) {
-						// Ignore storage errors
-						tabsEl.setActiveTab('basic');
-					}
+					return;
 				}
+				try {
+					const stored = sessionStorage.getItem(this.storageKey);
+					const selections = stored ? JSON.parse(stored) : {};
+					const tab = selections?.tab;
+					if (CREATE_TAB_IDS.includes(tab)) {
+						setCreateActiveTab(tab);
+					} else {
+						setCreateActiveTab('basic');
+					}
+				} catch (e) {
+					// Ignore storage errors
+					setCreateActiveTab('basic');
+				}
+			};
+			if (typeof tabsEl.setActiveTab === 'function') {
+				applyInitialCreateTab();
+			} else {
+				void customElements.whenDefined('app-tabs').then(() => {
+					if (!this.isConnected) return;
+					customElements.upgrade(tabsEl);
+					applyInitialCreateTab();
+				});
 			}
 
 			window.addEventListener('hashchange', syncTabFromHash);
