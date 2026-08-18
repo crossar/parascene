@@ -7,6 +7,10 @@ import {
 	feedItemCardImageUrlCandidates,
 	softenShoutingFeedTitleForSpotlight
 } from '../../shared/feedCardBuild.js';
+import {
+	applyVideoFirstFramePoster,
+	feedItemNeedsVideoFramePoster
+} from '../../shared/videoFirstFramePoster.js';
 import { getAvatarColor } from '../../shared/avatar.js';
 import { renderCommentAvatarHtml } from '../../shared/commentItem.js';
 import { primeMediaElementForAudioLeveling } from '../../shared/mediaAudioLeveling.js';
@@ -639,25 +643,28 @@ export function createDoomSlideElement(item, viewerUserId, slideOpts = {}) {
 	mediaFrame.className = `chat-doom-slide-media-frame${isNsfw ? ' nsfw' : ''}${youtube ? ' chat-doom-slide-media-frame--youtube' : ''}`;
 	if (isNsfw) mediaFrame.setAttribute('data-creation-id', String(cid));
 
+	const needsFramePoster = !youtube && Boolean(videoUrl) && feedItemNeedsVideoFramePoster(item);
 	/** Layered poster img matches video `object-fit` / aspect logic; avoid native `video.poster`. */
 	let posterImg = null;
-	if (posterCandidates.length > 0) {
+	if (posterCandidates.length > 0 || needsFramePoster) {
 		posterImg = document.createElement('img');
 		posterImg.className = 'chat-doom-poster';
 		posterImg.alt = '';
 		posterImg.decoding = 'async';
 		posterImg.loading = bgLoad ? 'lazy' : 'eager';
-		let posterTry = 0;
-		const tryPosterSrc = () => {
-			const url = posterCandidates[posterTry];
-			if (!url) return;
-			posterImg.src = url;
-		};
-		posterImg.addEventListener('error', () => {
-			posterTry += 1;
-			if (posterTry < posterCandidates.length) tryPosterSrc();
-		});
-		tryPosterSrc();
+		if (!needsFramePoster) {
+			let posterTry = 0;
+			const tryPosterSrc = () => {
+				const url = posterCandidates[posterTry];
+				if (!url) return;
+				posterImg.src = url;
+			};
+			posterImg.addEventListener('error', () => {
+				posterTry += 1;
+				if (posterTry < posterCandidates.length) tryPosterSrc();
+			});
+			tryPosterSrc();
+		}
 	}
 
 	const playOverlay = youtube ? null : document.createElement('div');
@@ -703,7 +710,11 @@ export function createDoomSlideElement(item, viewerUserId, slideOpts = {}) {
 		video.muted = true;
 		video.preload = bgLoad ? 'none' : 'metadata';
 		primeMediaElementForAudioLeveling(video);
+		if (needsFramePoster) video.preload = bgLoad ? 'metadata' : 'auto';
 		if (videoUrl) video.src = videoUrl;
+		if (needsFramePoster && posterImg) {
+			applyVideoFirstFramePoster(posterImg, { videoUrl, existingVideo: video });
+		}
 		mediaFrame.appendChild(video);
 	}
 	mediaWrap.appendChild(mediaFrame);

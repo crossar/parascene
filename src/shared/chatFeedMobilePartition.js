@@ -36,6 +36,22 @@ export function isYoutubeShortsImportMeta(meta) {
 }
 
 /**
+ * Native playable file: top-level `video_url` or `meta.video.file_path` (DB rows store only the latter).
+ * @param {object|null|undefined} item
+ * @returns {string}
+ */
+function nativeVideoFileUrl(item) {
+	const top = typeof item?.video_url === 'string' ? item.video_url.trim() : '';
+	if (top) return top;
+	const videoMeta = item?.meta?.video;
+	if (videoMeta && typeof videoMeta === 'object' && !Array.isArray(videoMeta)) {
+		const path = typeof videoMeta.file_path === 'string' ? videoMeta.file_path.trim() : '';
+		if (path) return path;
+	}
+	return '';
+}
+
+/**
  * Feed row is a creation with playable vertical video (chat #feed spotlight + doom).
  * Native videos need a file URL. YouTube imports qualify only as Shorts.
  * @param {object|null|undefined} item
@@ -54,8 +70,7 @@ export function isFeedRowVideoCreation(item) {
 	const mediaType = mediaTypeRaw.trim().toLowerCase();
 	if (mediaType !== 'video') return false;
 	if (youtubeImportMeta(item.meta)) return isYoutubeShortsImportMeta(item.meta);
-	const videoUrl = typeof item.video_url === 'string' ? item.video_url.trim() : '';
-	return Boolean(videoUrl);
+	return Boolean(nativeVideoFileUrl(item));
 }
 
 /**

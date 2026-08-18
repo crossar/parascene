@@ -30,6 +30,7 @@ const [
 	creationCardMod,
 	whoLabelsMod,
 	reactionTooltipTapMod,
+	videoFirstFramePosterMod,
 ] = await Promise.all([
 	import(`./blogCampaignPath.js${_qs}`),
 	import(`./datetime.js${_qs}`),
@@ -47,6 +48,7 @@ const [
 	import(`./creationCard.js${_qs}`),
 	import(`./whoLabels.js${_qs}`),
 	import(`./reactionTooltipTap.js${_qs}`),
+	import(`./videoFirstFramePoster.js${_qs}`),
 ]);
 
 const { buildBlogPostPublicPath, BLOG_CAMPAIGN_INTERNAL } = blogCampaignPathMod;
@@ -65,6 +67,8 @@ const { attachFeedImpressionBeacon, recordFeedImpressionOnClick } = feedImpressi
 const { mountSequentialVideoPlayer } = sequentialVideoPlayerMod;
 const { applyWhoTooltipAttr } = whoLabelsMod;
 const { setupWhoTooltips } = reactionTooltipTapMod;
+const { applyVideoFirstFramePoster, feedItemNeedsVideoFramePoster, feedItemPlayableVideoUrl } =
+	videoFirstFramePosterMod;
 
 const html = String.raw;
 
@@ -515,7 +519,8 @@ export function attachFeedCardImage(imageEl, imageContainer, item, itemIndex, pr
 		applyFeedCardCreationProcessingState(imageContainer, imageEl);
 		return;
 	}
-	if (urls.length === 0) {
+	const useVideoFramePoster = feedItemNeedsVideoFramePoster(item);
+	if (urls.length === 0 && !useVideoFramePoster) {
 		markFeedCardImageUnavailable(imageContainer, imageEl, { state: 'missing' });
 		return;
 	}
@@ -574,6 +579,34 @@ export function attachFeedCardImage(imageEl, imageContainer, item, itemIndex, pr
 			finishOk();
 		}
 	};
+
+	if (useVideoFramePoster) {
+		const videoUrl = feedItemPlayableVideoUrl(item);
+		teardownFeedCardCreationProcessingUi(imageContainer);
+		imageContainer.classList.add('loading');
+		imageContainer.classList.remove('loaded', 'error');
+		imageContainer.removeAttribute('data-feed-img-state');
+		applyVideoFirstFramePoster(imageEl, {
+			videoUrl,
+			onPainted: () => {
+				imageContainer.classList.remove('loading');
+				teardownFeedCardCreationProcessingUi(imageContainer);
+				imageContainer.classList.add('loaded');
+				imageContainer.classList.remove('error');
+				imageContainer.removeAttribute('data-feed-img-state');
+				imageContainer.removeAttribute('aria-label');
+				imageContainer.removeAttribute('role');
+				if (imageEl instanceof HTMLImageElement) {
+					imageEl.style.removeProperty('opacity');
+				}
+			},
+			onFail: () => {
+				if (urls.length > 0) tryLoad(0);
+				else markFeedCardImageUnavailable(imageContainer, imageEl, { state: 'unavailable' });
+			}
+		});
+		return;
+	}
 
 	tryLoad(0);
 }
@@ -1441,8 +1474,14 @@ export function isFeedRowVideoCreation(item) {
 		const url = typeof importMeta.url === "string" ? importMeta.url : "";
 		return /\/shorts\//i.test(url);
 	}
-	const videoUrl = typeof item.video_url === "string" ? item.video_url.trim() : "";
-	return Boolean(videoUrl);
+	const top = typeof item.video_url === "string" ? item.video_url.trim() : "";
+	if (top) return true;
+	const videoMeta = item.meta?.video;
+	if (videoMeta && typeof videoMeta === "object" && !Array.isArray(videoMeta)) {
+		const path = typeof videoMeta.file_path === "string" ? videoMeta.file_path.trim() : "";
+		if (path) return true;
+	}
+	return false;
 }
 
 /**

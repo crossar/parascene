@@ -17,6 +17,11 @@ import {
 	partitionFeedVideosForChatSpotlight
 } from './chatFeedMobilePartition.js';
 import { addHiddenFeedItem, getHiddenFeedItems } from './feedHiddenItems.js';
+import {
+	applyVideoFirstFramePoster,
+	feedItemNeedsVideoFramePoster,
+	feedItemPlayableVideoUrl
+} from './videoFirstFramePoster.js';
 import { primeMediaElementForAudioLeveling } from './mediaAudioLeveling.js';
 import {
 	hydrateChallengeHistoryThumbnails,
@@ -506,7 +511,8 @@ export function attachFeedCardImage(imageEl, imageContainer, item, itemIndex, pr
 		applyFeedCardCreationProcessingState(imageContainer, imageEl);
 		return;
 	}
-	if (urls.length === 0) {
+	const useVideoFramePoster = feedItemNeedsVideoFramePoster(item);
+	if (urls.length === 0 && !useVideoFramePoster) {
 		markFeedCardImageUnavailable(imageContainer, imageEl, {
 			state: moderated ? 'moderated' : 'missing',
 			moderated
@@ -580,6 +586,43 @@ export function attachFeedCardImage(imageEl, imageContainer, item, itemIndex, pr
 			finishOk();
 		}
 	};
+
+	if (useVideoFramePoster) {
+		const videoUrl = feedItemPlayableVideoUrl(item);
+		teardownFeedCardCreationProcessingUi(imageContainer);
+		imageContainer.classList.add('loading');
+		imageContainer.classList.remove('loaded', 'error');
+		imageContainer.classList.remove('feed-card-image-error-moderated');
+		imageContainer.removeAttribute('data-feed-img-state');
+		applyVideoFirstFramePoster(imageEl, {
+			videoUrl,
+			onPainted: () => {
+				imageContainer.classList.remove('loading');
+				teardownFeedCardCreationProcessingUi(imageContainer);
+				imageContainer.classList.add('loaded');
+				imageContainer.classList.remove('error');
+				imageContainer.classList.remove('feed-card-image-error-moderated');
+				imageContainer.removeAttribute('data-feed-img-state');
+				imageContainer.removeAttribute('aria-label');
+				imageContainer.removeAttribute('role');
+				const existingModIcon = imageContainer.querySelector('.route-media-error-moderated-icon');
+				if (existingModIcon) existingModIcon.remove();
+				if (imageEl instanceof HTMLImageElement) {
+					imageEl.style.removeProperty('opacity');
+				}
+			},
+			onFail: () => {
+				if (urls.length > 0) tryLoad(0);
+				else {
+					markFeedCardImageUnavailable(imageContainer, imageEl, {
+						state: moderated ? 'moderated' : 'unavailable',
+						moderated
+					});
+				}
+			}
+		});
+		return;
+	}
 
 	tryLoad(0);
 }
