@@ -4,6 +4,7 @@ import {
 	normalizeChallengeOrganizerUserNames,
 	organizersWithoutImplied,
 	pickLatestChallengesGlobalConfig,
+	pickChallengeResultsCreationUrl,
 	resolveChallengeOrganizerAllowlistFromMessages,
 	resolveOrganizersByTrackFromGlobalPayload,
 	tracksViewerCanOrganize,
@@ -475,8 +476,7 @@ export function mountChallengesOrganizerTools(host, opts) {
 			captureEditBaseline(configMessageId);
 			modalTitle.textContent = 'Edit challenge';
 		} else if (mode === 'view') {
-			editBodyBaselineFp = null;
-			editBaselineMessageId = null;
+			captureEditBaseline(configMessageId);
 			modalTitle.textContent = 'View challenge';
 		} else if (mode === 'global') {
 			captureEditBaseline(globalConfigMessageId);
@@ -914,6 +914,21 @@ export function mountChallengesOrganizerTools(host, opts) {
 						shouldSyncPins = true;
 					}
 					applyRewardsAndPrizesFromForm(payload, fd, adminForm);
+				} else if (isEditForm && editSection === 'results-late') {
+					if (!resultsRef) {
+						setFormError('Paste a creation URL for the results post.');
+						return;
+					}
+					if (pickChallengeResultsCreationUrl(base)) {
+						setFormError('A results post is already attached.');
+						return;
+					}
+					payload = {
+						...base,
+						kind: 'challenge_config',
+						challenge_id: challengeId,
+						results_creation_url: resultsRef
+					};
 				} else if (isEditForm && editSection && editSection !== 'schedule') {
 					payload = {
 						...base,
@@ -1626,11 +1641,12 @@ export function mountChallengesOrganizerTools(host, opts) {
 			const cid = viewBtn.getAttribute('data-challenges-organizer-view') || '';
 			const row = rowByChallengeId.get(cid);
 			const merged = mergeFullChallengeConfigForChallenge(challengeConfigEntries, cid);
+			const resultsUrl = pickChallengeResultsCreationUrl(merged);
 			openModal(
 				'view',
 				{ ...(row?.payload || {}), ...merged, challenge_id: cid },
-				null,
-				{ activeTab: 'details' }
+				row?.configMessageId,
+				{ activeTab: resultsUrl ? 'details' : 'pins' }
 			);
 			return;
 		}

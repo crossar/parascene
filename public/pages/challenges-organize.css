@@ -739,6 +739,32 @@
 	opacity: 0.9;
 }
 
+.challenges-organize-view-add-results {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.challenges-organize-view-field:has(.challenges-organize-view-add-results) .challenges-organize-view-value {
+	white-space: normal;
+}
+
+.challenges-organize-view-add-results-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.challenges-organize-view-add-results-row .challenge-pane-input {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.challenges-organize-view-add-results-row .challenge-pane-admin-submit {
+	flex: 0 0 auto;
+	align-self: auto;
+}
+
 .challenges-organize-text-action:focus-visible {
 	outline: 2px solid var(--focus, var(--color-green));
 	outline-offset: 2px;

@@ -507,12 +507,14 @@ function renderOrganizerMediaSectionHtml(latest) {
  * Read-only field row for completed challenge view modal.
  * @param {string} label
  * @param {unknown} value
- * @param {{ href?: boolean }} [opts]
+ * @param {{ href?: boolean, bodyHtml?: string }} [opts]
  */
 function renderOrganizeViewField(label, value, opts = {}) {
 	const raw = value == null ? '' : String(value).trim();
 	let body;
-	if (!raw) {
+	if (typeof opts.bodyHtml === 'string') {
+		body = opts.bodyHtml;
+	} else if (!raw) {
 		body = `<span class="challenge-pane-muted">—</span>`;
 	} else if (opts.href) {
 		const safeHref = esc(raw);
@@ -522,14 +524,34 @@ function renderOrganizeViewField(label, value, opts = {}) {
 	}
 	return `<div class="challenges-organize-view-field">
 		<div class="challenges-organize-view-label">${esc(label)}</div>
-		<div class="challenges-organize-view-value user-text">${body}</div>
+		<div class="challenges-organize-view-value${typeof opts.bodyHtml === 'string' ? '' : ' user-text'}">${body}</div>
 	</div>`;
 }
 
 /**
+ * After finalize, completed challenges are view-only — except attaching a
+ * missing results/highlights creation.
+ * @param {object} cfg
+ * @param {number | null | undefined} configMessageId
+ */
+function renderOrganizeLateResultsFormHtml(cfg, configMessageId) {
+	return `<form class="challenges-organize-view-add-results" data-challenge-admin-config-form data-challenge-admin-form="edit" data-challenge-admin-edit-section="results-late">
+		${editFormHiddenIds(cfg, configMessageId)}
+		<div class="challenges-organize-view-add-results-row">
+			<input type="text" name="results_creation_url" class="challenge-pane-input" maxlength="2000"
+				placeholder="/creations/123" autocomplete="off" aria-label="Results / highlights creation URL" />
+			<button type="submit" class="btn-primary challenge-pane-admin-submit">Add</button>
+		</div>
+		<div class="challenge-pane-form-error challenge-pane-admin-error" data-challenge-admin-error hidden role="alert"></div>
+		<div class="challenge-pane-admin-success" data-challenge-admin-success hidden role="status" aria-live="polite"></div>
+	</form>`;
+}
+
+/**
  * Completed challenge: same tabs as edit, values only (no inputs).
+ * Missing results/highlights can still be attached after finalize.
  * @param {object} latest
- * @param {{ activeTab?: string }} [opts]
+ * @param {{ activeTab?: string, configMessageId?: number | null }} [opts]
  */
 export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 	const cfg = latest && typeof latest === 'object' ? latest : {};
@@ -617,7 +639,13 @@ export function renderChallengeOrganizerViewHtml(latest, opts = {}) {
 			${renderOrganizeViewField('Open pin', pinWindowLabel(pinWindows.open))}
 			${renderOrganizeViewField('Next challenge — theme vote', topicVote, { href: Boolean(topicVote) })}
 			${renderOrganizeViewField('Theme-vote pin', pinWindowLabel(pinWindows.topic_vote))}
-			${renderOrganizeViewField('Results / highlights', resultsUrl, { href: Boolean(resultsUrl) })}
+			${
+				resultsUrl
+					? renderOrganizeViewField('Results / highlights', resultsUrl, { href: true })
+					: renderOrganizeViewField('Results / highlights', '', {
+							bodyHtml: renderOrganizeLateResultsFormHtml(cfg, opts.configMessageId)
+						})
+			}
 			${renderOrganizeViewField('Winners pin', pinWindowLabel(pinWindows.winners))}`
 		)}
 		${panel(
@@ -1318,7 +1346,7 @@ export function renderChallengeOrganizerModalInnerHtml(
 	if (mode === 'view' && editPayload && typeof editPayload === 'object') {
 		const activeTab =
 			createOpts && typeof createOpts.activeTab === 'string' ? createOpts.activeTab : 'details';
-		return renderChallengeOrganizerViewHtml(editPayload, { activeTab });
+		return renderChallengeOrganizerViewHtml(editPayload, { activeTab, configMessageId });
 	}
 	if (mode === 'edit' && editPayload && typeof editPayload === 'object') {
 		const section =
