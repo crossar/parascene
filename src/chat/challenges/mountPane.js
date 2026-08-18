@@ -25,6 +25,11 @@ import {
 } from './model/detailsRoute.js';
 import { esc } from './constants.js';
 
+function assetQuery() {
+	const v = document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim();
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+}
+
 /**
  * @param {object | null} data — GET /api/create/images/:id
  * @returns {string | null}
@@ -775,7 +780,7 @@ export async function mountChallengesPane(opts) {
 		const cid = String(challengeId || '').trim();
 		const tid = Number(threadId);
 		try {
-			const mod = await import('/shared/challengeSubmitContext.js');
+			const mod = await import(`/shared/challengeSubmitContext.js${assetQuery()}`);
 			mod.captureChallengeSubmitThread?.(tid, cid || undefined);
 		} catch {
 			// ignore

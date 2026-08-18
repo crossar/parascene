@@ -5,7 +5,15 @@
  * Future: loading indicator, page transitions.
  */
 
-import { navigateFromModal } from './creationDetailRuntime.js';
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
+
+const { navigateFromModal } = await import(`./creationDetailRuntime.js${_qs}`);
 
 export function closeModalsAndNavigate(href) {
 	if (!href || typeof href !== 'string') return;

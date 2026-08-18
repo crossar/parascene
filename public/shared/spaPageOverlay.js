@@ -1,17 +1,44 @@
 /**
  * Unified SPA page overlay — single iframe stack for embed-capable routes on feed/explore/chat/app shells.
+ *
+ * This file is loaded via `import(\`.../spaPageOverlay.js${qs}\`)`. Direct siblings must use the
+ * same asset-version query; static `import './foo.js'` can resolve a stale cached copy.
  */
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
 
-import { MODAL_DISMISS_ICON_SVG } from './modalDismiss.js';
-import { createChatPageHeader } from './chatPageHeader.js';
-import { navigateToChatPathFromOverlay, navigateToMyCreationsIfNeeded } from '/shared/createSubmit.js';
-import { SPA_OVERLAY_EMBED_READY_MESSAGE } from './embedPageRuntime.js';
-import { forwardEscapeIntoOverlayFrame } from './escapeLayers.js';
-import {
+const [
+	modalDismissMod,
+	chatPageHeaderMod,
+	createSubmitMod,
+	embedPageRuntimeMod,
+	escapeLayersMod,
+	creationDetailEmbedShellMod,
+	creationDetailSeedMod,
+] = await Promise.all([
+	import(`./modalDismiss.js${_qs}`),
+	import(`./chatPageHeader.js${_qs}`),
+	import(`/shared/createSubmit.js${_qs}`),
+	import(`./embedPageRuntime.js${_qs}`),
+	import(`./escapeLayers.js${_qs}`),
+	import(`./creationDetailEmbedShell.js${_qs}`),
+	import(`./creationDetailSeed.js${_qs}`),
+]);
+const { MODAL_DISMISS_ICON_SVG } = modalDismissMod;
+const { createChatPageHeader } = chatPageHeaderMod;
+const { navigateToChatPathFromOverlay, navigateToMyCreationsIfNeeded } = createSubmitMod;
+const { SPA_OVERLAY_EMBED_READY_MESSAGE } = embedPageRuntimeMod;
+const { forwardEscapeIntoOverlayFrame } = escapeLayersMod;
+const {
 	applyCreationDetailEmbedShellSync,
 	CREATION_DETAIL_SHELL_SYNC_MESSAGE,
-} from './creationDetailEmbedShell.js';
-import {
+} = creationDetailEmbedShellMod;
+const {
 	creationDetailSeedFromClick,
 	feedItemToCreationDetailSeed,
 	mergeCreationDetailSeeds,
@@ -21,7 +48,7 @@ import {
 	writeViewerComposerCache,
 	prefetchCreatorStrip,
 	enrichCreationDetailSeedCreatorStrip,
-} from './creationDetailSeed.js';
+} = creationDetailSeedMod;
 
 const OVERLAY_ID = 'prsn-spa-page-overlay';
 const SHELL_OUT_VEIL_ID = 'prsn-spa-page-shell-out-veil';
@@ -833,7 +860,7 @@ export const routePromptLibraryOverlayFromEmbed = routeSpaPageOverlayFromEmbed;
 export function openInlineLightboxFromEmbed(data) {
 	if (isCreationDetailEmbedFrame()) return;
 	const kind = String(data?.kind || 'image').trim() || 'image';
-	void import('./chatInlineImageLightbox.js')
+	void import(`./chatInlineImageLightbox.js${_qs}`)
 		.then((mod) => {
 			mod.closeChatInlineImageLightbox({ stripHistory: false });
 			if (kind === 'video-gallery') {
@@ -1377,12 +1404,9 @@ export function prefetchCreateOverlayAssets() {
 	void fetch('/api/servers', { credentials: 'include', headers: { Accept: 'application/json' } }).catch(
 		() => {}
 	);
-	const meta = document.querySelector('meta[name="asset-version"]');
-	const v = meta?.getAttribute('content')?.trim() || '';
-	const qs = v ? `?v=${encodeURIComponent(v)}` : '';
-	void import(`/pages/entry/entry-create.js${qs}`).catch(() => {});
-	void import(`/components/routes/create.js${qs}`).catch(() => {});
-	void import(`/shared/createServersDefault.js${qs}`).catch(() => {});
+	void import(`/pages/entry/entry-create.js${_qs}`).catch(() => {});
+	void import(`/components/routes/create.js${_qs}`).catch(() => {});
+	void import(`/shared/createServersDefault.js${_qs}`).catch(() => {});
 }
 
 export function navigateToCreationDetailFromSpa(href, ev) {

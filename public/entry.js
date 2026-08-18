@@ -47,6 +47,15 @@ async function main() {
 	try {
 		mod = await import(`./pages/entry/entry-${entry}.js${qs}`);
 	} catch (e) {
+		const msg = String(e?.message || '');
+		// Missing named exports / stale module graph — not a missing file. Falling back to
+		// entry-app would skip page-specific components (e.g. app-modal-publish).
+		const brokenGraph =
+			e?.name === 'SyntaxError' || /does not provide an export named/i.test(msg);
+		if (brokenGraph) {
+			console.error(`Entry "entry-${entry}.js" failed to load.`, e);
+			throw e;
+		}
 		console.warn(`Entry "entry-${entry}.js" not found, using entry-app.`, e);
 		mod = await import(`./pages/entry/entry-app.js${qs}`);
 	}

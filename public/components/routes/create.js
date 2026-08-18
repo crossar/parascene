@@ -1,22 +1,47 @@
-import { isSystemReservedBlogCampaignId } from '../../shared/blogCampaignPath.js';
-import {
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
+
+const [
+	blogCampaignPathMod,
+	createServersDefaultMod,
+	generationDefaultsMod,
+	providerFormFieldsMod,
+	aspectRatioMod,
+	createSettingsSyncMod,
+	embedPageRuntimeMod,
+] = await Promise.all([
+	import(`../../shared/blogCampaignPath.js${_qs}`),
+	import(`../../shared/createServersDefault.js${_qs}`),
+	import(`../../shared/generationDefaults.js${_qs}`),
+	import(`../../shared/providerFormFields.js${_qs}`),
+	import(`../../shared/aspectRatio.js${_qs}`),
+	import(`../../shared/createSettingsSync.js${_qs}`),
+	import(`../../shared/embedPageRuntime.js${_qs}`),
+]);
+const { isSystemReservedBlogCampaignId } = blogCampaignPathMod;
+const {
 	CREATE_SERVERS_CACHE_KEY,
 	DEFAULT_CREATE_SERVERS,
-} from '../../shared/createServersDefault.js';
-import { isPublicGenerationServerId } from '../../shared/generationDefaults.js';
-import {
-	renderFields as renderProviderFormFields,
+} = createServersDefaultMod;
+const { isPublicGenerationServerId } = generationDefaultsMod;
+const {
+	renderFields: renderProviderFormFields,
 	isPromptLikeField,
 	isImageUrlField,
 	isImageUrlArrayField,
-} from '../../shared/providerFormFields.js';
-import {
+} = providerFormFieldsMod;
+const {
 	shouldUseAspectRatioSelector,
 	getVirtualAspectRatioField,
 	closestAspectRatioPreset,
 	buildAspectRatioMismatchMessage,
-} from '../../shared/aspectRatio.js';
-import {
+} = aspectRatioMod;
+const {
 	mergeSharedSettingsIntoSessionSelections,
 	getSharedFieldValueOverrides,
 	getSharedModelForContext,
@@ -27,8 +52,8 @@ import {
 	persistSharedPrompt,
 	persistSharedAspectRatio,
 	CREATE_SETTINGS_UPDATED_EVENT,
-} from '../../shared/createSettingsSync.js';
-import { notifySpaPageOverlayEmbedReady } from '../../shared/embedPageRuntime.js';
+} = createSettingsSyncMod;
+const { notifySpaPageOverlayEmbedReady } = embedPageRuntimeMod;
 
 let fetchJsonWithStatusDeduped;
 let submitCreationWithPending;

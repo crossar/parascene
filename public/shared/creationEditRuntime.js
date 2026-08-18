@@ -2,12 +2,24 @@
  * Creation mutate page runtime — standalone and embed (`?embed=1`).
  */
 
-import {
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
+
+const [creationDetailEmbedShellMod, escapeLayersMod] = await Promise.all([
+	import(`/shared/creationDetailEmbedShell.js${_qs}`),
+	import(`/shared/escapeLayers.js${_qs}`),
+]);
+const {
 	CREATION_DETAIL_SHELL_SYNC_MESSAGE,
 	defaultScopesForCreationShellSyncReason,
 	normalizeCreationDetailShellSyncScopes,
-} from './creationDetailEmbedShell.js';
-import { documentHasNestedEscapeLayer } from './escapeLayers.js';
+} = creationDetailEmbedShellMod;
+const { documentHasNestedEscapeLayer } = escapeLayersMod;
 
 const ROUTE_MESSAGE = 'prsn-creation-detail-overlay-route';
 const CLOSE_MESSAGE = 'prsn-creation-detail-overlay-close';

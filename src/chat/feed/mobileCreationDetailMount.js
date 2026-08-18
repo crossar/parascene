@@ -13,6 +13,11 @@ import {
 	readViewerComposerCache,
 } from '../../shared/creationDetailSeed.js';
 
+function assetQuery() {
+	const v = document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim();
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+}
+
 function escapeHtml(str) {
 	return String(str ?? '')
 		.replace(/&/g, '&amp;')
@@ -134,7 +139,7 @@ function replacePanelChrome(panel, seed) {
 function bindNativeActionStrip(root, creationId, onNavigate) {
 	if (!(root instanceof HTMLElement) || root.dataset.nativeActionsBound === '1') return;
 	root.dataset.nativeActionsBound = '1';
-	void import('/shared/likes.js')
+	void import(`/shared/likes.js${assetQuery()}`)
 		.then((mod) => {
 			const seed = readCreationDetailSeed(creationId);
 			const likeBtn = root.querySelector('button[data-like-button]');
@@ -233,7 +238,7 @@ async function mountCommentsIfNeeded(root, creationId, state) {
 	}
 	state.pendingHost = host;
 	const gen = ++state.gen;
-	const { mountCreationCommentsThread } = await import('/shared/creationCommentsThread.js');
+	const { mountCreationCommentsThread } = await import(`/shared/creationCommentsThread.js${assetQuery()}`);
 	if (state.torn || gen !== state.gen) {
 		if (state.pendingHost === host) state.pendingHost = null;
 		return;

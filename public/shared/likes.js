@@ -1,6 +1,23 @@
-import { notifyCreationDetailEmbedShellSync } from './creationDetailEmbedShell.js';
-import { applyWhoTooltipAttr } from './whoLabels.js';
-import { setupWhoTooltips } from './reactionTooltipTap.js';
+/**
+ * Like-button helpers shared by feed cards and creation-detail.
+ * Loaded via `import(\`.../likes.js${qs}\`)`; siblings use the same asset-version query.
+ */
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
+
+const [creationDetailEmbedShellMod, whoLabelsMod, reactionTooltipTapMod] = await Promise.all([
+	import(`./creationDetailEmbedShell.js${_qs}`),
+	import(`./whoLabels.js${_qs}`),
+	import(`./reactionTooltipTap.js${_qs}`),
+]);
+const { notifyCreationDetailEmbedShellSync } = creationDetailEmbedShellMod;
+const { applyWhoTooltipAttr } = whoLabelsMod;
+const { setupWhoTooltips } = reactionTooltipTapMod;
 
 function getCreationLikeId(creation) {
 	if (!creation) return null;

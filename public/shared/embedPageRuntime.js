@@ -1,8 +1,19 @@
 /**
  * Shared embed iframe runtime helpers for SPA page overlay targets.
+ *
+ * Load escapeLayers with the same asset-version query as this module. A static
+ * `import './escapeLayers.js'` can resolve a stale cached copy.
  */
 
-import { documentHasNestedEscapeLayer } from './escapeLayers.js';
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
+
+const { documentHasNestedEscapeLayer } = await import(`/shared/escapeLayers.js${_qs}`);
 
 export const SPA_OVERLAY_ROUTE_MESSAGE = 'prsn-spa-page-overlay-route';
 export const SPA_OVERLAY_CLOSE_MESSAGE = 'prsn-spa-page-overlay-close';

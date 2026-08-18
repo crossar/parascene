@@ -4,7 +4,15 @@
  * `prsn-creation-detail-overlay-shell-sync` for lane components to handle.
  */
 
-import { challengeEnteredBadgeHtml, publishedBadgeHtml } from './creationBadges.js';
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
+
+const { challengeEnteredBadgeHtml, publishedBadgeHtml } = await import(`./creationBadges.js${_qs}`);
 
 export const CREATION_DETAIL_SHELL_SYNC_MESSAGE = 'prsn-creation-detail-overlay-shell-sync';
 export const CREATION_DETAIL_SHELL_SYNC_EVENT = 'prsn-creation-detail-overlay-shell-sync';

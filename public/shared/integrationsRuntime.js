@@ -2,7 +2,17 @@
  * Connections page (/integrations) runtime — standalone and embed (`?embed=1`).
  */
 
-import { createEmbedPageRuntime, notifySpaPageOverlayEmbedReady } from './embedPageRuntime.js';
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
+
+const { createEmbedPageRuntime, notifySpaPageOverlayEmbedReady } = await import(
+	`/shared/embedPageRuntime.js${_qs}`
+);
 
 const runtime = createEmbedPageRuntime('__ps_integrations_embed');
 

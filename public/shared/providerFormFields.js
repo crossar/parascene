@@ -3,21 +3,37 @@
  * Field types are handled by separate handlers so new types can be added easily.
  */
 
-import { parseAspectRatioString, shouldUseAspectRatioSelector, ASPECT_RATIO_SELECTOR_LABELS } from './aspectRatio.js';
-
 const _qs = (() => {
-	const v = document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || '';
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
 	return v ? `?v=${encodeURIComponent(v)}` : '';
 })();
-const [{ attachAutoGrowTextarea }, { loadMutateQueue, removeFromMutateQueueByImageUrl }, { createImagePickerModalDom, wireImagePickerModal }, { getMutateQueuePrefillForProviderFields }, { attachPromptFieldClear }, { createAudioClipPickerField, isAudioClipUrlField }] =
-	await Promise.all([
-		import(`./autogrow.js${_qs}`),
-		import(`./mutateQueue.js${_qs}`),
-		import(`./imagePickerModal.js${_qs}`),
-		import(`./mutateQueueSync.js${_qs}`),
-		import(`./promptFieldClear.js${_qs}`),
-		import(`./audioClipPickerField.js${_qs}`),
-	]);
+const [
+	aspectRatioMod,
+	autogrowMod,
+	mutateQueueMod,
+	imagePickerMod,
+	mutateQueueSyncMod,
+	promptFieldClearMod,
+	audioClipPickerMod,
+] = await Promise.all([
+	import(`./aspectRatio.js${_qs}`),
+	import(`./autogrow.js${_qs}`),
+	import(`./mutateQueue.js${_qs}`),
+	import(`./imagePickerModal.js${_qs}`),
+	import(`./mutateQueueSync.js${_qs}`),
+	import(`./promptFieldClear.js${_qs}`),
+	import(`./audioClipPickerField.js${_qs}`),
+]);
+const { parseAspectRatioString, shouldUseAspectRatioSelector, ASPECT_RATIO_SELECTOR_LABELS } = aspectRatioMod;
+const { attachAutoGrowTextarea } = autogrowMod;
+const { loadMutateQueue, removeFromMutateQueueByImageUrl } = mutateQueueMod;
+const { createImagePickerModalDom, wireImagePickerModal } = imagePickerMod;
+const { getMutateQueuePrefillForProviderFields } = mutateQueueSyncMod;
+const { attachPromptFieldClear } = promptFieldClearMod;
+const { createAudioClipPickerField, isAudioClipUrlField } = audioClipPickerMod;
 
 // --- Field type detection (used to choose handler) ---
 

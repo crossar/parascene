@@ -1,15 +1,58 @@
 /**
  * Basic create page composer — unified card UI (attach, prompt, toolbar, style overflow).
+ *
+ * Loaded via `import(\`/shared/createComposer.js${qs}\`)`. Direct siblings must use the same
+ * asset-version query; static `/shared/*.js` imports can resolve stale copies (missing exports).
  */
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
 
-import { sendIcon } from '/icons/svg-strings.js';
-import {
+const [
+	svgMod,
+	aspectRatioMod,
+	generationDefaultsMod,
+	createSubmitMod,
+	triggeredSuggestMod,
+	autogrowMod,
+	creationComposerDragMod,
+	importMediaMod,
+	importSunoModalMod,
+	toastMod,
+	mutateQueueMod,
+	mutateQueueSyncMod,
+	createSettingsSyncMod,
+	promptFieldClearMod,
+] = await Promise.all([
+	import(`/icons/svg-strings.js${_qs}`),
+	import(`/shared/aspectRatio.js${_qs}`),
+	import(`/shared/generationDefaults.js${_qs}`),
+	import(`/shared/createSubmit.js${_qs}`),
+	import(`/shared/triggeredSuggest.js${_qs}`),
+	import(`/shared/autogrow.js${_qs}`),
+	import(`/shared/creationComposerDrag.js${_qs}`),
+	import(`/shared/importMedia.js${_qs}`),
+	import(`/shared/importSunoModal.js${_qs}`),
+	import(`/shared/toast.js${_qs}`),
+	import(`/shared/mutateQueue.js${_qs}`),
+	import(`/shared/mutateQueueSync.js${_qs}`),
+	import(`/shared/createSettingsSync.js${_qs}`),
+	import(`/shared/promptFieldClear.js${_qs}`),
+]);
+
+const { sendIcon } = svgMod;
+const {
 	ASPECT_RATIO_PRESETS,
 	ASPECT_RATIO_SELECTOR_LABELS,
 	parseAspectRatioString,
 	shouldUseAspectRatioSelector,
-} from '/shared/aspectRatio.js';
-import {
+	closestAspectRatioPreset,
+} = aspectRatioMod;
+const {
 	MUTATE_DEFAULT_METHOD_KEY,
 	MUTATE_DEFAULT_SERVER_ID,
 	MUTATE_VIDEO_DEFAULT_METHOD_KEY,
@@ -17,37 +60,37 @@ import {
 	MUTATE_VIDEO_LTX_METHOD_KEY,
 	MUTATE_VIDEO_LTX_MODEL,
 	PARASCENE_BLUE_SERVER_ID,
-} from '/shared/generationDefaults.js';
-import {
+} = generationDefaultsMod;
+const {
 	formatMentionsFailureForDialog,
 	importCreationWithPending,
 	readImageUrlDimensions,
 	readRasterFileDimensions,
 	submitCreationWithPending,
 	uploadImageFile,
-} from '/shared/createSubmit.js';
-import { isTriggeredSuggestPopupOpen } from '/shared/triggeredSuggest.js';
-import { composerEnterKeySubmits } from '/shared/autogrow.js';
-import { bindCreateComposerCreationDropTargets } from '/shared/creationComposerDrag.js';
-import { extractSoloMediaImport, importMediaFromUrl } from '/shared/importMedia.js';
-import { openImportMediaConfirmModal } from '/shared/importSunoModal.js';
-import { showToast } from '/shared/toast.js';
-import { addToMutateQueue, loadMutateQueue, removeFromMutateQueueByImageUrl } from '/shared/mutateQueue.js';
-import {
+} = createSubmitMod;
+const { isTriggeredSuggestPopupOpen } = triggeredSuggestMod;
+const { composerEnterKeySubmits } = autogrowMod;
+const { bindCreateComposerCreationDropTargets } = creationComposerDragMod;
+const { extractSoloMediaImport, importMediaFromUrl } = importMediaMod;
+const { openImportMediaConfirmModal } = importSunoModalMod;
+const { showToast } = toastMod;
+const { addToMutateQueue, loadMutateQueue, removeFromMutateQueueByImageUrl } = mutateQueueMod;
+const {
 	MUTATE_QUEUE_UPDATED_EVENT,
 	buildAttachmentSnapshotFromQueue,
 	mutateQueueImageUrlsMatch,
 	syncMutateQueueFromComposerAttachments,
-} from '/shared/mutateQueueSync.js';
-import {
+} = mutateQueueSyncMod;
+const {
 	CREATE_SETTINGS_STORAGE_KEYS,
 	CREATE_SETTINGS_UPDATED_EVENT,
 	mergeSharedSettingsIntoSessionSelections,
 	readSharedCreateSettings,
 	resolveSharedPrompt,
 	writeSharedCreateSettingsFromComposerSnapshot,
-} from '/shared/createSettingsSync.js';
-import { attachPromptFieldClear } from '/shared/promptFieldClear.js';
+} = createSettingsSyncMod;
+const { attachPromptFieldClear } = promptFieldClearMod;
 
 const BASIC_CREATE_DEFAULT_SERVER_ID = 1;
 const BASIC_CREATE_DEFAULT_METHOD_KEY = 'replicate';
@@ -55,27 +98,6 @@ const BASIC_CREATE_DEFAULT_MODEL = 'xai/grok-imagine-image';
 const BASIC_MODEL_DISPLAY = 'Z-Image Turbo';
 
 const MVP_ASPECT_RATIOS = ['1:1', '9:16', '4:5', '16:9'];
-
-/** Local copy — avoid static-importing new aspectRatio.js exports (stale module cache breaks mount). */
-function closestAspectRatioPreset(width, height, keys = MVP_ASPECT_RATIOS) {
-	const w = Number(width);
-	const h = Number(height);
-	if (!Number.isFinite(w) || w <= 0 || !Number.isFinite(h) || h <= 0) return '1:1';
-	const actual = w / h;
-	let bestKey = '1:1';
-	let bestDelta = Infinity;
-	for (const key of keys) {
-		const preset = parseAspectRatioString(key);
-		if (!preset) continue;
-		const expected = preset[0] / preset[1];
-		const delta = Math.abs(Math.log(actual / expected));
-		if (delta < bestDelta) {
-			bestDelta = delta;
-			bestKey = key;
-		}
-	}
-	return bestKey;
-}
 
 function buildAspectRatioMismatchMessage({
 	targetAspect,

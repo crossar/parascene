@@ -1,17 +1,34 @@
 /**
  * Creation detail page runtime — standalone and embed (`?embed=1`).
  * All navigation and post-mutation refresh from creation-detail + its modals should go through here.
+ *
+ * Load siblings with the same asset-version query as this module. A static
+ * `import './foo.js'` can resolve a stale cached copy (missing exports).
  */
 
-import { invalidateAppCaches } from './api.js';
-import { notifyCreationDetailEmbedShellSync } from './creationDetailEmbedShell.js';
-import {
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
+
+const [apiMod, creationDetailEmbedShellMod, hashtagDestinationMod, escapeLayersMod] = await Promise.all([
+	import(`./api.js${_qs}`),
+	import(`./creationDetailEmbedShell.js${_qs}`),
+	import(`./hashtagDestination.js${_qs}`),
+	import(`./escapeLayers.js${_qs}`),
+]);
+const { invalidateAppCaches } = apiMod;
+const { notifyCreationDetailEmbedShellSync } = creationDetailEmbedShellMod;
+const {
 	CHAT_HASHTAG_INTENT_MESSAGE,
 	openHashtagDestination,
 	parseHashtagSlugFromTagPath,
 	shouldDelegateHashtagIntentToParentChatShell,
-} from './hashtagDestination.js';
-import { documentHasNestedEscapeLayer } from './escapeLayers.js';
+} = hashtagDestinationMod;
+const { documentHasNestedEscapeLayer } = escapeLayersMod;
 
 const ROUTE_MESSAGE = 'prsn-creation-detail-overlay-route';
 const SPA_ROUTE_MESSAGE = 'prsn-spa-page-overlay-route';
@@ -182,7 +199,9 @@ export function requestHashtagIntent(slug) {
 				return;
 			}
 			// Standalone: full-page hop — same shell-out veil as overlay leave.
-			void import('/shared/spaPageOverlay.js')
+			const v = document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || '';
+			const qs = v ? `?v=${encodeURIComponent(v)}` : '';
+			void import(`/shared/spaPageOverlay.js${qs}`)
 				.then((mod) => {
 					if (typeof mod.assignWithShellOutVeil === 'function') {
 						mod.assignWithShellOutVeil(raw);

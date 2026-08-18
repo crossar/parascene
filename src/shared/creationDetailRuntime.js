@@ -182,7 +182,9 @@ export function requestHashtagIntent(slug) {
 				return;
 			}
 			// Standalone: full-page hop — same shell-out veil as overlay leave.
-			void import('/shared/spaPageOverlay.js')
+			const v = document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || '';
+			const qs = v ? `?v=${encodeURIComponent(v)}` : '';
+			void import(`/shared/spaPageOverlay.js${qs}`)
 				.then((mod) => {
 					if (typeof mod.assignWithShellOutVeil === 'function') {
 						mod.assignWithShellOutVeil(raw);

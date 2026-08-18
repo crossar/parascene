@@ -1,17 +1,42 @@
-import { copyIcon, linkIcon2 } from '/icons/svg-strings.js';
-import { DEFAULT_APP_ORIGIN, collectInlineMediaGroupGallery } from './userText.js';
-import { createModalDismissButton } from './modalDismiss.js';
-import {
+/**
+ * Chat / overlay inline image + video lightbox.
+ * Loaded with an asset-version query; siblings use the same query.
+ */
+const _qs = (() => {
+	const v =
+		typeof document !== 'undefined'
+			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+			: '';
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+})();
+
+const [
+	svgMod,
+	userTextMod,
+	modalDismissMod,
+	spaPageOverlayMod,
+	mediaAudioLevelingMod,
+] = await Promise.all([
+	import(`/icons/svg-strings.js${_qs}`),
+	import(`./userText.js${_qs}`),
+	import(`./modalDismiss.js${_qs}`),
+	import(`./spaPageOverlay.js${_qs}`),
+	import(`./mediaAudioLeveling.js${_qs}`),
+]);
+const { copyIcon, linkIcon2 } = svgMod;
+const { DEFAULT_APP_ORIGIN, collectInlineMediaGroupGallery } = userTextMod;
+const { createModalDismissButton } = modalDismissMod;
+const {
 	isCreationDetailEmbedFrame,
 	navigateToCreationDetailFromSpa,
 	parseCreationNavigationTargetId,
 	requestCreationDetailEmbedRoute,
 	shouldUseCreationDetailOverlay,
-} from './creationDetailOverlay.js';
-import {
+} = spaPageOverlayMod;
+const {
 	attachMediaAudioLeveling,
 	primeMediaElementForAudioLeveling
-} from './mediaAudioLeveling.js';
+} = mediaAudioLevelingMod;
 
 /** @type {HTMLElement | null} */
 let chatInlineImageLightboxEl = null;

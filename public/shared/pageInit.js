@@ -3,14 +3,10 @@
  * global listeners (modal link handling, modal-open body class, autogrow, service worker,
  * NSFW view preference and click-to-reveal).
  * Used by entry-*.js after loading their components.
+ *
+ * Load embedPageRuntime with the same asset-version query as other shared modules.
+ * A static `import './embedPageRuntime.js'` can resolve a stale cached copy (missing exports).
  */
-
-import { isSpaPageEmbedFrame, notifySpaPageOverlayEmbedReady } from './embedPageRuntime.js';
-
-let refreshAutoGrowTextareas;
-let closeModalsAndNavigate;
-let initNsfwViewPreference;
-let handleNsfwClick;
 
 function getAssetVersionParam() {
 	const meta = document.querySelector('meta[name="asset-version"]');
@@ -20,6 +16,15 @@ function getAssetVersionParam() {
 function getImportQuery(version) {
 	return version && typeof version === 'string' ? `?v=${encodeURIComponent(version)}` : '';
 }
+
+const { isSpaPageEmbedFrame, notifySpaPageOverlayEmbedReady } = await import(
+	`./embedPageRuntime.js${getImportQuery(getAssetVersionParam())}`
+);
+
+let refreshAutoGrowTextareas;
+let closeModalsAndNavigate;
+let initNsfwViewPreference;
+let handleNsfwClick;
 
 let _depsPromise;
 async function loadDeps() {

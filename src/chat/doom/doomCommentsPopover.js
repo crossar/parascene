@@ -9,6 +9,11 @@
 
 const SHEET_HASH = '#comments';
 
+function assetQuery() {
+	const v = document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim();
+	return v ? `?v=${encodeURIComponent(v)}` : '';
+}
+
 /**
  * While the comments sheet is open, swap `<meta name="viewport" interactive-widget>` to
  * `overlays-content` where supported (e.g. Chrome Android) so the soft keyboard can draw on top
@@ -282,7 +287,7 @@ async function mountThreadIntoSheet(root, { createdImageId, viewerHint, isAdminH
 		if (!(currentMount instanceof HTMLElement) || currentMount !== mountEl) return;
 		if (overlayEl?.hidden) return;
 
-		const mod = await import('/shared/creationCommentsThread.js');
+		const mod = await import(`/shared/creationCommentsThread.js${assetQuery()}`);
 		const handle = await mod.mountCreationCommentsThread(mountEl, {
 			createdImageId,
 			viewer,

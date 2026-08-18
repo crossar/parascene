@@ -3,8 +3,6 @@
  * Page script (user-profile.js) is loaded separately in the HTML.
  */
 
-import { embedWaitTags, importStandaloneAppChrome } from '../../shared/embedPageRuntime.js';
-
 const TAGS = [
 	'app-navigation',
 	'app-navigation-mobile',
@@ -20,6 +18,7 @@ function getImportQuery(version) {
 
 export async function init(version) {
 	const qs = getImportQuery(version);
+	const { embedWaitTags, importStandaloneAppChrome } = await import(`../../shared/embedPageRuntime.js${qs}`);
 	await Promise.all([
 		importStandaloneAppChrome(qs),
 		import(`../../components/elements/tabs.js${qs}`),

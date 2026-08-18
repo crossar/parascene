@@ -3,8 +3,6 @@
  * Imports are dynamic with cache-busting (version) so components are not served from cache.
  */
 
-import { embedWaitTags, importStandaloneAppChrome, isSpaPageEmbedFrame } from '../../shared/embedPageRuntime.js';
-
 const TAGS = [
 	'app-navigation',
 	'app-navigation-mobile',
@@ -23,6 +21,9 @@ function getImportQuery(version) {
 
 export async function init(version) {
 	const qs = getImportQuery(version);
+	const { embedWaitTags, importStandaloneAppChrome, isSpaPageEmbedFrame } = await import(
+		`../../shared/embedPageRuntime.js${qs}`
+	);
 	const pageModals = [
 		import(`../../components/modals/publish.js${qs}`),
 		import(`../../components/modals/creation-details.js${qs}`),

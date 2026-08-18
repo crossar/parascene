@@ -136,9 +136,62 @@ function writeSpaPageOverlayShimPlugin() {
 	const shimPath = path.join(repoRoot, 'public', 'build', 'spaPageOverlay.js');
 	const shimSource = `/**
  * Runtime shim for chat bundles that dynamic-import \`./spaPageOverlay.js\`
- * relative to \`/build/chat.bundle.js\`. Re-exports the real overlay module.
+ * relative to \`/build/chat.bundle.js\`. Loads the overlay module with the page
+ * asset-version query so a stale bundle does not pin an old unversioned copy.
  */
-export * from '/shared/spaPageOverlay.js';
+const _v =
+	typeof document !== 'undefined'
+		? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+		: '';
+const _qs = _v ? '?v=' + encodeURIComponent(_v) : '';
+const m = await import('/shared/spaPageOverlay.js' + _qs);
+export const shouldUseSpaPageOverlay = m.shouldUseSpaPageOverlay;
+export const shouldUseCreationDetailOverlay = m.shouldUseCreationDetailOverlay;
+export const shouldUsePromptLibraryOverlay = m.shouldUsePromptLibraryOverlay;
+export const isSpaPageOverlayHistoryActive = m.isSpaPageOverlayHistoryActive;
+export const isCreationDetailOverlayHistoryActive = m.isCreationDetailOverlayHistoryActive;
+export const isPromptLibraryOverlayHistoryActive = m.isPromptLibraryOverlayHistoryActive;
+export const isSpaPageOverlayOpen = m.isSpaPageOverlayOpen;
+export const isCreationDetailOverlayOpen = m.isCreationDetailOverlayOpen;
+export const isPromptLibraryOverlayOpen = m.isPromptLibraryOverlayOpen;
+export const parseCreationIdFromHref = m.parseCreationIdFromHref;
+export const parseCreationNavigationTargetId = m.parseCreationNavigationTargetId;
+export const parseSpaOverlayTarget = m.parseSpaOverlayTarget;
+export const parseOverlayTarget = m.parseOverlayTarget;
+export const parsePromptLibraryOverlayTarget = m.parsePromptLibraryOverlayTarget;
+export const setCreationDetailSeedLookup = m.setCreationDetailSeedLookup;
+export const setCreationDetailSeedViewerId = m.setCreationDetailSeedViewerId;
+export const showShellOutVeil = m.showShellOutVeil;
+export const hideShellOutVeil = m.hideShellOutVeil;
+export const assignWithShellOutVeil = m.assignWithShellOutVeil;
+export const shellOutFromSpaPageOverlay = m.shellOutFromSpaPageOverlay;
+export const shellOutFromCreationDetailOverlay = m.shellOutFromCreationDetailOverlay;
+export const shellOutFromPromptLibraryOverlay = m.shellOutFromPromptLibraryOverlay;
+export const isCreationDetailEmbedFrame = m.isCreationDetailEmbedFrame;
+export const requestCreationDetailEmbedRoute = m.requestCreationDetailEmbedRoute;
+export const routeSpaPageOverlayFromEmbed = m.routeSpaPageOverlayFromEmbed;
+export const routeCreationDetailOverlayFromEmbed = m.routeCreationDetailOverlayFromEmbed;
+export const routePromptLibraryOverlayFromEmbed = m.routePromptLibraryOverlayFromEmbed;
+export const openInlineLightboxFromEmbed = m.openInlineLightboxFromEmbed;
+export const closeSpaPageOverlay = m.closeSpaPageOverlay;
+export const closeCreationDetailOverlay = m.closeCreationDetailOverlay;
+export const closePromptLibraryOverlay = m.closePromptLibraryOverlay;
+export const dismissEntireSpaPageOverlay = m.dismissEntireSpaPageOverlay;
+export const dismissEntireCreationDetailOverlay = m.dismissEntireCreationDetailOverlay;
+export const dismissEntirePromptLibraryOverlay = m.dismissEntirePromptLibraryOverlay;
+export const handleSpaPageOverlayPopstate = m.handleSpaPageOverlayPopstate;
+export const handleCreationDetailOverlayPopstate = m.handleCreationDetailOverlayPopstate;
+export const handlePromptLibraryOverlayPopstate = m.handlePromptLibraryOverlayPopstate;
+export const openSpaPageOverlayFromHref = m.openSpaPageOverlayFromHref;
+export const openWorkflowOverlayFromHref = m.openWorkflowOverlayFromHref;
+export const openPromptLibraryOverlayFromHref = m.openPromptLibraryOverlayFromHref;
+export const openCreationDetailOverlay = m.openCreationDetailOverlay;
+export const navigateToSpaPageFromSpa = m.navigateToSpaPageFromSpa;
+export const navigateToMutateFromSpa = m.navigateToMutateFromSpa;
+export const navigateToCreateFromSpa = m.navigateToCreateFromSpa;
+export const prefetchCreateOverlayAssets = m.prefetchCreateOverlayAssets;
+export const navigateToCreationDetailFromSpa = m.navigateToCreationDetailFromSpa;
+export const navigateToPromptLibraryFromSpa = m.navigateToPromptLibraryFromSpa;
 `;
 	return {
 		name: 'write-spa-page-overlay-shim',
