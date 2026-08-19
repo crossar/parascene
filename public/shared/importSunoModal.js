@@ -7,6 +7,7 @@ import {
 	detectMediaImportUrl,
 	previewMediaImport,
 } from './importMedia.js';
+import { getCreateWorkflowModalParent } from './createWorkflowHost.js';
 
 function escapeHtml(text) {
 	return String(text ?? '')
@@ -65,7 +66,7 @@ export function openImportMediaModal(options = {}) {
 		</div>
 	`;
 
-	document.body.appendChild(overlay);
+	getCreateWorkflowModalParent().appendChild(overlay);
 
 	const urlInput = overlay.querySelector('[data-import-suno-url]');
 	const errorEl = overlay.querySelector('[data-import-suno-error]');
@@ -243,7 +244,7 @@ export function openImportMediaConfirmModal(options = {}) {
 		</div>
 	`;
 
-	document.body.appendChild(overlay);
+	getCreateWorkflowModalParent().appendChild(overlay);
 
 	const checkingEl = overlay.querySelector('[data-import-suno-checking]');
 	const confirmEl = overlay.querySelector('[data-import-suno-confirm]');

@@ -371,7 +371,9 @@ export function feedItemToCreationDetailSeed(item) {
 	if (looksLikeLatestCommentRow(item)) item = feedLikeItemFromLatestCommentRow(item);
 	const id = numId(item.created_image_id ?? item.id);
 	if (!id) return null;
+	const groupId = numId(item.group_id);
 	const imageUrl =
+		(typeof item.url === 'string' && item.url.trim()) ||
 		(typeof item.image_url === 'string' && item.image_url.trim()) ||
 		(typeof item.thumbnail_url === 'string' && item.thumbnail_url.trim()) ||
 		'';
@@ -405,6 +407,7 @@ export function feedItemToCreationDetailSeed(item) {
 	const height = Number(item.height);
 	return {
 		id,
+		group_id: groupId,
 		image_url: imageUrl,
 		thumbnail_url: thumb,
 		video_url: typeof item.video_url === 'string' ? item.video_url.trim() : '',
@@ -436,6 +439,64 @@ export function feedItemToCreationDetailSeed(item) {
 			meta?.import && typeof meta.import.provider === 'string' ? meta.import.provider.trim() : '',
 		meta,
 		challenge_ended: item.challenge_ended === true,
+	};
+}
+
+/**
+ * Map a detail seed into the creation payload mutate expects.
+ * When sourceId is set (group mutate), the seed must have a matching mutate_source_id.
+ * @param {object | null | undefined} seed
+ * @param {{ sourceId?: unknown }} [opts]
+ * @returns {object | null}
+ */
+export function seedToMutateCreation(seed, opts = {}) {
+	if (!seed || typeof seed !== 'object') return null;
+	const sourceId = numId(opts?.sourceId);
+	if (sourceId) {
+		const tagged = numId(seed.mutate_source_id);
+		if (!tagged || tagged !== sourceId) return null;
+	}
+	const imageUrl = pickSeedString(
+		sourceId ? seed.mutate_image_url : '',
+		seed.image_url,
+		seed.url,
+		seed.thumbnail_url
+	);
+	if (!imageUrl) return null;
+	const id = sourceId || numId(seed.id);
+	if (!id) return null;
+	const status =
+		typeof seed.status === 'string' && seed.status.trim() ? seed.status.trim() : 'completed';
+	const width = Number(seed.width);
+	const height = Number(seed.height);
+	const userId = numId(seed.user_id);
+	const groupId = sourceId ? numId(seed.id) : numId(seed.group_id);
+	const creator =
+		seed.creator && typeof seed.creator === 'object'
+			? seed.creator
+			: userId
+				? {
+					id: userId,
+					user_name: seed.author_user_name || null,
+					display_name: seed.author_display_name || null,
+					avatar_url: seed.author_avatar_url || null,
+				}
+				: null;
+	return {
+		id,
+		url: imageUrl,
+		status,
+		title: typeof seed.title === 'string' ? seed.title : '',
+		group_id: groupId,
+		user_id: userId,
+		width: Number.isFinite(width) && width > 0 ? width : 0,
+		height: Number.isFinite(height) && height > 0 ? height : 0,
+		published: seedPublishedFlag(seed.published),
+		media_type: typeof seed.media_type === 'string' && seed.media_type.trim()
+			? seed.media_type.trim()
+			: 'image',
+		creator,
+		meta: seed.meta && typeof seed.meta === 'object' ? seed.meta : null,
 	};
 }
 

@@ -1,6 +1,11 @@
 /**
- * Create page runtime — standalone and embed (`?embed=1`).
+ * Create page runtime — standalone, embed iframe, and native overlay host.
  */
+
+import {
+	getCreateWorkflowHost,
+	isCreateWorkflowNativeHost,
+} from '/shared/createWorkflowHost.js';
 
 const _qs = (() => {
 	const v =
@@ -28,14 +33,16 @@ const DISMISS_MESSAGE = 'prsn-workflow-overlay-dismiss';
 const CREATE_EDITOR_COOKIE = 'create_editor';
 
 export function isCreatePageEmbed() {
-	return window.__ps_create_embed === true;
+	return isCreateWorkflowNativeHost() || window.__ps_create_embed === true;
 }
 
 export function isCreatePageEmbedFrame() {
+	if (isCreateWorkflowNativeHost()) return false;
 	return isCreatePageEmbed() && window.parent !== window;
 }
 
 function isWorkflowEmbedFrame() {
+	if (isCreateWorkflowNativeHost()) return false;
 	return (
 		window.parent !== window &&
 		(window.__ps_create_embed === true ||
@@ -45,6 +52,30 @@ function isWorkflowEmbedFrame() {
 }
 
 function postToParentOverlay(payload) {
+	const host = getCreateWorkflowHost();
+	if (host) {
+		if (payload?.type === ROUTE_MESSAGE && typeof host.onNavigate === 'function') {
+			host.onNavigate(payload.href, { forceReload: Boolean(payload.forceReload) });
+			return true;
+		}
+		if (payload?.type === SHELL_OUT_MESSAGE && typeof host.onShellOut === 'function') {
+			host.onShellOut(payload.href);
+			return true;
+		}
+		if (payload?.type === CLOSE_MESSAGE && typeof host.onClose === 'function') {
+			host.onClose();
+			return true;
+		}
+		if (payload?.type === DISMISS_MESSAGE && typeof host.onDismiss === 'function') {
+			host.onDismiss();
+			return true;
+		}
+		if (payload?.type === CREATION_DETAIL_SHELL_SYNC_MESSAGE && typeof host.onShellSync === 'function') {
+			host.onShellSync(payload);
+			return true;
+		}
+		return false;
+	}
 	if (!isWorkflowEmbedFrame()) return false;
 	try {
 		window.parent.postMessage(payload, window.location.origin);
@@ -71,7 +102,7 @@ export function setCreateEditorMode(mode) {
 export function switchCreateEditorMode(mode, ev) {
 	if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
 	setCreateEditorMode(mode);
-	if (isWorkflowEmbedFrame()) {
+	if (isCreateWorkflowNativeHost() || isWorkflowEmbedFrame()) {
 		postToParentOverlay({ type: ROUTE_MESSAGE, href: '/create', forceReload: true });
 		return;
 	}
@@ -124,7 +155,7 @@ export function shellOut(href) {
 		return;
 	}
 
-	if (isCreatePageEmbedFrame()) {
+	if (isCreatePageEmbedFrame() || isCreateWorkflowNativeHost()) {
 		postToParentOverlay({ type: SHELL_OUT_MESSAGE, href: raw });
 		return;
 	}
@@ -147,7 +178,7 @@ export function requestCloseOverlay() {
 export function openFullPageRoute(href) {
 	const raw = String(href || '').trim();
 	if (!raw) return;
-	if (isCreatePageEmbedFrame()) {
+	if (isCreatePageEmbedFrame() || isCreateWorkflowNativeHost()) {
 		postToParentOverlay({ type: SHELL_OUT_MESSAGE, href: raw });
 		return;
 	}
@@ -158,7 +189,7 @@ export function openFullPageRoute(href) {
  * @param {{ creationId?: number|string }} [options]
  */
 export function refreshAfterSubmit(options = {}) {
-	if (!isCreatePageEmbedFrame()) return;
+	if (!isCreatePageEmbedFrame() && !isCreateWorkflowNativeHost()) return;
 
 	const creationId = Number(options.creationId);
 	const reason = 'create-submitted';
@@ -191,6 +222,8 @@ function shouldInterceptEmbedLink(link, e) {
 
 export function bindCreatePageEmbedNavigation() {
 	if (!isCreatePageEmbed()) return;
+	if (document.documentElement.dataset.prsnCreateEmbedNavBound === '1') return;
+	document.documentElement.dataset.prsnCreateEmbedNavBound = '1';
 	document.addEventListener(
 		'click',
 		(e) => {
@@ -228,6 +261,8 @@ export function bindCreatePageEmbedNavigation() {
  */
 export function bindCreatePageEmbedEscape(hasOpenEscapeTarget) {
 	if (!isCreatePageEmbed()) return;
+	if (document.documentElement.dataset.prsnCreateEmbedEscBound === '1') return;
+	document.documentElement.dataset.prsnCreateEmbedEscBound = '1';
 	document.addEventListener(
 		'keydown',
 		(e) => {

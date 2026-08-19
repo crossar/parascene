@@ -6,7 +6,7 @@ import { MODAL_DISMISS_ICON_SVG } from './modalDismiss.js';
 import { createChatPageHeader } from './chatPageHeader.js';
 import { navigateToChatPathFromOverlay, navigateToMyCreationsIfNeeded } from '/shared/createSubmit.js';
 import { SPA_OVERLAY_EMBED_READY_MESSAGE } from './embedPageRuntime.js';
-import { forwardEscapeIntoOverlayFrame } from './escapeLayers.js';
+import { forwardEscapeIntoOverlayFrame, documentHasNestedEscapeLayer } from './escapeLayers.js';
 import {
 	applyCreationDetailEmbedShellSync,
 	CREATION_DETAIL_SHELL_SYNC_MESSAGE,
@@ -62,7 +62,10 @@ function getOverlayStore() {
 			overlayNativeUnmount: null,
 		};
 	}
-	return window[OVERLAY_STORE_KEY];
+	const store = window[OVERLAY_STORE_KEY];
+	if (store.overlayNativeRoot === undefined) store.overlayNativeRoot = null;
+	if (store.overlayNativeUnmount === undefined) store.overlayNativeUnmount = null;
+	return store;
 }
 
 function normalizePath(pathname) {
@@ -205,11 +208,8 @@ function isOverlayLanePath(pathname) {
 	if (window.history?.state?.[HISTORY_FLAG] && isOverlayRoutePath(p)) {
 		return true;
 	}
-	if (/^\/creations\/\d+(\/(edit|mutate))?$/.test(p)) {
-		return Boolean(window.history?.state?.[HISTORY_FLAG]);
-	}
-	if (p === '/create') {
-		return Boolean(window.history?.state?.[HISTORY_FLAG]);
+	if (p === '/create' || /^\/creations\/\d+\/(edit|mutate)$/.test(p) || /^\/creations\/\d+$/.test(p)) {
+		return true;
 	}
 	if (
 		p === '/' ||
@@ -528,14 +528,27 @@ function syncOverlayFrameToTarget(target, options = {}) {
 	store.overlayPage = target.kind;
 	store.overlayCreationId = target.creationId;
 	store.overlayFramePath = target.canonicalUrl;
+	const wantNativeCreate = useNativeCreateWorkflow(target);
+	const haveNativeCreate =
+		store.overlayNativeRoot instanceof HTMLElement &&
+		store.overlayNativeRoot.classList.contains('create-workflow-root');
+	if (wantNativeCreate) {
+		if (!haveNativeCreate) replaceOverlayFrameElement(store, target);
+		attachNativeCreateWorkflow(store, target);
+		updateOverlayChromeTitle(target);
+		return;
+	}
 	if (store.overlayNativeRoot instanceof HTMLElement && useNativeCreationDetail(target)) {
 		attachNativeCreationDetail(store, target);
-		updateOverlayChromeTitle(target.kind);
+		updateOverlayChromeTitle(target);
 		return;
+	}
+	if (haveNativeCreate || (store.overlayNativeRoot && !store.overlayFrame)) {
+		replaceOverlayFrameElement(store, target);
 	}
 	if (!(store.overlayFrame instanceof HTMLIFrameElement)) return;
 	assignOverlayFrameUrl(store.overlayFrame, target.embedUrl, target);
-	updateOverlayChromeTitle(target.kind);
+	updateOverlayChromeTitle(target);
 }
 
 function syncOverlayFrameFromLocation() {
@@ -836,6 +849,10 @@ function overlayReturnPathFromStore() {
 	return null;
 }
 
+export function getSpaPageOverlayReturnPath() {
+	return overlayReturnPathFromStore();
+}
+
 function shouldNavigateToMyCreationsOnWorkflowDismiss() {
 	const store = getOverlayStore();
 	const page = store.overlayPage;
@@ -1120,6 +1137,12 @@ function ensureOverlayEscapeListener() {
 			if (e.key !== 'Escape' || e.defaultPrevented) return;
 			if (!isSpaPageOverlayOpen()) return;
 			const store = getOverlayStore();
+			if (store.overlayNativeRoot instanceof HTMLElement) {
+				if (documentHasNestedEscapeLayer()) return;
+				e.preventDefault();
+				dismissEntireSpaPageOverlay();
+				return;
+			}
 			const frame = store.overlayFrame;
 			if (forwardEscapeIntoOverlayFrame(frame)) {
 				e.preventDefault();
@@ -1132,17 +1155,28 @@ function ensureOverlayEscapeListener() {
 	);
 }
 
-function updateOverlayChromeTitle(kind) {
+function updateOverlayChromeTitle(targetOrKind) {
 	const store = getOverlayStore();
 	const titleEl = store.overlayEl?.querySelector?.('.chat-page-header-title-text');
 	if (!(titleEl instanceof HTMLElement)) return;
-	titleEl.textContent = overlayTitleForKind(kind);
+	if (targetOrKind && typeof targetOrKind === 'object') {
+		titleEl.textContent = frameTitleForTarget(targetOrKind);
+		return;
+	}
+	titleEl.textContent = frameTitleForTarget({
+		kind: targetOrKind || store.overlayPage,
+		creationId: store.overlayCreationId,
+	});
 }
 
 function useNativeCreationDetail(_target) {
 	// Mobile uses the same embed page as desktop. The in-shell mount skipped group
 	// carousel, import players, and owner-gated actions, so seed vs hydrate diverged.
 	return false;
+}
+
+function useNativeCreateWorkflow(target) {
+	return target?.kind === 'create' || target?.kind === 'creation-mutate';
 }
 
 let creationDetailSeedLookup = null;
@@ -1234,6 +1268,95 @@ function rememberCreationDetailSeed(href, ev) {
 	if (seed?.user_id) prefetchCreatorStrip(seed.user_id);
 }
 
+function createOverlayFrameForTarget(target) {
+	if (useNativeCreateWorkflow(target) || useNativeCreationDetail(target)) {
+		const frame = document.createElement('div');
+		frame.className = [
+			'creation-detail-overlay-frame',
+			'creation-detail-overlay-frame--native',
+			useNativeCreateWorkflow(target) ? 'create-workflow-root' : '',
+		]
+			.filter(Boolean)
+			.join(' ');
+		if (useNativeCreationDetail(target)) {
+			frame.setAttribute('data-mobile-creation-detail-root', '1');
+		}
+		return { frame, native: true };
+	}
+	const frame = document.createElement('iframe');
+	frame.className = 'creation-detail-overlay-frame is-overlay-loading';
+	frame.setAttribute('title', frameTitleForTarget(target));
+	frame.setAttribute('loading', 'eager');
+	frame.setAttribute('allow', 'downloads; web-share; fullscreen; autoplay');
+	const shellBg = getParentShellBackgroundColor();
+	if (shellBg) {
+		frame.style.backgroundColor = shellBg;
+	}
+	ensureOverlayFrameLoadHandler(frame);
+	return { frame, native: false };
+}
+
+function teardownOverlayNativeUnmount(store) {
+	if (typeof store.overlayNativeUnmount === 'function') {
+		try {
+			store.overlayNativeUnmount();
+		} catch {
+			// ignore
+		}
+	}
+	store.overlayNativeUnmount = null;
+}
+
+function replaceOverlayFrameElement(store, target) {
+	const shell = store.overlayEl;
+	if (!(shell instanceof HTMLElement)) return;
+	teardownOverlayNativeUnmount(store);
+	const { frame, native } = createOverlayFrameForTarget(target);
+	const oldFrame = store.overlayFrame || store.overlayNativeRoot;
+	if (oldFrame instanceof HTMLElement && oldFrame.parentNode === shell) {
+		oldFrame.replaceWith(frame);
+	} else {
+		const veil = shell.querySelector?.(`.${OVERLAY_FRAME_VEIL_CLASS}`);
+		if (veil instanceof HTMLElement) shell.insertBefore(frame, veil);
+		else shell.insertBefore(frame, shell.firstChild);
+	}
+	if (native) {
+		store.overlayFrame = null;
+		store.overlayNativeRoot = frame;
+	} else {
+		store.overlayNativeRoot = null;
+		store.overlayFrame = frame;
+	}
+}
+
+function attachNativeCreateWorkflow(store, target) {
+	teardownOverlayNativeUnmount(store);
+	const root = store.overlayNativeRoot;
+	if (!(root instanceof HTMLElement)) return;
+	revealOverlayFrame(root);
+	const meta = document.querySelector('meta[name="asset-version"]');
+	const v = meta?.getAttribute('content')?.trim() || '';
+	const qs = v ? `?v=${encodeURIComponent(v)}` : '';
+	void import(`/shared/createWorkflow.js${qs}`)
+		.then(async (mod) => {
+			if (store.overlayNativeRoot !== root) return;
+			store.overlayNativeUnmount = await mod.mountCreateWorkflow(root, {
+				href: target.canonicalUrl,
+				onNavigate: (href, options = {}) => {
+					openSpaPageOverlayFromHref(href, { forceReload: Boolean(options.forceReload) });
+				},
+				onDismiss: () => fallbackDismissEntireSpaPageOverlay({ preferMyCreations: true }),
+				onShellOut: (href) => shellOutFromSpaPageOverlay(href),
+				onClose: () => dismissEntireSpaPageOverlay(),
+				onShellSync: (payload) => applyCreationDetailEmbedShellSync(payload),
+			});
+			revealOverlayFrame(root);
+		})
+		.catch(() => {
+			revealOverlayFrame(root);
+		});
+}
+
 function attachNativeCreationDetail(store, target) {
 	if (typeof store.overlayNativeUnmount === 'function') {
 		try {
@@ -1260,7 +1383,6 @@ function attachNativeCreationDetail(store, target) {
 }
 
 function buildOverlayChrome(target) {
-	const kind = target?.kind || 'creation-detail';
 	const closeBtn = document.createElement('button');
 	closeBtn.type = 'button';
 	closeBtn.className = 'modal-dismiss creation-detail-overlay-dismiss';
@@ -1269,32 +1391,15 @@ function buildOverlayChrome(target) {
 	closeBtn.addEventListener('click', () => dismissEntireSpaPageOverlay());
 
 	const { header: toolbar, back: backBtn } = createChatPageHeader({
-		ariaLabel: overlayTitleForKind(kind),
+		ariaLabel: frameTitleForTarget(target),
 		extraClass: 'creation-detail-overlay-chrome',
 		backAriaLabel: 'Back',
-		titleHtml: `<span class="chat-page-header-title-text">${overlayTitleForKind(kind)}</span>`,
+		titleHtml: `<span class="chat-page-header-title-text">${frameTitleForTarget(target)}</span>`,
 		trailing: [closeBtn],
 	});
 	backBtn.addEventListener('click', () => dismissSpaPageOverlayViaHistory());
 
-	const native = useNativeCreationDetail(target);
-	let frame;
-	if (native) {
-		frame = document.createElement('div');
-		frame.className = 'creation-detail-overlay-frame creation-detail-overlay-frame--native';
-		frame.setAttribute('data-mobile-creation-detail-root', '1');
-	} else {
-		frame = document.createElement('iframe');
-		frame.className = 'creation-detail-overlay-frame is-overlay-loading';
-		frame.setAttribute('title', frameTitleForTarget(target));
-		frame.setAttribute('loading', 'eager');
-		frame.setAttribute('allow', 'downloads; web-share; fullscreen; autoplay');
-		const shellBg = getParentShellBackgroundColor();
-		if (shellBg) {
-			frame.style.backgroundColor = shellBg;
-		}
-		ensureOverlayFrameLoadHandler(frame);
-	}
+	const { frame, native } = createOverlayFrameForTarget(target);
 
 	const veil = document.createElement('div');
 	veil.className = `${OVERLAY_FRAME_VEIL_CLASS} is-active`;
@@ -1330,21 +1435,31 @@ function mountSpaPageOverlayShell(target, store, options = {}) {
 	if (native) {
 		store.overlayFrame = null;
 		store.overlayNativeRoot = frame;
-		attachNativeCreationDetail(store, target);
+		if (useNativeCreateWorkflow(target)) {
+			attachNativeCreateWorkflow(store, target);
+			revealOverlayFrame(frame);
+		} else {
+			attachNativeCreationDetail(store, target);
+		}
 	} else {
 		store.overlayFrame = frame;
 		store.overlayNativeRoot = null;
 		assignOverlayFrameUrl(frame, target.embedUrl, target);
 	}
 	if (options.skipHistoryPush) {
-		const state = window.history?.state;
-		store.overlayReturnPath =
-			(state &&
-				typeof state === 'object' &&
-				typeof state.prsnOverlayReturnPath === 'string' &&
-				state.prsnOverlayReturnPath) ||
-			null;
 		store.overlayPushCount = 1;
+		try {
+			const returnPath =
+				(window.history?.state &&
+					typeof window.history.state === 'object' &&
+					typeof window.history.state.prsnOverlayReturnPath === 'string' &&
+					window.history.state.prsnOverlayReturnPath) ||
+				'/creations';
+			store.overlayReturnPath = returnPath;
+			window.history.replaceState(buildOverlayHistoryState(target, returnPath), '', target.canonicalUrl);
+		} catch {
+			store.overlayReturnPath = store.overlayReturnPath || '/creations';
+		}
 	} else {
 		pushOverlayHistoryForTarget(target);
 	}
@@ -1428,20 +1543,14 @@ export function navigateToCreateFromSpa(href = '/create', ev, options = {}) {
 
 let createOverlayPrefetchStarted = false;
 
-/** Warm SW + HTTP caches for the create overlay so the first tap is not a cold HTML/JS boot. */
+/** Prefetch the native create/mutate workflow in the parent realm. */
 export function prefetchCreateOverlayAssets() {
 	if (createOverlayPrefetchStarted) return;
 	createOverlayPrefetchStarted = true;
-	void fetch('/create?embed=1', { credentials: 'include', headers: { Accept: 'text/html' } }).catch(
-		() => {}
-	);
-	void fetch('/api/servers', { credentials: 'include', headers: { Accept: 'application/json' } }).catch(
-		() => {}
-	);
 	const meta = document.querySelector('meta[name="asset-version"]');
 	const v = meta?.getAttribute('content')?.trim() || '';
 	const qs = v ? `?v=${encodeURIComponent(v)}` : '';
-	void import(`/pages/entry/entry-create.js${qs}`).catch(() => {});
+	void import(`/shared/createWorkflow.js${qs}`).catch(() => {});
 	void import(`/components/routes/create.js${qs}`).catch(() => {});
 	void import(`/shared/createServersDefault.js${qs}`).catch(() => {});
 }
@@ -1469,6 +1578,14 @@ function shouldInterceptSpaOverlayLink(link, e) {
 	if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
 	if (link.target === '_blank' || link.hasAttribute('download')) return false;
 	if (link.hasAttribute('data-chat-doom-comments')) return false;
+	if (link.closest('.create-workflow-root')) return false;
+	if (
+		link.classList.contains('create-switch-to-advanced') ||
+		link.classList.contains('create-switch-to-basic') ||
+		link.hasAttribute('data-create-switch-to-basic')
+	) {
+		return false;
+	}
 	const href = (link.getAttribute('href') || '').trim();
 	if (!href || href.startsWith('#')) return false;
 	return true;
@@ -1534,3 +1651,19 @@ ensureOverlayMessageListener();
 ensureOverlayPopstateListener();
 ensureOverlayEscapeListener();
 bindSpaPageOverlayLinkIntercepts();
+
+function maybeRestoreWorkflowOverlayFromLocation() {
+	if (!isOverlayCapableShell()) return;
+	if (isSpaPageOverlayOpen()) return;
+	const href = window.location.pathname + window.location.search + window.location.hash;
+	const target = parseSpaOverlayTarget(href);
+	if (!target) return;
+	if (target.kind !== 'create' && target.kind !== 'creation-mutate' && target.kind !== 'creation-detail') return;
+	openSpaPageOverlayFromHref(href, { restoreFromHistory: true });
+}
+
+if (document.readyState === 'loading') {
+	document.addEventListener('DOMContentLoaded', maybeRestoreWorkflowOverlayFromLocation);
+} else {
+	maybeRestoreWorkflowOverlayFromLocation();
+}

@@ -33,7 +33,7 @@ const { MODAL_DISMISS_ICON_SVG } = modalDismissMod;
 const { createChatPageHeader } = chatPageHeaderMod;
 const { navigateToChatPathFromOverlay, navigateToMyCreationsIfNeeded } = createSubmitMod;
 const { SPA_OVERLAY_EMBED_READY_MESSAGE } = embedPageRuntimeMod;
-const { forwardEscapeIntoOverlayFrame } = escapeLayersMod;
+const { forwardEscapeIntoOverlayFrame, documentHasNestedEscapeLayer } = escapeLayersMod;
 const {
 	applyCreationDetailEmbedShellSync,
 	CREATION_DETAIL_SHELL_SYNC_MESSAGE,
@@ -85,9 +85,14 @@ function getOverlayStore() {
 			overlayBodyScrollLockTop: null,
 			overlayPushCount: 0,
 			overlayDismissEntirePending: false,
+			overlayNativeRoot: null,
+			overlayNativeUnmount: null,
 		};
 	}
-	return window[OVERLAY_STORE_KEY];
+	const store = window[OVERLAY_STORE_KEY];
+	if (store.overlayNativeRoot === undefined) store.overlayNativeRoot = null;
+	if (store.overlayNativeUnmount === undefined) store.overlayNativeUnmount = null;
+	return store;
 }
 
 function normalizePath(pathname) {
@@ -230,11 +235,8 @@ function isOverlayLanePath(pathname) {
 	if (window.history?.state?.[HISTORY_FLAG] && isOverlayRoutePath(p)) {
 		return true;
 	}
-	if (/^\/creations\/\d+(\/(edit|mutate))?$/.test(p)) {
-		return Boolean(window.history?.state?.[HISTORY_FLAG]);
-	}
-	if (p === '/create') {
-		return Boolean(window.history?.state?.[HISTORY_FLAG]);
+	if (p === '/create' || /^\/creations\/\d+\/(edit|mutate)$/.test(p) || /^\/creations\/\d+$/.test(p)) {
+		return true;
 	}
 	if (
 		p === '/' ||
@@ -638,13 +640,26 @@ function assignOverlayFrameUrl(frame, url, target) {
 
 function syncOverlayFrameToTarget(target, options = {}) {
 	const store = getOverlayStore();
-	if (!(store.overlayFrame instanceof HTMLIFrameElement)) return;
 	if (!options.forceReload && store.overlayFramePath === target.canonicalUrl) return;
 	store.overlayPage = target.kind;
 	store.overlayCreationId = target.creationId;
 	store.overlayFramePath = target.canonicalUrl;
+	const wantNativeCreate = useNativeCreateWorkflow(target);
+	const haveNativeCreate =
+		store.overlayNativeRoot instanceof HTMLElement &&
+		store.overlayNativeRoot.classList.contains('create-workflow-root');
+	if (wantNativeCreate) {
+		if (!haveNativeCreate) replaceOverlayFrameElement(store, target);
+		attachNativeCreateWorkflow(store, target);
+		updateOverlayChromeTitle(target);
+		return;
+	}
+	if (haveNativeCreate || (store.overlayNativeRoot && !store.overlayFrame)) {
+		replaceOverlayFrameElement(store, target);
+	}
+	if (!(store.overlayFrame instanceof HTMLIFrameElement)) return;
 	assignOverlayFrameUrl(store.overlayFrame, target.embedUrl, target);
-	updateOverlayChromeTitle(target.kind);
+	updateOverlayChromeTitle(target);
 }
 
 function syncOverlayFrameFromLocation() {
@@ -900,6 +915,15 @@ export function closeSpaPageOverlay(options = {}) {
 	if (store.overlayFrame) {
 		requestEmbedFrameStopPlayback(store.overlayFrame);
 	}
+	if (typeof store.overlayNativeUnmount === 'function') {
+		try {
+			store.overlayNativeUnmount();
+		} catch {
+			// ignore
+		}
+	}
+	store.overlayNativeUnmount = null;
+	store.overlayNativeRoot = null;
 	store.overlayFrame = null;
 	store.overlayCreationId = null;
 	store.overlayPage = null;
@@ -934,6 +958,10 @@ function overlayReturnPathFromStore() {
 		return state.prsnOverlayReturnPath;
 	}
 	return null;
+}
+
+export function getSpaPageOverlayReturnPath() {
+	return overlayReturnPathFromStore();
 }
 
 function shouldNavigateToMyCreationsOnWorkflowDismiss() {
@@ -1220,6 +1248,12 @@ function ensureOverlayEscapeListener() {
 			if (e.key !== 'Escape' || e.defaultPrevented) return;
 			if (!isSpaPageOverlayOpen()) return;
 			const store = getOverlayStore();
+			if (store.overlayNativeRoot instanceof HTMLElement) {
+				if (documentHasNestedEscapeLayer()) return;
+				e.preventDefault();
+				dismissEntireSpaPageOverlay();
+				return;
+			}
 			const frame = store.overlayFrame;
 			if (forwardEscapeIntoOverlayFrame(frame)) {
 				e.preventDefault();
@@ -1232,31 +1266,31 @@ function ensureOverlayEscapeListener() {
 	);
 }
 
-function updateOverlayChromeTitle(kind) {
+function updateOverlayChromeTitle(targetOrKind) {
 	const store = getOverlayStore();
 	const titleEl = store.overlayEl?.querySelector?.('.chat-page-header-title-text');
 	if (!(titleEl instanceof HTMLElement)) return;
-	titleEl.textContent = overlayTitleForKind(kind);
+	if (targetOrKind && typeof targetOrKind === 'object') {
+		titleEl.textContent = frameTitleForTarget(targetOrKind);
+		return;
+	}
+	titleEl.textContent = frameTitleForTarget({
+		kind: targetOrKind || store.overlayPage,
+		creationId: store.overlayCreationId,
+	});
 }
 
-function buildOverlayChrome(target) {
-	const kind = target?.kind || 'creation-detail';
-	const closeBtn = document.createElement('button');
-	closeBtn.type = 'button';
-	closeBtn.className = 'modal-dismiss creation-detail-overlay-dismiss';
-	closeBtn.setAttribute('aria-label', 'Close');
-	closeBtn.innerHTML = MODAL_DISMISS_ICON_SVG;
-	closeBtn.addEventListener('click', () => dismissEntireSpaPageOverlay());
+function useNativeCreateWorkflow(target) {
+	return target?.kind === 'create' || target?.kind === 'creation-mutate';
+}
 
-	const { header: toolbar, back: backBtn } = createChatPageHeader({
-		ariaLabel: overlayTitleForKind(kind),
-		extraClass: 'creation-detail-overlay-chrome',
-		backAriaLabel: 'Back',
-		titleHtml: `<span class="chat-page-header-title-text">${overlayTitleForKind(kind)}</span>`,
-		trailing: [closeBtn],
-	});
-	backBtn.addEventListener('click', () => dismissSpaPageOverlayViaHistory());
-
+function createOverlayFrameForTarget(target) {
+	if (useNativeCreateWorkflow(target)) {
+		const frame = document.createElement('div');
+		frame.className =
+			'creation-detail-overlay-frame creation-detail-overlay-frame--native create-workflow-root';
+		return { frame, native: true };
+	}
 	const frame = document.createElement('iframe');
 	frame.className = 'creation-detail-overlay-frame is-overlay-loading';
 	frame.setAttribute('title', frameTitleForTarget(target));
@@ -1267,12 +1301,91 @@ function buildOverlayChrome(target) {
 		frame.style.backgroundColor = shellBg;
 	}
 	ensureOverlayFrameLoadHandler(frame);
+	return { frame, native: false };
+}
+
+function teardownOverlayNativeUnmount(store) {
+	if (typeof store.overlayNativeUnmount === 'function') {
+		try {
+			store.overlayNativeUnmount();
+		} catch {
+			// ignore
+		}
+	}
+	store.overlayNativeUnmount = null;
+}
+
+function replaceOverlayFrameElement(store, target) {
+	const shell = store.overlayEl;
+	if (!(shell instanceof HTMLElement)) return;
+	teardownOverlayNativeUnmount(store);
+	const { frame, native } = createOverlayFrameForTarget(target);
+	const oldFrame = store.overlayFrame || store.overlayNativeRoot;
+	if (oldFrame instanceof HTMLElement && oldFrame.parentNode === shell) {
+		oldFrame.replaceWith(frame);
+	} else {
+		const veil = shell.querySelector?.(`.${OVERLAY_FRAME_VEIL_CLASS}`);
+		if (veil instanceof HTMLElement) shell.insertBefore(frame, veil);
+		else shell.insertBefore(frame, shell.firstChild);
+	}
+	if (native) {
+		store.overlayFrame = null;
+		store.overlayNativeRoot = frame;
+	} else {
+		store.overlayNativeRoot = null;
+		store.overlayFrame = frame;
+	}
+}
+
+function attachNativeCreateWorkflow(store, target) {
+	teardownOverlayNativeUnmount(store);
+	const root = store.overlayNativeRoot;
+	if (!(root instanceof HTMLElement)) return;
+	revealOverlayFrame(root);
+	void import(`/shared/createWorkflow.js${_qs}`)
+		.then(async (mod) => {
+			if (store.overlayNativeRoot !== root) return;
+			store.overlayNativeUnmount = await mod.mountCreateWorkflow(root, {
+				href: target.canonicalUrl,
+				onNavigate: (href, options = {}) => {
+					openSpaPageOverlayFromHref(href, { forceReload: Boolean(options.forceReload) });
+				},
+				onDismiss: () => fallbackDismissEntireSpaPageOverlay({ preferMyCreations: true }),
+				onShellOut: (href) => shellOutFromSpaPageOverlay(href),
+				onClose: () => dismissEntireSpaPageOverlay(),
+				onShellSync: (payload) => applyCreationDetailEmbedShellSync(payload),
+			});
+			revealOverlayFrame(root);
+		})
+		.catch(() => {
+			revealOverlayFrame(root);
+		});
+}
+
+function buildOverlayChrome(target) {
+	const closeBtn = document.createElement('button');
+	closeBtn.type = 'button';
+	closeBtn.className = 'modal-dismiss creation-detail-overlay-dismiss';
+	closeBtn.setAttribute('aria-label', 'Close');
+	closeBtn.innerHTML = MODAL_DISMISS_ICON_SVG;
+	closeBtn.addEventListener('click', () => dismissEntireSpaPageOverlay());
+
+	const { header: toolbar, back: backBtn } = createChatPageHeader({
+		ariaLabel: frameTitleForTarget(target),
+		extraClass: 'creation-detail-overlay-chrome',
+		backAriaLabel: 'Back',
+		titleHtml: `<span class="chat-page-header-title-text">${frameTitleForTarget(target)}</span>`,
+		trailing: [closeBtn],
+	});
+	backBtn.addEventListener('click', () => dismissSpaPageOverlayViaHistory());
+
+	const { frame, native } = createOverlayFrameForTarget(target);
 
 	const veil = document.createElement('div');
 	veil.className = `${OVERLAY_FRAME_VEIL_CLASS} is-active`;
 	veil.setAttribute('aria-hidden', 'false');
 
-	return { toolbar, frame, veil };
+	return { toolbar, frame, veil, native };
 }
 
 function mountSpaPageOverlayShell(target, store, options = {}) {
@@ -1291,7 +1404,7 @@ function mountSpaPageOverlayShell(target, store, options = {}) {
 	shell.setAttribute('role', 'dialog');
 	shell.setAttribute('aria-modal', 'true');
 
-	const { toolbar, frame, veil } = buildOverlayChrome(target);
+	const { toolbar, frame, veil, native } = buildOverlayChrome(target);
 	shell.append(frame, veil, toolbar);
 	captureOverlayScrollPositions();
 	lockOverlayBodyScroll();
@@ -1299,18 +1412,30 @@ function mountSpaPageOverlayShell(target, store, options = {}) {
 	document.body.classList.add('creation-detail-overlay-open');
 
 	store.overlayEl = shell;
-	store.overlayFrame = frame;
-
-	assignOverlayFrameUrl(frame, target.embedUrl, target);
+	if (native) {
+		store.overlayFrame = null;
+		store.overlayNativeRoot = frame;
+		attachNativeCreateWorkflow(store, target);
+		revealOverlayFrame(frame);
+	} else {
+		store.overlayFrame = frame;
+		store.overlayNativeRoot = null;
+		assignOverlayFrameUrl(frame, target.embedUrl, target);
+	}
 	if (options.skipHistoryPush) {
-		const state = window.history?.state;
-		store.overlayReturnPath =
-			(state &&
-				typeof state === 'object' &&
-				typeof state.prsnOverlayReturnPath === 'string' &&
-				state.prsnOverlayReturnPath) ||
-			null;
 		store.overlayPushCount = 1;
+		try {
+			const returnPath =
+				(window.history?.state &&
+					typeof window.history.state === 'object' &&
+					typeof window.history.state.prsnOverlayReturnPath === 'string' &&
+					window.history.state.prsnOverlayReturnPath) ||
+				'/creations';
+			store.overlayReturnPath = returnPath;
+			window.history.replaceState(buildOverlayHistoryState(target, returnPath), '', target.canonicalUrl);
+		} catch {
+			store.overlayReturnPath = store.overlayReturnPath || '/creations';
+		}
 	} else {
 		pushOverlayHistoryForTarget(target);
 	}
@@ -1342,7 +1467,7 @@ export function openSpaPageOverlayFromHref(href, options = {}) {
 		return;
 	}
 
-	if (isSpaPageOverlayOpen() && store.overlayFrame) {
+	if (isSpaPageOverlayOpen() && (store.overlayFrame || store.overlayNativeRoot)) {
 		if (store.overlayFramePath === target.canonicalUrl) {
 			if (options.forceReload) {
 				syncOverlayFrameToTarget(target, { forceReload: true });
@@ -1394,17 +1519,11 @@ export function navigateToCreateFromSpa(href = '/create', ev, options = {}) {
 
 let createOverlayPrefetchStarted = false;
 
-/** Warm SW + HTTP caches for the create overlay so the first tap is not a cold HTML/JS boot. */
+/** Prefetch the native create/mutate workflow in the parent realm. */
 export function prefetchCreateOverlayAssets() {
 	if (createOverlayPrefetchStarted) return;
 	createOverlayPrefetchStarted = true;
-	void fetch('/create?embed=1', { credentials: 'include', headers: { Accept: 'text/html' } }).catch(
-		() => {}
-	);
-	void fetch('/api/servers', { credentials: 'include', headers: { Accept: 'application/json' } }).catch(
-		() => {}
-	);
-	void import(`/pages/entry/entry-create.js${_qs}`).catch(() => {});
+	void import(`/shared/createWorkflow.js${_qs}`).catch(() => {});
 	void import(`/components/routes/create.js${_qs}`).catch(() => {});
 	void import(`/shared/createServersDefault.js${_qs}`).catch(() => {});
 }
@@ -1432,6 +1551,14 @@ function shouldInterceptSpaOverlayLink(link, e) {
 	if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
 	if (link.target === '_blank' || link.hasAttribute('download')) return false;
 	if (link.hasAttribute('data-chat-doom-comments')) return false;
+	if (link.closest('.create-workflow-root')) return false;
+	if (
+		link.classList.contains('create-switch-to-advanced') ||
+		link.classList.contains('create-switch-to-basic') ||
+		link.hasAttribute('data-create-switch-to-basic')
+	) {
+		return false;
+	}
 	const href = (link.getAttribute('href') || '').trim();
 	if (!href || href.startsWith('#')) return false;
 	return true;
@@ -1497,3 +1624,19 @@ ensureOverlayMessageListener();
 ensureOverlayPopstateListener();
 ensureOverlayEscapeListener();
 bindSpaPageOverlayLinkIntercepts();
+
+function maybeRestoreWorkflowOverlayFromLocation() {
+	if (!isOverlayCapableShell()) return;
+	if (isSpaPageOverlayOpen()) return;
+	const href = window.location.pathname + window.location.search + window.location.hash;
+	const target = parseSpaOverlayTarget(href);
+	if (!target) return;
+	if (target.kind !== 'create' && target.kind !== 'creation-mutate' && target.kind !== 'creation-detail') return;
+	openSpaPageOverlayFromHref(href, { restoreFromHistory: true });
+}
+
+if (document.readyState === 'loading') {
+	document.addEventListener('DOMContentLoaded', maybeRestoreWorkflowOverlayFromLocation);
+} else {
+	maybeRestoreWorkflowOverlayFromLocation();
+}

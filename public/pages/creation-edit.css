@@ -360,7 +360,8 @@
 }
 
 /* Animate (image-to-video): distinct indigo gradient vs Mutate purple/teal; matches prefers-color-scheme */
-body.creation-edit-page {
+body.creation-edit-page,
+.create-workflow-root.creation-edit-page {
 	--creation-edit-video-btn-1: #3730a3;
 	--creation-edit-video-btn-2: #6366f1;
 	--creation-edit-video-btn-3: #c7d2fe;
@@ -375,7 +376,8 @@ body.creation-edit-page {
 }
 
 @media (prefers-color-scheme: dark) {
-	body.creation-edit-page {
+	body.creation-edit-page,
+	.create-workflow-root.creation-edit-page {
 		--creation-edit-video-btn-1: #312e81;
 		--creation-edit-video-btn-2: #4338ca;
 		--creation-edit-video-btn-3: #818cf8;
@@ -384,22 +386,26 @@ body.creation-edit-page {
 	}
 }
 
-body.creation-edit-page .creation-edit-route .create-btn-generate[data-generate-mode='image-to-video'] {
+body.creation-edit-page .creation-edit-route .create-btn-generate[data-generate-mode='image-to-video'],
+.create-workflow-root.creation-edit-page .creation-edit-route .create-btn-generate[data-generate-mode='image-to-video'] {
 	background: var(--creation-edit-video-btn-bg) !important;
 	border-color: var(--creation-edit-video-btn-accent) !important;
 	color: var(--creation-edit-video-btn-text) !important;
 }
 
-body.creation-edit-page .creation-edit-route .create-btn-generate[data-generate-mode='image-to-video']:hover:not(:disabled) {
+body.creation-edit-page .creation-edit-route .create-btn-generate[data-generate-mode='image-to-video']:hover:not(:disabled),
+.create-workflow-root.creation-edit-page .creation-edit-route .create-btn-generate[data-generate-mode='image-to-video']:hover:not(:disabled) {
 	background: var(--creation-edit-video-btn-bg) !important;
 	border-color: var(--creation-edit-video-btn-accent) !important;
 }
 
-body.creation-edit-page .creation-edit-route .create-btn-generate[data-generate-mode='image-to-video']:focus-visible {
+body.creation-edit-page .creation-edit-route .create-btn-generate[data-generate-mode='image-to-video']:focus-visible,
+.create-workflow-root.creation-edit-page .creation-edit-route .create-btn-generate[data-generate-mode='image-to-video']:focus-visible {
 	border-color: var(--creation-edit-video-btn-accent) !important;
 }
 
-body.creation-edit-page .creation-edit-route .create-btn-generate:focus-visible {
+body.creation-edit-page .creation-edit-route .create-btn-generate:focus-visible,
+.create-workflow-root.creation-edit-page .creation-edit-route .create-btn-generate:focus-visible {
 	outline: 2px solid var(--focus);
 	outline-offset: 3px;
 }

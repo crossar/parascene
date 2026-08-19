@@ -366,6 +366,50 @@ describe('syncMutatePageToAdvancedCreate', () => {
 		expect(selections.fieldValues.aspect_ratio).toBe('16:9');
 		expect(selections.fieldValues.prompt).toBe('make it blue');
 	});
+
+	test('replaces existing advanced input images with the mutate source', async () => {
+		const { loadMutateQueue } = await import('../public/shared/mutateQueue.js');
+		const { syncMutatePageToAdvancedCreate } = await import('../public/shared/mutateQueueSync.js');
+		const { CREATE_PAGE_SELECTIONS_SESSION_KEY } = await import(
+			'../public/shared/createSettingsSync.js'
+		);
+
+		ls.set(
+			'mutateQueue:v1',
+			JSON.stringify([
+				{ sourceId: 1, imageUrl: 'https://app.test/old.png', queuedAt: 1, published: false },
+			])
+		);
+		ss.set(
+			CREATE_PAGE_SELECTIONS_SESSION_KEY,
+			JSON.stringify({
+				fieldValues: {
+					prompt: 'old prompt',
+					image_url: 'https://app.test/old.png',
+					input_images: ['https://app.test/old.png', 'https://app.test/other.png'],
+				},
+			})
+		);
+
+		syncMutatePageToAdvancedCreate({
+			mode: 'image-to-image',
+			prompt: 'make it blue',
+			aspectRatio: '16:9',
+			imageUrl: 'https://app.test/source.png',
+			sourceId: 42,
+			published: true,
+		});
+
+		expect(loadMutateQueue()).toEqual([
+			expect.objectContaining({
+				sourceId: 42,
+				imageUrl: 'https://app.test/source.png',
+			}),
+		]);
+		const selections = JSON.parse(ss.get(CREATE_PAGE_SELECTIONS_SESSION_KEY));
+		expect(selections.fieldValues.image_url).toBe('https://app.test/source.png');
+		expect(selections.fieldValues.input_images).toEqual(['https://app.test/source.png']);
+	});
 });
 
 describe('syncCreationDetailToAdvancedCreate', () => {

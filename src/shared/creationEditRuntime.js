@@ -1,6 +1,11 @@
 /**
- * Creation mutate page runtime — standalone and embed (`?embed=1`).
+ * Creation mutate page runtime — standalone, embed iframe, and native overlay host.
  */
+
+import {
+	getCreateWorkflowHost,
+	isCreateWorkflowNativeHost,
+} from '/shared/createWorkflowHost.js';
 
 const _qs = (() => {
 	const v =
@@ -27,14 +32,39 @@ const SHELL_OUT_MESSAGE = 'prsn-creation-detail-overlay-shell-out';
 const DISMISS_MESSAGE = 'prsn-workflow-overlay-dismiss';
 
 export function isCreationEditEmbed() {
-	return window.__ps_creation_edit_embed === true;
+	return isCreateWorkflowNativeHost() || window.__ps_creation_edit_embed === true;
 }
 
 export function isCreationEditEmbedFrame() {
+	if (isCreateWorkflowNativeHost()) return false;
 	return isCreationEditEmbed() && window.parent !== window;
 }
 
 function postToParentOverlay(payload) {
+	const host = getCreateWorkflowHost();
+	if (host) {
+		if (payload?.type === ROUTE_MESSAGE && typeof host.onNavigate === 'function') {
+			host.onNavigate(payload.href);
+			return true;
+		}
+		if (payload?.type === SHELL_OUT_MESSAGE && typeof host.onShellOut === 'function') {
+			host.onShellOut(payload.href);
+			return true;
+		}
+		if (payload?.type === CLOSE_MESSAGE && typeof host.onClose === 'function') {
+			host.onClose();
+			return true;
+		}
+		if (payload?.type === DISMISS_MESSAGE && typeof host.onDismiss === 'function') {
+			host.onDismiss();
+			return true;
+		}
+		if (payload?.type === CREATION_DETAIL_SHELL_SYNC_MESSAGE && typeof host.onShellSync === 'function') {
+			host.onShellSync(payload);
+			return true;
+		}
+		return false;
+	}
 	if (!isCreationEditEmbedFrame()) return false;
 	try {
 		window.parent.postMessage(payload, window.location.origin);
@@ -86,7 +116,7 @@ export function shellOut(href) {
 		return;
 	}
 
-	if (isCreationEditEmbedFrame()) {
+	if (isCreationEditEmbedFrame() || isCreateWorkflowNativeHost()) {
 		postToParentOverlay({ type: SHELL_OUT_MESSAGE, href: raw });
 		return;
 	}
@@ -103,7 +133,7 @@ export function requestCloseOverlay() {
  * @param {{ creationId?: number|string }} [options]
  */
 export function refreshAfterSubmit(options = {}) {
-	if (!isCreationEditEmbedFrame()) return;
+	if (!isCreationEditEmbedFrame() && !isCreateWorkflowNativeHost()) return;
 
 	const creationId = Number(options.creationId);
 	const reason = 'mutate-submitted';
@@ -136,6 +166,8 @@ function shouldInterceptEmbedLink(link, e) {
 
 export function bindCreationEditEmbedNavigation() {
 	if (!isCreationEditEmbed()) return;
+	if (document.documentElement.dataset.prsnMutateEmbedNavBound === '1') return;
+	document.documentElement.dataset.prsnMutateEmbedNavBound = '1';
 	document.addEventListener(
 		'click',
 		(e) => {
@@ -160,6 +192,8 @@ export function bindCreationEditEmbedNavigation() {
  */
 export function bindCreationEditEmbedEscape(hasOpenEscapeTarget) {
 	if (!isCreationEditEmbed()) return;
+	if (document.documentElement.dataset.prsnMutateEmbedEscBound === '1') return;
+	document.documentElement.dataset.prsnMutateEmbedEscBound = '1';
 	document.addEventListener(
 		'keydown',
 		(e) => {

@@ -8,30 +8,25 @@ const _qs = (() => {
 
 const [
 	blogCampaignPathMod,
-	createServersDefaultMod,
-	generationDefaultsMod,
 	providerFormFieldsMod,
 	aspectRatioMod,
 	createSettingsSyncMod,
 	embedPageRuntimeMod,
+	createWorkflowHostMod,
+	createServersCacheMod,
 ] = await Promise.all([
 	import(`../../shared/blogCampaignPath.js${_qs}`),
-	import(`../../shared/createServersDefault.js${_qs}`),
-	import(`../../shared/generationDefaults.js${_qs}`),
 	import(`../../shared/providerFormFields.js${_qs}`),
 	import(`../../shared/aspectRatio.js${_qs}`),
 	import(`../../shared/createSettingsSync.js${_qs}`),
 	import(`../../shared/embedPageRuntime.js${_qs}`),
+	import(`../../shared/createWorkflowHost.js${_qs}`),
+	import(`../../shared/createServersCache.js${_qs}`),
 	// Define app-tabs before this module's customElements.define — connectedCallback
 	// paints <app-tabs> and calls setActiveTab; an unupgraded node has no such method.
 	import(`../elements/tabs.js${_qs}`),
 ]);
 const { isSystemReservedBlogCampaignId } = blogCampaignPathMod;
-const {
-	CREATE_SERVERS_CACHE_KEY,
-	DEFAULT_CREATE_SERVERS,
-} = createServersDefaultMod;
-const { isPublicGenerationServerId } = generationDefaultsMod;
 const {
 	renderFields: renderProviderFormFields,
 	isPromptLikeField,
@@ -57,6 +52,14 @@ const {
 	CREATE_SETTINGS_UPDATED_EVENT,
 } = createSettingsSyncMod;
 const { notifySpaPageOverlayEmbedReady } = embedPageRuntimeMod;
+const { isCreateWorkflowNativeHost } = createWorkflowHostMod;
+const {
+	getCreateServersPaint,
+	refreshCreateServersFromNetwork,
+	processCreateServers,
+	serversListSame: createServersListSame,
+	clearCreateServersCache,
+} = createServersCacheMod;
 
 let fetchJsonWithStatusDeduped;
 let submitCreationWithPending;
@@ -79,7 +82,7 @@ function getAssetVersionParam() {
 }
 
 function isCreatePageEmbed() {
-	return document.body?.classList.contains('create-page-embed');
+	return isCreateWorkflowNativeHost() || document.body?.classList.contains('create-page-embed');
 }
 
 function isStandaloneCreatePagePath() {
@@ -351,7 +354,9 @@ class AppRouteCreate extends HTMLElement {
 		this._serversLoading = true;
 		const embedOnly = isCreatePageEmbed();
 		this._embedOnly = embedOnly;
-		const dataBuilderTab = embedOnly ? '' : dataBuilderTabMarkup();
+		// Locked to Advanced for now — hide Data Builder / Blog tab picker.
+		// const dataBuilderTab = embedOnly ? '' : dataBuilderTabMarkup();
+		const dataBuilderTab = '';
 		this.innerHTML = html`
       <div class="create-route">
         <div class="create-route-loading" data-create-loading aria-busy="true"></div>
@@ -361,11 +366,13 @@ class AppRouteCreate extends HTMLElement {
           <div class="route-empty-message">You don't have access to any servers yet. Add a server to get started.</div>
         </div>
         <div class="create-route-form-wrap" data-create-form-wrap hidden aria-hidden="true">
-        <app-tabs active="basic"${embedOnly ? ' class="create-route-tabs-embed"' : ''}>
+        <app-tabs active="basic" class="create-route-tabs-embed">
           <tab data-id="basic" label="Advanced" default>
+            <!--
             <div class="route-header">
               <p>Select a server and generation method to create a new image.</p>
             </div>
+            -->
             <form class="create-form" data-create-form>
               <div class="form-group">
                 <label class="form-label" for="server-select">Server</label>
@@ -443,14 +450,15 @@ class AppRouteCreate extends HTMLElement {
 		const serversPaintSource = this.applyServersFromCacheOrDefault();
 		void depsPromise.then(() => {
 			if (!this.isConnected) return;
-			if (!embedOnly) void this._maybeAddBlogTabFromProfile();
+			// Locked to Advanced for now — hide Data Builder / Blog tab picker.
+			// if (!embedOnly) void this._maybeAddBlogTabFromProfile();
 			if (typeof MUTATE_QUEUE_UPDATED_EVENT === 'string' && MUTATE_QUEUE_UPDATED_EVENT) {
 				document.addEventListener(MUTATE_QUEUE_UPDATED_EVENT, this.handleMutateQueueUpdated);
 			}
 			window.addEventListener('storage', this.handleMutateQueueStorageSync);
 			window.addEventListener('pageshow', this.handlePageShowForMutateQueue);
 			const refreshData = () => {
-				this.refreshServersFromNetwork();
+				this.loadServers();
 				this.loadCredits();
 			};
 			if (serversPaintSource) {
@@ -840,20 +848,11 @@ class AppRouteCreate extends HTMLElement {
 
 	/** True if both arrays match id, name, and server_config (so we can skip re-rendering). */
 	serversListSame(a, b) {
-		if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-		return a.every((s, i) => {
-			const t = b[i];
-			if (s?.id !== t?.id || s?.name !== t?.name) return false;
-			return JSON.stringify(s?.server_config ?? null) === JSON.stringify(t?.server_config ?? null);
-		});
+		return createServersListSame(a, b);
 	}
 
 	clearServersCache() {
-		try {
-			localStorage.removeItem(CREATE_SERVERS_CACHE_KEY);
-		} catch (e) {
-			// ignore
-		}
+		clearCreateServersCache();
 	}
 
 	handleServersConfigUpdated() {
@@ -863,26 +862,7 @@ class AppRouteCreate extends HTMLElement {
 
 	/** Process raw API servers (filter + parse server_config) into form we use. */
 	processServers(rawServers) {
-		let list = Array.isArray(rawServers) ? rawServers : [];
-		list = list.filter(
-			(server) =>
-				!server.suspended &&
-				(isPublicGenerationServerId(server.id) ||
-					server.id === 1 ||
-					server.is_owner === true ||
-					server.is_member === true)
-		);
-		return list.map(server => {
-			const s = { ...server };
-			if (s.server_config && typeof s.server_config === 'string') {
-				try {
-					s.server_config = JSON.parse(s.server_config);
-				} catch (e) {
-					s.server_config = null;
-				}
-			}
-			return s;
-		});
+		return processCreateServers(rawServers);
 	}
 
 	/** Apply a processed server list to state and UI; then restore or auto-select. */
@@ -956,7 +936,10 @@ class AppRouteCreate extends HTMLElement {
 			formWrap.setAttribute('aria-hidden', 'false');
 			formWrap.hidden = false;
 			// createAdvanced only: add body.loaded when form is visible (deferred in pageInit) so visibility transition doesn't steal focus
-			if (document.body.classList.contains('create-page-advanced')) {
+			if (
+				document.body.classList.contains('create-page-advanced') ||
+				Boolean(this.closest('.create-workflow-root.create-page-advanced'))
+			) {
 				document.body.classList.add('loaded');
 				this._notifyCreateEmbedReady();
 				requestAnimationFrame(() => {
@@ -975,31 +958,27 @@ class AppRouteCreate extends HTMLElement {
 			emptyWrap?.setAttribute?.('aria-hidden', 'false');
 			if (emptyWrap) emptyWrap.hidden = false;
 			// createAdvanced: body.loaded was deferred in pageInit; add when we show content (form or empty)
-			if (document.body.classList.contains('create-page-advanced')) {
+			if (
+				document.body.classList.contains('create-page-advanced') ||
+				Boolean(this.closest('.create-workflow-root.create-page-advanced'))
+			) {
 				document.body.classList.add('loaded');
 				this._notifyCreateEmbedReady();
 			}
 		}
 	}
 
-	/** Read the processed servers list from localStorage cache (shared across the overlay iframe). */
+	/** Read the processed servers list from localStorage cache. */
 	readServersCacheList() {
-		try {
-			const storage = typeof localStorage !== 'undefined' ? localStorage : null;
-			const cached = storage?.getItem(CREATE_SERVERS_CACHE_KEY);
-			if (!cached) return null;
-			const { servers } = JSON.parse(cached);
-			return Array.isArray(servers) && servers.length > 0 ? servers : null;
-		} catch (e) {
-			return null;
-		}
+		const paint = getCreateServersPaint();
+		return paint.source === 'cache' ? paint.servers : null;
 	}
 
 	/** Synchronously reveal the form from cached servers if available. Returns true when applied. */
 	applyServersFromCache() {
-		const servers = this.readServersCacheList();
-		if (!servers) return false;
-		this.applyServers(servers);
+		const cached = this.readServersCacheList();
+		if (!cached) return false;
+		this.applyServers(cached);
 		this._serversLoading = false;
 		this.updateCreateFormVisibility();
 		return true;
@@ -1007,8 +986,9 @@ class AppRouteCreate extends HTMLElement {
 
 	/** Instant cold start when localStorage cache is empty (public servers baked into the bundle). */
 	applyServersFromDefault() {
-		if (!Array.isArray(DEFAULT_CREATE_SERVERS) || DEFAULT_CREATE_SERVERS.length === 0) return false;
-		this.applyServers(JSON.parse(JSON.stringify(DEFAULT_CREATE_SERVERS)));
+		const paint = getCreateServersPaint();
+		if (paint.source !== 'bundle' || !paint.servers.length) return false;
+		this.applyServers(paint.servers);
 		this._serversLoading = false;
 		this.updateCreateFormVisibility();
 		return true;
@@ -1019,42 +999,35 @@ class AppRouteCreate extends HTMLElement {
 	 * @returns {'cache'|'default'|false}
 	 */
 	applyServersFromCacheOrDefault() {
-		if (this.applyServersFromCache()) return 'cache';
-		if (this.applyServersFromDefault()) return 'default';
-		return false;
+		const paint = getCreateServersPaint();
+		if (!paint.servers.length) return false;
+		this.applyServers(paint.servers);
+		this._serversLoading = false;
+		this.updateCreateFormVisibility();
+		return paint.source === 'cache' ? 'cache' : 'default';
 	}
 
-	/** Cache/default-then-refresh: paint immediately when possible, then fetch /api/servers in background. */
+	/** Cache then bundle for first paint; network only when bundle was used or cache TTL expired. */
 	loadServers(options = {}) {
-		this.applyServersFromCacheOrDefault();
-		this.refreshServersFromNetwork(options);
+		const source = this.applyServersFromCacheOrDefault();
+		const paint = getCreateServersPaint();
+		if (options.forceApply || source !== 'cache' || paint.shouldRefresh) {
+			this.refreshServersFromNetwork(options);
+		}
 	}
 
 	/** Fetch /api/servers, update the cache, and re-apply only when the list/config changed. */
 	refreshServersFromNetwork(options = {}) {
 		const { forceApply = false } = options;
-		const storage = typeof localStorage !== 'undefined' ? localStorage : null;
-		fetchJsonWithStatusDeduped('/api/servers', { credentials: 'include' }, { windowMs: 2000 })
+		refreshCreateServersFromNetwork()
 			.then((result) => {
 				this._serversLoading = false;
-				if (!result?.ok || !Array.isArray(result.data?.servers)) {
+				if (!result?.ok || !Array.isArray(result.servers)) {
 					setTimeout(() => this.updateCreateFormVisibility(), 0);
 					return;
 				}
-				const processed = this.processServers(result.data.servers);
-				try {
-					if (storage) {
-						storage.setItem(
-							CREATE_SERVERS_CACHE_KEY,
-							JSON.stringify({ servers: processed, cachedAt: Date.now() })
-						);
-					}
-				} catch (e) {
-					// ignore
-				}
-				// Skip DOM update when API returned the same list and config (avoids rebuild + focus steal)
+				const processed = result.servers;
 				if (!forceApply && this.serversListSame(processed, this.servers)) return;
-				// Save focus before servers update; applyServers mutates selects and can steal focus
 				const promptEl = this.querySelector('[data-advanced-prompt]');
 				const hadFocusOnPrompt = promptEl && document.activeElement === promptEl;
 				this.applyServers(processed);

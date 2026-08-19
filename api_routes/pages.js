@@ -248,6 +248,24 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 		return t;
 	}
 
+	async function serveChatOrRoleShell(req, res, user, sidebarPath) {
+		if (String(user.role || "").toLowerCase() === "admin") {
+			const page = getPageForUser(user);
+			const fs = await import("fs/promises");
+			let htmlContent = await fs.readFile(path.join(pagesDir, page), "utf-8");
+			htmlContent = injectCommonHead(htmlContent, getPageTokens(req));
+			res.setHeader("Content-Type", "text/html");
+			return res.send(htmlContent);
+		}
+		const fs = await import("fs/promises");
+		let htmlContent = await fs.readFile(path.join(pagesDir, "chat.html"), "utf-8");
+		const chatPageTokens = buildChatPageTokens(req, sidebarPath);
+		htmlContent = replaceTemplateTokens(htmlContent, chatPageTokens);
+		htmlContent = injectCommonHead(htmlContent, chatPageTokens);
+		res.setHeader("Content-Type", "text/html");
+		return res.send(htmlContent);
+	}
+
 	function serializeInlineScript(value) {
 		return JSON.stringify(value).replace(/</g, "\\u003c");
 	}
@@ -1037,62 +1055,39 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 		}
 	});
 
-	// Create page - single /create route; cookie create_editor=simple → create.html, else → createAdvanced.html
+	// Create page — logged-in non-embed serves chat shell + native overlay restore.
 	const CREATE_EDITOR_COOKIE = "create_editor";
 	router.get("/create", async (req, res) => {
 		const user = await requireLoggedInUser(req, res);
 		if (!user) return;
 
+		const embedOverlay = req.query?.embed === '1' || req.query?.embed === 1;
+		if (!embedOverlay) {
+			return serveChatOrRoleShell(req, res, user, "/chat/c/creations");
+		}
+
 		try {
 			const fs = await import("fs/promises");
-			const rolePageName = getPageForUser(user);
-			const rolePagePath = path.join(pagesDir, rolePageName);
-			// When cookie is set to "simple", serve simple create; when not set, serve advanced
 			const useSimple = req.cookies?.[CREATE_EDITOR_COOKIE] === "simple";
 			const htmlPath = path.join(pagesDir, useSimple ? "create.html" : "createAdvanced.html");
 			let pageHtml = await fs.readFile(htmlPath, "utf-8");
 
-			let headerHtml = "";
-			let includeMobileBottomNav = false;
-			try {
-				const roleHtml = await fs.readFile(rolePagePath, "utf-8");
-				const headerMatch = roleHtml.match(/<app-navigation[\s\S]*?<\/app-navigation>/i);
-				if (headerMatch) {
-					headerHtml = headerMatch[0];
-				}
-				includeMobileBottomNav = /<app-navigation-mobile\b/i.test(roleHtml);
-			} catch (error) {
-				// ignore
-			}
-
-			const embedOverlay = req.query?.embed === '1' || req.query?.embed === 1;
-
-			if (embedOverlay) {
-				pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
-				pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
-				pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
-				pageHtml = pageHtml.replace(
-					'<html lang="en">',
-					'<html lang="en" class="create-page-embed-doc">'
-				);
-				const bodyClass = useSimple ? 'create-page' : 'create-page-advanced';
-				pageHtml = pageHtml.replace(
-					`<body class="${bodyClass}">`,
-					`<body class="${bodyClass} create-page-embed loaded">`
-				);
-				pageHtml = pageHtml.replace(
-					'</head>',
-					'<script>window.__ps_create_embed=true;</script></head>'
-				);
-			} else {
-				if (headerHtml) {
-					pageHtml = pageHtml.replace("<!--APP_HEADER-->", headerHtml);
-				}
-				pageHtml = pageHtml.replace(
-					"<!--APP_MOBILE_BOTTOM_NAV-->",
-					includeMobileBottomNav ? "<app-navigation-mobile></app-navigation-mobile>" : ""
-				);
-			}
+			pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
+			pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+			pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
+			pageHtml = pageHtml.replace(
+				'<html lang="en">',
+				'<html lang="en" class="create-page-embed-doc">'
+			);
+			const bodyClass = useSimple ? 'create-page' : 'create-page-advanced';
+			pageHtml = pageHtml.replace(
+				`<body class="${bodyClass}">`,
+				`<body class="${bodyClass} create-page-embed loaded">`
+			);
+			pageHtml = pageHtml.replace(
+				'</head>',
+				'<script>window.__ps_create_embed=true;</script></head>'
+			);
 
 			pageHtml = injectCommonHead(pageHtml, getPageTokens(req));
 
@@ -1284,53 +1279,30 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 				}
 			}
 
-			// Read the HTML file and inject the correct role-based header and mobile nav
+			const embedOverlay = req.query?.embed === '1' || req.query?.embed === 1;
+			if (!embedOverlay) {
+				return serveChatOrRoleShell(req, res, user, "/chat/c/creations");
+			}
+
 			const fs = await import('fs/promises');
-			const rolePageName = getPageForUser(user);
-			const rolePagePath = path.join(pagesDir, rolePageName);
 			const htmlPath = path.join(pagesDir, "creation-edit.html");
 			let pageHtml = await fs.readFile(htmlPath, 'utf-8');
 
-			let headerHtml = "";
-			let includeMobileBottomNav = false;
-			try {
-				const roleHtml = await fs.readFile(rolePagePath, "utf-8");
-				const headerMatch = roleHtml.match(/<app-navigation[\s\S]*?<\/app-navigation>/i);
-				if (headerMatch) {
-					headerHtml = headerMatch[0];
-				}
-				includeMobileBottomNav = /<app-navigation-mobile\b/i.test(roleHtml);
-			} catch (error) {
-				// console.warn("Failed to extract role header for creation mutate page:", error?.message || error);
-			}
-
-			const embedOverlay = req.query?.embed === '1' || req.query?.embed === 1;
-
-			if (embedOverlay) {
-				pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
-				pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
-				pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
-				pageHtml = pageHtml.replace(
-					'<html lang="en">',
-					'<html lang="en" class="creation-edit-embed-doc">'
-				);
-				pageHtml = pageHtml.replace(
-					'<body class="creation-edit-page create-page">',
-					'<body class="creation-edit-page create-page creation-edit-embed">'
-				);
-				pageHtml = pageHtml.replace(
-					'</head>',
-					'<script>window.__ps_creation_edit_embed=true;</script></head>'
-				);
-			} else {
-				if (headerHtml) {
-					pageHtml = pageHtml.replace("<!--APP_HEADER-->", headerHtml);
-				}
-				pageHtml = pageHtml.replace(
-					"<!--APP_MOBILE_BOTTOM_NAV-->",
-					includeMobileBottomNav ? "<app-navigation-mobile></app-navigation-mobile>" : ""
-				);
-			}
+			pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
+			pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+			pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
+			pageHtml = pageHtml.replace(
+				'<html lang="en">',
+				'<html lang="en" class="creation-edit-embed-doc">'
+			);
+			pageHtml = pageHtml.replace(
+				'<body class="creation-edit-page create-page">',
+				'<body class="creation-edit-page create-page creation-edit-embed">'
+			);
+			pageHtml = pageHtml.replace(
+				'</head>',
+				'<script>window.__ps_creation_edit_embed=true;</script></head>'
+			);
 
 			pageHtml = injectCommonHead(pageHtml, getPageTokens(req));
 
@@ -1390,6 +1362,7 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 	});
 
 	// Route for creation detail page - /creations/:id
+	// Logged-in non-embed serves chat shell + overlay restore. Overlay iframe still loads ?embed=1 as legacy HTML.
 	router.get("/creations/:id", async (req, res) => {
 		const user = await requireLoggedInUser(req, res);
 		if (!user) return;
@@ -1443,53 +1416,30 @@ export default function createPageRoutes({ queries, pagesDir, staticDir, storage
 				}
 			}
 
-			// Read the HTML file and inject the correct role-based header and mobile nav
+			const embedOverlay = req.query?.embed === '1' || req.query?.embed === 1;
+			if (!embedOverlay) {
+				return serveChatOrRoleShell(req, res, user, "/chat/c/creations");
+			}
+
 			const fs = await import('fs/promises');
-			const rolePageName = getPageForUser(user);
-			const rolePagePath = path.join(pagesDir, rolePageName);
 			const htmlPath = path.join(pagesDir, "creation-detail.html");
 			let pageHtml = await fs.readFile(htmlPath, 'utf-8');
 
-			let headerHtml = "";
-			let includeMobileBottomNav = false;
-			try {
-				const roleHtml = await fs.readFile(rolePagePath, "utf-8");
-				const headerMatch = roleHtml.match(/<app-navigation[\s\S]*?<\/app-navigation>/i);
-				if (headerMatch) {
-					headerHtml = headerMatch[0];
-				}
-				includeMobileBottomNav = /<app-navigation-mobile\b/i.test(roleHtml);
-			} catch (error) {
-				// console.warn("Failed to extract role header for creation detail page:", error?.message || error);
-			}
-
-			const embedOverlay = req.query?.embed === '1' || req.query?.embed === 1;
-
-			if (embedOverlay) {
-				pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
-				pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
-				pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
-				pageHtml = pageHtml.replace(
-					'<html lang="en">',
-					'<html lang="en" class="creation-detail-embed-doc">'
-				);
-				pageHtml = pageHtml.replace(
-					'<body class="creation-detail-page">',
-					'<body class="creation-detail-page creation-detail-embed">'
-				);
-				pageHtml = pageHtml.replace(
-					'</head>',
-					'<script>window.__ps_creation_detail_embed=true;</script></head>'
-				);
-			} else {
-				if (headerHtml) {
-					pageHtml = pageHtml.replace("<!--APP_HEADER-->", headerHtml);
-				}
-				pageHtml = pageHtml.replace(
-					"<!--APP_MOBILE_BOTTOM_NAV-->",
-					includeMobileBottomNav ? "<app-navigation-mobile></app-navigation-mobile>" : ""
-				);
-			}
+			pageHtml = pageHtml.replace("<!--APP_HEADER-->", "");
+			pageHtml = pageHtml.replace("<!--APP_MOBILE_BOTTOM_NAV-->", "");
+			pageHtml = stripStandaloneAppChromeForEmbed(pageHtml);
+			pageHtml = pageHtml.replace(
+				'<html lang="en">',
+				'<html lang="en" class="creation-detail-embed-doc">'
+			);
+			pageHtml = pageHtml.replace(
+				'<body class="creation-detail-page">',
+				'<body class="creation-detail-page creation-detail-embed">'
+			);
+			pageHtml = pageHtml.replace(
+				'</head>',
+				'<script>window.__ps_creation_detail_embed=true;</script></head>'
+			);
 
 			pageHtml = injectCreationDetailHeroMedia(pageHtml, image);
 			pageHtml = injectCreationDetailHeroWrapper(pageHtml, image);

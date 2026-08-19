@@ -350,7 +350,7 @@ async function loadEditPage() {
 			creationDetailHref = `/creations/${creationId}`;
 			imageApiUrl = `/api/create/images/${creationId}/mutate-source?source_id=${encodeURIComponent(sourceIdParam)}`;
 		} else if (groupOfLegacy) {
-			const legacyGroupId = parseInt(groupOfLegacy, 10);
+			const legacyGroupId = parseInt(groupOfRaw, 10);
 			if (Number.isFinite(legacyGroupId) && legacyGroupId > 0) {
 				mutateSourceId = creationId;
 				mutateGroupId = legacyGroupId;
@@ -359,16 +359,36 @@ async function loadEditPage() {
 			}
 		}
 
-		const response = await fetch(imageApiUrl, { credentials: 'include' });
-		if (!response.ok) {
-			editContent.innerHTML = renderEmptyState({
-				title: 'Unable to load creation',
-				message: "The creation you're trying to edit doesn't exist or you don't have access.",
-			});
-			return;
+		const needsSourceMatch = Boolean(sourceIdParam || groupOfLegacy);
+		const seedSourceId =
+			needsSourceMatch && Number.isFinite(mutateSourceId) && mutateSourceId > 0
+				? mutateSourceId
+				: null;
+		let creation = null;
+		if (!needsSourceMatch || seedSourceId) {
+			try {
+				const qs = getImportQuery(getAssetVersionParam());
+				const seedMod = await import(`/shared/creationDetailSeed.js${qs}`);
+				creation = seedMod.seedToMutateCreation(
+					seedMod.readCreationDetailSeed(creationId),
+					seedSourceId ? { sourceId: seedSourceId } : {}
+				);
+			} catch {
+				creation = null;
+			}
 		}
 
-		const creation = await response.json();
+		if (!creation) {
+			const response = await fetch(imageApiUrl, { credentials: 'include' });
+			if (!response.ok) {
+				editContent.innerHTML = renderEmptyState({
+					title: 'Unable to load creation',
+					message: "The creation you're trying to edit doesn't exist or you don't have access.",
+				});
+				return;
+			}
+			creation = await response.json();
+		}
 		if (mutateGroupId == null && creation?.group_id != null) {
 			const gid = Number(creation.group_id);
 			if (Number.isFinite(gid) && gid > 0) mutateGroupId = gid;
@@ -1034,7 +1054,38 @@ async function loadEditPage() {
 	}
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+/**
+ * Native overlay mount for mutate.
+ * @param {HTMLElement} root
+ * @returns {Promise<() => void>}
+ */
+export async function mountMutateWorkflow(root) {
+	if (!(root instanceof HTMLElement)) return () => {};
+	root.innerHTML = `
+		<div class="create-route creation-edit-route">
+			<div class="creation-edit-content" data-edit-content>
+				<div class="create-route-loading" data-mutate-skeleton aria-busy="true"></div>
+			</div>
+		</div>
+	`;
+	await loadDeps();
+	if (typeof bindCreationEditEmbedNavigation === 'function') {
+		bindCreationEditEmbedNavigation();
+	}
+	if (typeof bindCreationEditEmbedEscape === 'function') {
+		bindCreationEditEmbedEscape(() => {
+			const modal = document.querySelector('[data-creation-edit-i2v-modal][aria-hidden="false"]');
+			return modal instanceof HTMLElement;
+		});
+	}
+	await loadEditPage();
+	return () => {
+		root.innerHTML = '';
+	};
+}
+
+function bootStandaloneMutate() {
+	if (document.querySelector('.create-workflow-root')) return;
 	void loadDeps()
 		.then(() => {
 			if (typeof bindCreationEditEmbedNavigation === 'function') {
@@ -1057,7 +1108,13 @@ document.addEventListener('DOMContentLoaded', () => {
 				editContent.innerHTML = `<div class="route-empty route-empty-state"><div class="route-empty-title">Unable to load mutate</div><div class="route-empty-message">${message.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div></div>`;
 			}
 		});
-});
+}
+
+if (document.readyState === 'loading') {
+	document.addEventListener('DOMContentLoaded', bootStandaloneMutate);
+} else {
+	bootStandaloneMutate();
+}
 
 document.addEventListener('click', (e) => {
 	const btn = e.target.closest('[data-generate-btn]');

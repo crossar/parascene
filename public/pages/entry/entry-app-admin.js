@@ -37,6 +37,7 @@ export async function init(version) {
 		import(`../../components/routes/analytics.js${qs}`),
 		import(`../../components/routes/servers.js${qs}`),
 		import(`../../components/elements/tabs.js${qs}`),
+		import(`../../shared/spaPageOverlay.js${qs}`),
 	]);
 	const { waitForComponents } = await import(`../../shared/pageInit.js${qs}`);
 	await waitForComponents(TAGS);

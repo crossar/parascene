@@ -152,6 +152,7 @@ export const isSpaPageOverlayHistoryActive = m.isSpaPageOverlayHistoryActive;
 export const isCreationDetailOverlayHistoryActive = m.isCreationDetailOverlayHistoryActive;
 export const isPromptLibraryOverlayHistoryActive = m.isPromptLibraryOverlayHistoryActive;
 export const isSpaPageOverlayOpen = m.isSpaPageOverlayOpen;
+export const getSpaPageOverlayReturnPath = m.getSpaPageOverlayReturnPath;
 export const isCreationDetailOverlayOpen = m.isCreationDetailOverlayOpen;
 export const isPromptLibraryOverlayOpen = m.isPromptLibraryOverlayOpen;
 export const parseCreationIdFromHref = m.parseCreationIdFromHref;

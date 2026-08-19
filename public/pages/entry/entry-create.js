@@ -62,13 +62,17 @@ export async function init(version) {
 }
 
 async function bindImportSunoEntry(qs) {
+	if (document.documentElement.dataset.prsnImportMediaBound === '1') return;
+	document.documentElement.dataset.prsnImportMediaBound = '1';
 	const { openImportMediaModal } = await import(`../../shared/importSunoModal.js${qs}`);
 	const { showToast } = await import(`../../shared/toast.js${qs}`);
 	const { importCreationWithPending } = await import(`../../shared/createSubmit.js${qs}`);
 	const { importMediaFromUrl } = await import(`../../shared/importMedia.js${qs}`);
 
 	async function runImport({ provider, url }) {
-		const isEmbed = document.body.classList.contains('create-page-embed');
+		const isEmbed =
+			document.body.classList.contains('create-page-embed') ||
+			Boolean(document.querySelector('.create-workflow-root'));
 		const result = await importCreationWithPending({
 			runImport: ({ creationToken }) =>
 				importMediaFromUrl(provider, url, { creationToken }),
@@ -113,7 +117,11 @@ function runCreatePageInit(refreshAutoGrowTextareas, createSettingsSyncMod = {})
 		typeof createSettingsSyncMod.notifyCreateSettingsUpdated === 'function'
 			? createSettingsSyncMod.notifyCreateSettingsUpdated
 			: null;
-	if (!document.body.classList.contains('create-page') && !document.body.classList.contains('create-page-advanced')) return;
+	if (
+		!document.querySelector('.create-workflow-root') &&
+		!document.body.classList.contains('create-page') &&
+		!document.body.classList.contains('create-page-advanced')
+	) return;
 	const BASIC_CREATE_DEFAULT_SERVER_ID = 1;
 	const BASIC_CREATE_DEFAULT_METHOD_KEY = 'replicate';
 	const BASIC_CREATE_DEFAULT_MODEL = 'xai/grok-imagine-image';
@@ -123,8 +131,16 @@ function runCreatePageInit(refreshAutoGrowTextareas, createSettingsSyncMod = {})
 		document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || '';
 	const sharedQs = assetVersion ? `?v=${encodeURIComponent(assetVersion)}` : '';
 
+	function isOnCreatePage() {
+		return (
+			document.body.classList.contains('create-page') ||
+			Boolean(document.querySelector('.create-workflow-root.create-page'))
+		);
+	}
+
 	function isCreatePageEmbedMode() {
-		return document.body.classList.contains('create-page-embed');
+		return Boolean(document.querySelector('.create-workflow-root')) ||
+			document.body.classList.contains('create-page-embed');
 	}
 
 	function createSubmitNavigateMode() {
@@ -484,14 +500,17 @@ function runCreatePageInit(refreshAutoGrowTextareas, createSettingsSyncMod = {})
 	// Style thumbnails and data-style-value on columns (restored from pre-4d5956d entry-create.js)
 	const styleSection = document.querySelector('.create-content .create-style-section');
 	const allStyleCards = styleSection?.querySelectorAll('.create-style-card');
-	if (allStyleCards?.length && document.body.classList.contains('create-page')) {
+	if (allStyleCards?.length && isOnCreatePage()) {
 		allStyleCards.forEach((card, i) => {
-			card.setAttribute('data-color-index', String(i % 9));
+			if (!card.hasAttribute('data-color-index')) {
+				card.setAttribute('data-color-index', String(i % 9));
+			}
 		});
 		const v = document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || '';
 		const qs = v ? `?v=${encodeURIComponent(v)}` : '';
 		import(`../create-styles.js${qs}`).then(({ getStyleThumbUrl }) => {
 			allStyleCards.forEach((card) => {
+				if (card.querySelector('.create-style-card-thumb')) return;
 				const key = card.getAttribute('data-key');
 				if (!key) return;
 				const url = key === 'none' ? '/assets/style-thumbs/none.webp' : getStyleThumbUrl(key);
@@ -785,5 +804,37 @@ function runCreatePageInit(refreshAutoGrowTextareas, createSettingsSyncMod = {})
 			}
 		});
 	}
+}
+
+/**
+ * Native overlay mount for basic create (cookie create_editor=simple).
+ * @param {HTMLElement} root
+ * @param {{ markup?: string }} [opts]
+ * @returns {Promise<() => void>}
+ */
+export async function mountBasicCreateWorkflow(root, opts = {}) {
+	if (!(root instanceof HTMLElement)) return () => {};
+	const qs = getImportQuery(
+		document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
+	);
+	const markup = typeof opts.markup === 'string' && opts.markup.trim()
+		? opts.markup
+		: '';
+	if (!markup) return () => {};
+	await import(`../../components/elements/tabs.js${qs}`);
+	const { refreshAutoGrowTextareas } = await import(`../../shared/autogrow.js${qs}`);
+	const createSettingsSyncMod = await import(`../../shared/createSettingsSync.js${qs}`);
+	const runtimeMod = await import(`../../shared/createPageRuntime.js${qs}`);
+	root.innerHTML = markup;
+	await customElements.whenDefined('app-tabs');
+	runtimeMod.bindCreatePageEmbedNavigation();
+	runtimeMod.bindCreatePageEmbedEscape(() => {
+		return Boolean(document.querySelector('[data-import-suno-modal]'));
+	});
+	runCreatePageInit(refreshAutoGrowTextareas, createSettingsSyncMod);
+	bindImportSunoEntry(qs);
+	return () => {
+		root.innerHTML = '';
+	};
 }
 

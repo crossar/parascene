@@ -1,20 +1,9 @@
 /**
- * Mutate: server list from API; default server/method in ./generationDefaults.js.
+ * Mutate: server list from cache → bundle → background /api/servers.
  */
 
-const _qs = (() => {
-	const v =
-		typeof document !== 'undefined'
-			? document.querySelector('meta[name="asset-version"]')?.getAttribute('content')?.trim() || ''
-			: '';
-	return v ? `?v=${encodeURIComponent(v)}` : '';
-})();
-const [generationDefaultsMod, apiMod] = await Promise.all([
-	import(`./generationDefaults.js${_qs}`),
-	import(`./api.js${_qs}`),
-]);
-const { isPublicGenerationServerId } = generationDefaultsMod;
-const { fetchJsonWithStatusDeduped } = apiMod;
+import { isPublicGenerationServerId } from './generationDefaults.js';
+import { getCreateServersPaint, refreshCreateServersFromNetwork } from './createServersCache.js';
 
 export function getMethodIntentList(method) {
 	if (Array.isArray(method?.intents)) {
@@ -42,25 +31,35 @@ function normalizeServerConfig(server) {
 	return server;
 }
 
+function filterMutateServers(servers) {
+	return (Array.isArray(servers) ? servers : [])
+		.filter(
+			(server) =>
+				!server.suspended &&
+				(isPublicGenerationServerId(server.id) ||
+					server.is_owner === true ||
+					server.is_member === true)
+		)
+		.map(normalizeServerConfig)
+		.filter(Boolean);
+}
+
 /**
- * Load servers available for mutate (same filter as creation edit: id 1 or is_owner or is_member, not suspended).
+ * Load servers available for mutate. Paints from cache or bundled defaults immediately;
+ * refreshes from network in the background when there is no cache or the cache TTL expired.
  * @returns {Promise<Array<{ id: number, name?: string, server_config?: object, ... }>>}
  */
 export async function loadMutateServerOptions() {
+	const paint = getCreateServersPaint();
+	const painted = filterMutateServers(paint.servers);
+	if (paint.shouldRefresh) {
+		void refreshCreateServersFromNetwork().catch(() => {});
+	}
+	if (painted.length > 0) return painted;
 	try {
-		const result = await fetchJsonWithStatusDeduped('/api/servers', { credentials: 'include' }, { windowMs: 2000 });
+		const result = await refreshCreateServersFromNetwork();
 		if (!result?.ok) return [];
-		const servers = Array.isArray(result.data?.servers) ? result.data.servers : [];
-		return servers
-			.filter(
-				(server) =>
-					!server.suspended &&
-					(isPublicGenerationServerId(server.id) ||
-						server.is_owner === true ||
-						server.is_member === true)
-			)
-			.map(normalizeServerConfig)
-			.filter(Boolean);
+		return filterMutateServers(result.servers);
 	} catch {
 		return [];
 	}

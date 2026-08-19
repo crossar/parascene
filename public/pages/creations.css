@@ -1011,7 +1011,10 @@ body.prsn-creation-composer-drag-active .create-composer:not(.is-drop-target) .c
 /* app-route-create (createAdvanced): form, tabs, dialogs, image fields — in creations.css for faster load */
 
 /* Overlay embed: provider form only — hide Blog / Data Builder tab strip. */
-body.create-page-advanced.create-page-embed app-route-create app-tabs.create-route-tabs-embed .app-tabs {
+/* Also used while Advanced is the only tab (tab picker commented out). */
+.create-workflow-root.create-page-advanced app-route-create app-tabs.create-route-tabs-embed .app-tabs,
+body.create-page-advanced.create-page-embed app-route-create app-tabs.create-route-tabs-embed .app-tabs,
+app-route-create app-tabs.create-route-tabs-embed .app-tabs {
 	display: none;
 }
 
@@ -1964,7 +1967,8 @@ app-route-create .create-route .image-field-error {
 }
 
 /* Generate button: same gradient as CTA Get Started (teal/green in dark, purple in light) */
-body.create-page {
+body.create-page,
+.create-workflow-root.create-page {
 	--create-generate-btn-1: #5b329a;
 	--create-generate-btn-2: #ab3eff;
 	--create-generate-btn-3: #e9e3ff;
@@ -1974,7 +1978,8 @@ body.create-page {
 }
 
 @media (prefers-color-scheme: dark) {
-	body.create-page {
+	body.create-page,
+	.create-workflow-root.create-page {
 		--create-generate-btn-1: #0a6464;
 		--create-generate-btn-2: #00b4a0;
 		--create-generate-btn-3: #00c8b4;
@@ -2017,7 +2022,8 @@ body.create-page .create-btn-generate:focus-visible,
 }
 
 /* Basic /create only: visible keyboard focus on CTA (mutate page sets its own ring in creation-edit.css) */
-body.create-page:not(.creation-edit-page) .create-btn-generate:focus-visible {
+body.create-page:not(.creation-edit-page) .create-btn-generate:focus-visible,
+.create-workflow-root.create-page:not(.creation-edit-page) .create-btn-generate:focus-visible {
 	outline: 2px solid var(--focus);
 	outline-offset: 3px;
 }

@@ -498,6 +498,42 @@ export function syncCreationDetailToAdvancedCreate(snapshot = {}) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function looksLikeStoredImageValue(value) {
+	if (typeof value !== 'string') return false;
+	const t = value.trim();
+	if (!t) return false;
+	return (
+		/^https?:\/\//i.test(t) ||
+		t.startsWith('/') ||
+		t.startsWith('blob:') ||
+		t.startsWith('data:image/')
+	);
+}
+
+/**
+ * Replace any previously saved advanced input images with the mutate source.
+ * @param {Record<string, unknown>} fieldValues
+ * @param {string} url
+ * @returns {Record<string, unknown>}
+ */
+function overwriteCreateImageFieldValues(fieldValues, url) {
+	const next = fieldValues && typeof fieldValues === 'object' ? { ...fieldValues } : {};
+	for (const [key, val] of Object.entries(next)) {
+		if (Array.isArray(val) && val.some((item) => looksLikeStoredImageValue(item))) {
+			next[key] = [url];
+			continue;
+		}
+		if (looksLikeStoredImageValue(val)) next[key] = url;
+	}
+	next.image_url = url;
+	next.input_images = [url];
+	return next;
+}
+
+/**
  * Queue source image and persist create settings so /create opens with the same route + draft.
  * Mirrors part of "Queue for later" plus shared settings sync used by app-route-create.
  *
@@ -524,9 +560,10 @@ export function syncMutatePageToAdvancedCreate(snapshot = {}) {
 	const url = typeof snapshot.imageUrl === 'string' ? snapshot.imageUrl.trim() : '';
 	const sourceIdNum = Number(snapshot.sourceId);
 
-	if (url && Number.isFinite(sourceIdNum) && sourceIdNum > 0) {
+	if (url) {
+		replaceMutateQueueFromImageUrls([]);
 		addToMutateQueue({
-			sourceId: sourceIdNum,
+			sourceId: Number.isFinite(sourceIdNum) && sourceIdNum > 0 ? sourceIdNum : null,
 			imageUrl: url,
 			published: snapshot.published === true || snapshot.published === 1,
 		});
@@ -559,7 +596,7 @@ export function syncMutatePageToAdvancedCreate(snapshot = {}) {
 					? selections.fieldValues
 					: {};
 			selections.fieldValues = {
-				...fv,
+				...(url ? overwriteCreateImageFieldValues(fv, url) : fv),
 				prompt: promptText,
 				model: route.model,
 				aspect_ratio: aspect,

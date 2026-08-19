@@ -906,6 +906,28 @@ function getGroupActionTarget() {
 	return { sourceId: sid, imageUrl };
 }
 
+async function writeMutateSeedFromOpenDetail(extra = {}) {
+	const creationId = getCreationId();
+	if (!creationId || !lastCreationMeta) return;
+	try {
+		const qs = getImportQuery(getAssetVersionParam());
+		const seedMod = await import(`/shared/creationDetailSeed.js${qs}`);
+		const fromMeta = seedMod.feedItemToCreationDetailSeed(lastCreationMeta);
+		const prev = seedMod.readCreationDetailSeed(creationId);
+		const next = fromMeta && prev ? seedMod.mergeCreationDetailSeeds(fromMeta, prev) : fromMeta || prev;
+		if (!next) return;
+		const sourceId = Number(extra.sourceId);
+		const imageUrl = typeof extra.imageUrl === 'string' ? extra.imageUrl.trim() : '';
+		if (Number.isFinite(sourceId) && sourceId > 0 && imageUrl) {
+			next.mutate_source_id = sourceId;
+			next.mutate_image_url = imageUrl;
+		}
+		seedMod.writeCreationDetailSeed(next);
+	} catch {
+		// ignore
+	}
+}
+
 function heroVideoPlaybackDimensions(record) {
 	if (typeof videoHeroDimensionsFromCreation === 'function') {
 		return videoHeroDimensionsFromCreation(record);
@@ -7834,21 +7856,27 @@ document.addEventListener('click', (e) => {
 	const mutateBtn = e.target.closest('[data-mutate-btn]');
 	if (mutateBtn && !mutateBtn.disabled) {
 		e.preventDefault();
-		if (lastDetailIsGroupCreation) {
-			const target = getGroupActionTarget();
-			if (!target) {
-				alert('Select a source image in the group first.');
+		void (async () => {
+			if (lastDetailIsGroupCreation) {
+				const target = getGroupActionTarget();
+				if (!target) {
+					alert('Select a source image in the group first.');
+					return;
+				}
+				const groupId = getCreationId();
+				if (!groupId || !Number.isFinite(Number(groupId))) return;
+				await writeMutateSeedFromOpenDetail({
+					sourceId: target.sourceId,
+					imageUrl: target.imageUrl,
+				});
+				shellOut(`/creations/${groupId}/mutate?source_id=${encodeURIComponent(String(target.sourceId))}`);
 				return;
 			}
-			const groupId = getCreationId();
-			if (!groupId || !Number.isFinite(Number(groupId))) return;
-			const sourceQuery = `?source_id=${encodeURIComponent(String(target.sourceId))}`;
-			shellOut(`/creations/${groupId}/mutate${sourceQuery}`);
-			return;
-		}
-		const creationId = getCreationId();
-		if (!creationId) return;
-		shellOut(`/creations/${creationId}/mutate`);
+			const creationId = getCreationId();
+			if (!creationId) return;
+			await writeMutateSeedFromOpenDetail();
+			shellOut(`/creations/${creationId}/mutate`);
+		})();
 	}
 });
 

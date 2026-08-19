@@ -13108,6 +13108,30 @@ button.msg-reply-indicator-inner:hover {
 	box-sizing: border-box;
 }
 
+.creation-detail-overlay-frame--native.create-workflow-root {
+	--workflow-embed-chrome-top: calc(58px + env(safe-area-inset-top, 0px) + 1em);
+	--workflow-embed-chrome-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+	padding-top: var(--workflow-embed-chrome-top);
+	padding-right: 16px;
+	padding-bottom: var(--workflow-embed-chrome-bottom);
+	padding-left: 16px;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+.creation-detail-overlay-frame--native.create-workflow-root::-webkit-scrollbar {
+	width: 0;
+	height: 0;
+	display: none;
+}
+
+@media (min-width: 769px) {
+	.creation-detail-overlay-frame--native.create-workflow-root {
+		padding-right: 24px;
+		padding-left: 24px;
+	}
+}
+
 .mobile-creation-detail {
 	display: flex;
 	flex-direction: column;
@@ -13249,6 +13273,15 @@ body.creation-detail-overlay-open {
 	width: 100%;
 	left: 0;
 	right: 0;
+}
+
+/* Workflow dialogs portaled to body still need to sit above the SPA overlay. */
+body.creation-detail-overlay-open .image-picker-modal-overlay,
+body.creation-detail-overlay-open [data-image-picker-modal],
+body.creation-detail-overlay-open .audio-clip-picker-modal-overlay,
+body.creation-detail-overlay-open .audio-clip-edit-modal-overlay,
+body.creation-detail-overlay-open .import-suno-modal-overlay {
+	z-index: 100001 !important;
 }
 
 body.chat-page.creation-detail-overlay-open {

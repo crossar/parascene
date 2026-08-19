@@ -4,6 +4,7 @@ globs:
   - public/pages/entry/entry-create.js
   - public/components/routes/create.js
   - public/shared/createPageRuntime.js
+  - public/shared/createWorkflow.js
 ---
 
 # Create page embed
@@ -12,11 +13,12 @@ See `_docs/PLAN_create_mutate_embed.md` for invariants.
 
 ## Rules
 
-- Embed mode: parent owns history; iframe must not `location.reload`, `location.href =`, `assign`, or `replace` for same-origin app routes except via runtime fallbacks for standalone.
-- Navigation and post-submit refresh go through `createPageRuntime.js`.
-- Submit in embed: `navigate: 'none'` on `submitCreationWithPending`, then `refreshAfterSubmit({ creationId })`.
-- Blog editor: `shellOut('/create/blog/:id')` from embed.
+- Overlay create/mutate is a native mount (`mountCreateWorkflow` in a div). Do not boot `/create?embed=1` or `/creations/:id/mutate?embed=1` in an iframe for these two routes.
+- Navigation and post-submit refresh go through `createPageRuntime.js` (iframe leftover or native host).
+- Submit in overlay: `navigate: 'none'` on `submitCreationWithPending`, then `refreshAfterSubmit({ creationId })`.
+- Blog editor: `shellOut('/create/blog/:id')` from overlay.
 - Navigation: `navigate(href)` (in-overlay), `shellOut(href)` (leave overlay), `requestCloseOverlay()` (Escape).
-- Basic ↔ advanced: `switchCreateEditorMode('basic'|'advanced')` sets `create_editor` cookie and reloads overlay iframe (`forceReload`); do not shell out to `/create` for mode switches.
+- Basic ↔ advanced: `switchCreateEditorMode('basic'|'advanced')` sets `create_editor` cookie and remounts the native overlay (`forceReload`); do not shell out to `/create` for mode switches.
+- Nested Escape closes in-page dialogs first; overlay dismisses only when none are open.
 
 Run `npm run check:workflow-embed` after edits to embed-capable files.

@@ -18,6 +18,7 @@ const [
 	mutateQueueSyncMod,
 	promptFieldClearMod,
 	audioClipPickerMod,
+	createWorkflowHostMod,
 ] = await Promise.all([
 	import(`./aspectRatio.js${_qs}`),
 	import(`./autogrow.js${_qs}`),
@@ -26,6 +27,7 @@ const [
 	import(`./mutateQueueSync.js${_qs}`),
 	import(`./promptFieldClear.js${_qs}`),
 	import(`./audioClipPickerField.js${_qs}`),
+	import(`./createWorkflowHost.js${_qs}`),
 ]);
 const { parseAspectRatioString, shouldUseAspectRatioSelector, ASPECT_RATIO_SELECTOR_LABELS } = aspectRatioMod;
 const { attachAutoGrowTextarea } = autogrowMod;
@@ -34,6 +36,7 @@ const { createImagePickerModalDom, wireImagePickerModal } = imagePickerMod;
 const { getMutateQueuePrefillForProviderFields } = mutateQueueSyncMod;
 const { attachPromptFieldClear } = promptFieldClearMod;
 const { createAudioClipPickerField, isAudioClipUrlField } = audioClipPickerMod;
+const { getCreateWorkflowModalParent } = createWorkflowHostMod;
 
 // --- Field type detection (used to choose handler) ---
 
@@ -789,7 +792,7 @@ function createImageArrayField(fieldKey, field, context) {
  */
 export function openImagePickerModal({ onSelect }) {
 	const refs = createImagePickerModalDom('form-input');
-	document.body.appendChild(refs.modalOverlay);
+	getCreateWorkflowModalParent().appendChild(refs.modalOverlay);
 	const { openModal } = wireImagePickerModal(refs, {
 		detachOnClose: true,
 		onPick: onSelect

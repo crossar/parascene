@@ -26,14 +26,17 @@ import {
 	openHashtagDestination,
 } from '../shared/hashtagDestination.js';
 import {
+	getSpaPageOverlayReturnPath,
 	handleSpaPageOverlayPopstate,
 	isCreationDetailOverlayHistoryActive,
 	isCreationDetailOverlayOpen,
+	isSpaPageOverlayOpen,
 	navigateToCreationDetailFromSpa,
 	navigateToCreateFromSpa,
 	prefetchCreateOverlayAssets,
 	navigateToMutateFromSpa,
 	navigateToSpaPageFromSpa,
+	openSpaPageOverlayFromHref,
 	parseCreationIdFromHref,
 	parseCreationNavigationTargetId,
 	parseSpaOverlayTarget,
@@ -906,11 +909,42 @@ function normalizeChannelTagLikeApi(input) {
 }
 
 /**
+ * @param {string} href
+ * @returns {string}
+ */
+function pathnameFromHref(href) {
+	const raw = String(href || '').trim();
+	if (!raw) return '';
+	try {
+		return new URL(raw, window.location.origin).pathname;
+	} catch {
+		return raw.split('?')[0].split('#')[0] || '';
+	}
+}
+
+/**
  * @param {string} pathname
- * @returns {{ kind: 'empty' } | { kind: 'invalid' } | { kind: 'thread', threadId: number } | { kind: 'channel', slug: string } | { kind: 'doom_scroll', startCreationId: number } | { kind: 'dm', userId: number } | { kind: 'dm', userName: string } | { kind: 'dm', self: true }}
+ * @returns {{ kind: 'empty' } | { kind: 'invalid' } | { kind: 'overlay', page: 'create' | 'creation-mutate' | 'creation-detail', creationId?: number } | { kind: 'thread', threadId: number } | { kind: 'channel', slug: string } | { kind: 'doom_scroll', startCreationId: number } | { kind: 'dm', userId: number } | { kind: 'dm', userName: string } | { kind: 'dm', self: true }}
  */
 function parseChatPathname(pathname) {
 	const p = String(pathname || '').replace(/\/+$/, '') || '/';
+	if (p === '/create') {
+		return { kind: 'overlay', page: 'create' };
+	}
+	const mutateMatch = p.match(/^\/creations\/(\d+)\/(edit|mutate)$/);
+	if (mutateMatch) {
+		const creationId = Number(mutateMatch[1]);
+		if (Number.isFinite(creationId) && creationId > 0) {
+			return { kind: 'overlay', page: 'creation-mutate', creationId };
+		}
+	}
+	const detailMatch = p.match(/^\/creations\/(\d+)$/);
+	if (detailMatch) {
+		const creationId = Number(detailMatch[1]);
+		if (Number.isFinite(creationId) && creationId > 0) {
+			return { kind: 'overlay', page: 'creation-detail', creationId };
+		}
+	}
 	if (p === '/' || p === '/index.html' || p === '/feed') {
 		return { kind: 'channel', slug: 'feed' };
 	}
@@ -7192,6 +7226,7 @@ export async function initChatPage(root, options = {}) {
 			syncChatSidebarPseudoStripActiveNow(pathname);
 			chatCreateComposerApi?.syncFromMutateQueue?.();
 			chatCreateComposerApi?.syncFromSharedSettings?.();
+			ensureUnderlyingOverlayLaneLoaded({ fromDismiss: true, pathname });
 		};
 		document.addEventListener(
 			'prsn-creation-detail-overlay-dismissed',
@@ -9613,6 +9648,14 @@ export async function initChatPage(root, options = {}) {
 			return;
 		}
 		const parsed = parseChatPathname(url.pathname);
+		if (parsed.kind === 'overlay') {
+			if (pathOnly === '/create') {
+				navigateToCreateFromSpa(target, ev);
+			} else {
+				navigateToSpaPageFromSpa(target, ev);
+			}
+			return;
+		}
 		const spaKinds = new Set(['thread', 'channel', 'doom_scroll', 'dm']);
 		if (!spaKinds.has(parsed.kind)) {
 			window.location.assign(url.pathname + url.search + url.hash);
@@ -12827,8 +12870,40 @@ export async function initChatPage(root, options = {}) {
 		unlockChatMessagesPaneScroll(messagesEl);
 	}
 
-	async function openThreadForCurrentPath() {
-		const pathForOverlayGuard = String(window.location.pathname || '');
+	let overlayBaseLaneLoadInFlight = false;
+
+	function lanePathnameForOverlayLoad(href) {
+		const pathname = pathnameFromHref(href) || '/creations';
+		const parsed = parseChatPathname(pathname);
+		if (parsed.kind === 'channel' || parsed.kind === 'thread' || parsed.kind === 'dm') {
+			return pathname;
+		}
+		return '/creations';
+	}
+
+	/**
+	 * Overlay restore (refresh on mutate/detail) never paints the chat lane under the overlay.
+	 * Load that return path as soon as the overlay is up, and again on dismiss if it is still empty.
+	 * @param {{ fromDismiss?: boolean, pathname?: string }} [options]
+	 */
+	function ensureUnderlyingOverlayLaneLoaded(options = {}) {
+		const messagesEl = root.querySelector('[data-chat-messages]');
+		if (chatMessagesHasUnderlyingLane(messagesEl)) return;
+		if (overlayBaseLaneLoadInFlight) return;
+		overlayBaseLaneLoadInFlight = true;
+		const pathOverride = options.fromDismiss
+			? lanePathnameForOverlayLoad(options.pathname || window.location.pathname)
+			: lanePathnameForOverlayLoad(getSpaPageOverlayReturnPath() || '/creations');
+		void openThreadForCurrentPath({ pathOverride }).finally(() => {
+			overlayBaseLaneLoadInFlight = false;
+		});
+	}
+
+	async function openThreadForCurrentPath(options = {}) {
+		const pathOverrideRaw = typeof options.pathOverride === 'string' ? options.pathOverride.trim() : '';
+		const pathForLane = pathOverrideRaw ? pathnameFromHref(pathOverrideRaw) || pathOverrideRaw : '';
+		const skipHistoryRewrite = Boolean(pathForLane);
+		const pathForOverlayGuard = pathForLane || String(window.location.pathname || '');
 		const onChatRoute = pathForOverlayGuard === '/chat' || pathForOverlayGuard.startsWith('/chat/');
 		const parsedForOverlayGuard = parseChatPathname(pathForOverlayGuard);
 		const primaryPseudoSlug =
@@ -12838,6 +12913,15 @@ export async function initChatPage(root, options = {}) {
 		const isPrimaryPseudoLane = ['feed', 'explore', 'creations', 'comments', 'challenges'].includes(
 			primaryPseudoSlug
 		);
+		if (!skipHistoryRewrite && parsedForOverlayGuard.kind === 'overlay') {
+			const href = window.location.pathname + window.location.search + window.location.hash;
+			if (!isSpaPageOverlayOpen()) {
+				openSpaPageOverlayFromHref(href, { restoreFromHistory: true });
+			}
+			applyComposerState();
+			ensureUnderlyingOverlayLaneLoaded();
+			return;
+		}
 		if (
 			!onChatRoute &&
 			!isPrimaryPseudoLane &&
@@ -12845,13 +12929,17 @@ export async function initChatPage(root, options = {}) {
 		) {
 			return;
 		}
-		if (parseCreationIdFromHref(window.location.pathname) && document.body.classList.contains('chat-page')) {
+		if (
+			!skipHistoryRewrite &&
+			parseCreationIdFromHref(window.location.pathname) &&
+			document.body.classList.contains('chat-page')
+		) {
 			return;
 		}
-		syncChatSidebarPseudoStripActiveNow(window.location.pathname);
+		syncChatSidebarPseudoStripActiveNow(pathForOverlayGuard);
 		const messagesEl = root.querySelector('[data-chat-messages]');
 		const errEl = root.querySelector('[data-chat-error]');
-		const parsed = parseChatPathname(window.location.pathname);
+		const parsed = parseChatPathname(pathForOverlayGuard);
 
 		const forceFreshCreations = chatCreationsNavigateDetail?.forceFreshFirstPage === true;
 		if (
@@ -12872,7 +12960,9 @@ export async function initChatPage(root, options = {}) {
 		}
 
 		if (parsed.kind === 'doom_scroll' && !isChatPageMobileLayout()) {
-			window.location.replace(`/creations/${encodeURIComponent(String(parsed.startCreationId))}`);
+			if (!skipHistoryRewrite) {
+				window.location.replace(`/creations/${encodeURIComponent(String(parsed.startCreationId))}`);
+			}
 			return;
 		}
 
@@ -12889,7 +12979,7 @@ export async function initChatPage(root, options = {}) {
 				type: 'channel',
 				channel_slug: 'feed',
 			});
-			syncChatSidebarPseudoStripActiveNow(window.location.pathname);
+			syncChatSidebarPseudoStripActiveNow(pathForOverlayGuard);
 			applyComposerState();
 			if (messagesEl) {
 				messagesEl.removeAttribute('aria-busy');
@@ -12912,7 +13002,9 @@ export async function initChatPage(root, options = {}) {
 		markThreadUiPending();
 
 		if (parsed.kind === 'empty' || parsed.kind === 'invalid') {
-			window.location.replace('/chat#channels');
+			if (!skipHistoryRewrite) {
+				window.location.replace('/chat#channels');
+			}
 			return;
 		}
 
@@ -12947,10 +13039,12 @@ export async function initChatPage(root, options = {}) {
 		if (activePseudoChannelSlug === 'explore') {
 			exploreQueryRef.q = getExploreChannelSearchFromUrl();
 		}
-		canonicalizePrimaryPseudoChannelUrl(activePseudoChannelSlug);
+		if (!skipHistoryRewrite) {
+			canonicalizePrimaryPseudoChannelUrl(activePseudoChannelSlug);
+		}
 		consumeChallengesOrganizeBootFlag();
 		setChallengesOrganizeBodyClass(isChallengesOrganizePath());
-		syncChatSidebarPseudoStripActiveNow(window.location.pathname);
+		syncChatSidebarPseudoStripActiveNow(pathForOverlayGuard);
 		syncChatBrowseViewBodyClass();
 		applyComposerState();
 		teardownCommentsChannelLoadMore();
@@ -13051,7 +13145,7 @@ export async function initChatPage(root, options = {}) {
 				const meta = (chatThreads || []).find((t) => Number(t.id) === parsed.threadId);
 				const canonicalPath = buildPreferredChatThreadPath(parsed.threadId, meta);
 				const curPath = String(window.location.pathname || '');
-				if (curPath !== canonicalPath) {
+				if (!skipHistoryRewrite && curPath !== canonicalPath) {
 					history.replaceState({ prsnChat: true }, '', canonicalPath);
 				}
 				updateTitleFromMeta(meta);
@@ -13236,7 +13330,7 @@ export async function initChatPage(root, options = {}) {
 					activeThreadId = Number(match.id);
 					const canonicalPath = buildPreferredChatThreadPath(activeThreadId, match);
 					const curPath = String(window.location.pathname || '');
-					if (curPath !== canonicalPath) {
+					if (!skipHistoryRewrite && curPath !== canonicalPath) {
 						history.replaceState({ prsnChat: true }, '', canonicalPath);
 					}
 					updateTitleFromMeta(match);
@@ -13263,7 +13357,7 @@ export async function initChatPage(root, options = {}) {
 					const meta = (chatThreads || []).find((t) => Number(t.id) === tid);
 					const canonicalPath = buildPreferredChatThreadPath(activeThreadId, meta);
 					const curPath = String(window.location.pathname || '');
-					if (curPath !== canonicalPath) {
+					if (!skipHistoryRewrite && curPath !== canonicalPath) {
 						history.replaceState({ prsnChat: true }, '', canonicalPath);
 					}
 					updateTitleFromMeta(meta);
@@ -13807,6 +13901,7 @@ export async function initChatPage(root, options = {}) {
 				pathOnly === '/challenges/organize' ||
 				isChallengesDetailsPathname(pathOnly) ||
 				pathOnly === '/create' ||
+				/^\/creations\/\d+\/(edit|mutate)$/.test(pathOnly) ||
 				pathOnly.startsWith('/chat/');
 			if (!isFeedShellRoute) return;
 			navigateWithinChatShell(hrefAttr, e);
